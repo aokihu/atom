@@ -7,6 +7,7 @@
 
 import { inspect } from "node:util";
 import { generateText, type LanguageModel, type ModelMessage } from "ai";
+import { createAgentTools } from "./tools";
 
 const CONTEXT_OPEN_TAG = "<context>";
 const CONTEXT_CLOSE_TAG = "</context>";
@@ -17,6 +18,7 @@ export class Agent {
   private model: LanguageModel | undefined;
   private systemPrompt: string | undefined;
   private abortController: AbortController | undefined;
+  private tools = createAgentTools();
 
   constructor(arg: { model: LanguageModel; systemPrompt: string }) {
     this.model = arg.model;
@@ -47,13 +49,14 @@ export class Agent {
       model: this.model!,
       abortSignal: this.abortController?.signal,
       messages: this.messages,
+      tools: this.tools,
     });
 
     // 清理接收到的助理消息
     // 将context内容保存到this.rawContext
     // 只将非context内容保存到历史消息中
 
-    const lastMessage = response.messages[0];
+    const lastMessage = [...response.messages].reverse().find((item) => item.role === "assistant");
     const cleanedText = this.processAssistantOutput(text);
     this.messages.push({
       role: "assistant",
