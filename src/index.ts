@@ -46,14 +46,8 @@ const taskAgent = new Agent({
 console.log("Create Task Queue...");
 const taskQueue = new PriorityTaskQueue(
   async (task: TaskItem<string, string>) => {
-    task.status = TaskStatus.Running;
-    task.startedAt = Date.now();
     console.log("Thinking...");
-    const answer = await taskAgent.runTask(task.input);
-
-    task.result = answer;
-    task.status = TaskStatus.Success;
-    task.finishedAt = Date.now();
+    return await taskAgent.runTask(task.input);
   },
 );
 taskQueue.start();
@@ -94,7 +88,15 @@ function ask() {
       await sleep(1000);
     }
 
-    console.log("Answer:", task.result!);
+    if (task.status === TaskStatus.Success && task.result !== undefined) {
+      console.log("Answer:", task.result);
+    } else if (task.status === TaskStatus.Failed) {
+      console.error("Error:", task.error?.message ?? "Unknown error");
+    } else if (task.status === TaskStatus.Cancelled) {
+      console.log("Task was cancelled");
+    } else {
+      console.log("Task completed with unexpected status:", task.status);
+    }
 
     ask();
   });
