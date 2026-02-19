@@ -7,7 +7,16 @@
 
 import { inspect } from "node:util";
 import { encode } from "@toon-format/toon";
-import { generateText, type LanguageModel, type ModelMessage } from "ai";
+import {
+  generateText,
+  stepCountIs,
+  type LanguageModel,
+  type ModelMessage,
+} from "ai";
+import tools from "./tools";
+
+const CONTEXT_TAG_START = "<context>";
+const CONTEXT_TAG_END = "</context>";
 
 export class Agent {
   private rawContext: string;
@@ -33,26 +42,39 @@ export class Agent {
   }
 
   /**
-   * 执行一个任务
+   * 向Messages中注入上下文信息
    */
-  async runTask(question: string) {
+  private injectContext() {
     const firstMessage = this.messages[0];
+    const contextContent = [
+      CONTEXT_TAG_START,
+      encode(this.context),
+      CONTEXT_TAG_END,
+    ].join("\n");
+
     if (
       firstMessage?.role === "system" &&
-      !firstMessage.content.startsWith("<context>")
+      !firstMessage.content.startsWith(CONTEXT_TAG_START)
     ) {
       // 插入context内容
       this.messages = [
         {
           role: "system",
-          content: "<context>\n" + encode(this.context) + "\n</context>",
+          content: contextContent,
         },
         ...this.messages,
       ];
     } else {
-      this.messages[0]!.content =
-        "<context>" + encode(this.context) + "</context>";
+      this.messages[0]!.content = contextContent;
     }
+  }
+
+  /**
+   * 执行一个任务
+   */
+  async runTask(question: string) {
+    // 注入上下文数据
+    this.injectContext();
 
     // 推入用户的会话内容
     this.messages.push({
@@ -60,17 +82,20 @@ export class Agent {
       content: question,
     });
 
+    // 生成用户会话结果
     const { text, response } = await generateText({
       model: this.model!,
       abortSignal: this.abortController?.signal,
       messages: this.messages,
+      tools,
+      stopWhen: stepCountIs(7),
     });
 
     // 清理接收到的助理消息
     // 将context内容保存到this.rawContext
     // 只将非context内容保存到历史消息中
 
-    const lastMessage = response.messages[0];
+    const lastMessage = response.messages.reverse()[0];
     const cleanedText = this.processAssistantOutput(text);
     this.messages.push({
       role: "assistant",
@@ -109,7 +134,7 @@ export class Agent {
     }
 
     // 回答用户的文本
-    const cleanText = rawText.slice(end + 10);
+    const cleanText = rawText.slice(end + 10).trimStart();
     return cleanText;
   }
 }
