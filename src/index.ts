@@ -13,6 +13,10 @@ import readline from "node:readline";
 
 /* AI SDK */
 import { createDeepSeek } from "@ai-sdk/deepseek";
+import { PriorityTaskQueue } from "./libs/runtime/queue/task_queue";
+import { createTask } from "./libs/runtime/queue/factory";
+import { sleep } from "bun";
+import { TaskStatus, type TaskItem } from "./types/task";
 
 const GlobalModel = createDeepSeek({
   apiKey: process.env.AI_API_KEY,
@@ -38,6 +42,21 @@ const taskAgent = new Agent({
   systemPrompt: systemPrompt,
   model: GlobalModel,
 });
+
+console.log("Create Task Queue...");
+const taskQueue = new PriorityTaskQueue(
+  async (task: TaskItem<string, string>) => {
+    task.status = TaskStatus.Running;
+    task.startedAt = Date.now();
+    console.log("Thinking...");
+    const answer = await taskAgent.runTask(task.input);
+
+    task.result = answer;
+    task.status = TaskStatus.Success;
+    task.finishedAt = Date.now();
+  },
+);
+taskQueue.start();
 
 console.log("Agent launched.");
 
@@ -65,9 +84,18 @@ function ask() {
       return;
     }
 
-    console.log("Thinking...");
-    const answer = await taskAgent.runTask(input);
-    console.log("Atom:", answer);
+    const task = createTask<string, string>("rl.input", input);
+    taskQueue.add(task);
+
+    while (
+      task.status === TaskStatus.Pending ||
+      task.status === TaskStatus.Running
+    ) {
+      await sleep(1000);
+    }
+
+    console.log("Answer:", task.result!);
+
     ask();
   });
 }
