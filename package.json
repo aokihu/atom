@@ -17,6 +17,7 @@
     "@ai-sdk/deepseek": "^2.0.20",
     "@ai-sdk/openai-compatible": "^2.0.30",
     "@openrouter/ai-sdk-provider": "^2.2.3",
+    "@toon-format/toon": "^2.1.0",
     "ai": "^6.0.86",
     "openai": "^6.22.0",
     "zod": "^4.3.6"

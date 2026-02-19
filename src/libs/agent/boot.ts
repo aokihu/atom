@@ -50,9 +50,13 @@ export const bootstrap =
       model: llmModel,
       system: bootstrapPrompt,
       temperature: 0,
-      prompt: ["[===以下是用户提示词===]", userPrompt, extendContent].join(
-        "\n",
-      ),
+      prompt: [
+        "[[[CORE]]]",
+        ContextRulesPrompt,
+        "[[[USER]]]",
+        userPrompt,
+        extendContent,
+      ].join("\n"),
     });
 
     console.log(result.text);

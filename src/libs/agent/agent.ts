@@ -6,10 +6,12 @@
  */
 
 import { inspect } from "node:util";
+import { encode } from "@toon-format/toon";
 import { generateText, type LanguageModel, type ModelMessage } from "ai";
 
 export class Agent {
   private rawContext: string;
+  private context: object;
   private messages: ModelMessage[];
   private model: LanguageModel | undefined;
   private systemPrompt: string | undefined;
@@ -21,6 +23,7 @@ export class Agent {
 
     // 上下文原始文字内容
     this.rawContext = "";
+    this.context = {};
 
     // 消息数组
     this.messages = [{ role: "system", content: this.systemPrompt }];
@@ -42,14 +45,16 @@ export class Agent {
       this.messages = [
         {
           role: "system",
-          content: "<context>" + this.rawContext + "</context>",
+          content: "<context>\n" + encode(this.context) + "\n</context>",
         },
         ...this.messages,
       ];
     } else {
-      this.messages[0]!.content = "<context>" + this.rawContext + "</context>";
+      this.messages[0]!.content =
+        "<context>" + encode(this.context) + "</context>";
     }
 
+    // 推入用户的会话内容
     this.messages.push({
       role: "user",
       content: question,
@@ -83,7 +88,7 @@ export class Agent {
   }
 
   displayContext() {
-    console.log(this.rawContext);
+    console.log(this.context);
   }
 
   /**
@@ -96,6 +101,11 @@ export class Agent {
     if (end !== -1) {
       const json = rawText.slice(start + 9, end);
       this.rawContext = json;
+      try {
+        this.context = JSON.parse(json);
+      } catch {
+        console.log("Invaild JSON string!");
+      }
     }
 
     // 回答用户的文本
