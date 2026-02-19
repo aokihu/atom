@@ -18,6 +18,14 @@ type LifecycleBootParams = {
   extendContent?: string;
 };
 
+function compileBootstrapPrompt(enableOptimization: boolean) {
+  return BootstrapPrompt.replace("{EO_VALUE}", enableOptimization ? "true" : "false");
+}
+
+function buildUserPromptInput(userPrompt: string, extendContent?: string) {
+  return ["[===以下是用户提示词===]", userPrompt, extendContent].join("\n");
+}
+
 /**
  * 启动阶段
  * @param userPromptFilePath 用户提示词的文件路径,绝对地址
@@ -32,11 +40,7 @@ export const bootstrap =
     enableOptimization = true,
     extendContent,
   }: LifecycleBootParams) => {
-    // 1. 根据enableOptimization替换bootstrap提示词中的变量{EO_VALUE}
-    const bootstrapPrompt = BootstrapPrompt.replace(
-      "{EO_VALUE}",
-      enableOptimization ? "true" : "false",
-    );
+    const bootstrapPrompt = compileBootstrapPrompt(enableOptimization);
 
     // 2. 加载用户设定的提示词,文件名只能是AGENT.md
     const userPromptFile = Bun.file(userPromptFilePath);
@@ -50,9 +54,7 @@ export const bootstrap =
       model: llmModel,
       system: bootstrapPrompt,
       temperature: 0,
-      prompt: ["[===以下是用户提示词===]", userPrompt, extendContent].join(
-        "\n",
-      ),
+      prompt: buildUserPromptInput(userPrompt, extendContent),
     });
 
     console.log(result.text);

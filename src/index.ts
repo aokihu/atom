@@ -20,9 +20,6 @@ const GlobalModel = createDeepSeek({
   apiKey: process.env.AI_API_KEY,
 })("deepseek-chat");
 
-// 全局
-const GLOBAL_VAR_TABLE = new Map();
-
 console.time("BootStage 1");
 
 console.log("Bootstrap");
@@ -48,6 +45,11 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 
+const commandHandlers: Record<string, () => void> = {
+  messages: () => taskAgent.displayMessages(),
+  context: () => taskAgent.displayContext(),
+};
+
 function ask() {
   rl.question("> ", async (input) => {
     if (input === "exit") {
@@ -55,14 +57,9 @@ function ask() {
       return;
     }
 
-    if (input === "messages") {
-      taskAgent.displayMessages();
-      ask();
-      return;
-    }
-
-    if (input === "context") {
-      taskAgent.displayContext();
+    const handler = commandHandlers[input];
+    if (handler) {
+      handler();
       ask();
       return;
     }
@@ -75,3 +72,4 @@ function ask() {
 }
 
 ask();
+console.log("Hello via Bun!");

@@ -8,6 +8,9 @@
 import { inspect } from "node:util";
 import { generateText, type LanguageModel, type ModelMessage } from "ai";
 
+const CONTEXT_OPEN_TAG = "<context>";
+const CONTEXT_CLOSE_TAG = "</context>";
+
 export class Agent {
   private rawContext: string;
   private messages: ModelMessage[];
@@ -33,22 +36,7 @@ export class Agent {
    * 执行一个任务
    */
   async runTask(question: string) {
-    const firstMessage = this.messages[0];
-    if (
-      firstMessage?.role === "system" &&
-      !firstMessage.content.startsWith("<context>")
-    ) {
-      // 插入context内容
-      this.messages = [
-        {
-          role: "system",
-          content: "<context>" + this.rawContext + "</context>",
-        },
-        ...this.messages,
-      ];
-    } else {
-      this.messages[0]!.content = "<context>" + this.rawContext + "</context>";
-    }
+    this.syncContextMessage();
 
     this.messages.push({
       role: "user",
@@ -91,15 +79,40 @@ export class Agent {
    * 然后将包含Context的内容
    */
   private processAssistantOutput(rawText: string) {
-    const start = rawText.indexOf("<context>");
-    const end = rawText.indexOf("</context>", start + 9);
+    const start = rawText.indexOf(CONTEXT_OPEN_TAG);
+    const end = rawText.indexOf(CONTEXT_CLOSE_TAG, start + CONTEXT_OPEN_TAG.length);
     if (end !== -1) {
-      const json = rawText.slice(start + 9, end);
+      const json = rawText.slice(start + CONTEXT_OPEN_TAG.length, end);
       this.rawContext = json;
     }
 
     // 回答用户的文本
-    const cleanText = rawText.slice(end + 10);
+    const cleanText = rawText.slice(end + CONTEXT_CLOSE_TAG.length);
     return cleanText;
+  }
+
+  private buildContextContent() {
+    return CONTEXT_OPEN_TAG + this.rawContext + CONTEXT_CLOSE_TAG;
+  }
+
+  private syncContextMessage() {
+    const firstMessage = this.messages[0];
+    const contextContent = this.buildContextContent();
+
+    if (
+      firstMessage?.role === "system" &&
+      !firstMessage.content.startsWith(CONTEXT_OPEN_TAG)
+    ) {
+      this.messages = [
+        {
+          role: "system",
+          content: contextContent,
+        },
+        ...this.messages,
+      ];
+      return;
+    }
+
+    this.messages[0]!.content = contextContent;
   }
 }
