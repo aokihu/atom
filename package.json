@@ -8,7 +8,7 @@
     "dev": "bun run src/index.ts --dir=./Playground"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "^1.3.9"
   },
   "peerDependencies": {
     "typescript": "^5"

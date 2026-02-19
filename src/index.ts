@@ -13,8 +13,6 @@ import readline from "node:readline";
 
 /* AI SDK */
 import { createDeepSeek } from "@ai-sdk/deepseek";
-// import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-// import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
 const GlobalModel = createDeepSeek({
   apiKey: process.env.AI_API_KEY,

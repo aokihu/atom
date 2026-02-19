@@ -87,7 +87,7 @@ export class Agent {
       model: this.model!,
       abortSignal: this.abortController?.signal,
       messages: this.messages,
-      tools,
+      tools: tools({}), // 这里使用一个placeholder表示app_context
       stopWhen: stepCountIs(7),
     });
 

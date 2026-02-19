@@ -9,28 +9,29 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-export const readTool = tool({
-  description: "Read file content, include line numbder and content",
-  inputSchema: z.object({
-    filepath: z.string().describe("the absolute path of file"),
-  }),
-  execute: async ({ filepath }) => {
-    const file = Bun.file(filepath);
+export const readTool = (context: any) =>
+  tool({
+    description: "Read file content, include line numbder and content",
+    inputSchema: z.object({
+      filepath: z.string().describe("the absolute path of file"),
+    }),
+    execute: async ({ filepath }) => {
+      const file = Bun.file(filepath);
 
-    // 错误处理
-    if (!(await file.exists()))
+      // 错误处理
+      if (!(await file.exists()))
+        return {
+          error: "The file is not exists, check filepath",
+        };
+
+      const lines = (await file.text())
+        .split("\n")
+        .map((line, idx) => [idx, line]);
+
+      // 读取文件
       return {
-        error: "The file is not exists, check filepath",
+        size: file.size,
+        content: lines,
       };
-
-    const lines = (await file.text())
-      .split("\n")
-      .map((line, idx) => [idx, line]);
-
-    // 读取文件
-    return {
-      size: file.size,
-      content: lines,
-    };
-  },
-});
+    },
+  });
