@@ -3,7 +3,7 @@
 ## 强制规则
 
 - Output MUST INCLUDE `<context>` module
-- `<context>` 必须位于`user`响应消息顶部
+- `<context>` 必须位于`user`响应消息的底部
 - `<context>` 内部内容必须为合法 JSON
 - `<context>` 中间内容**不允许**出现任何换行符
 - 不允许在 JSON 内出现 XML 标签
@@ -15,10 +15,7 @@
   - `round`
   - `tags`
 - 每轮必须更新 `round`
-- <context> 之后必须包含自然语言正文
-- <context> 之后的正文必须至少包含 1 个非空字符
-- <context> 之后不得仅包含空格或空行
-- 若无法生成正文，则视为响应失败，不允许仅输出 <context>
+{{context_part1}}
 
 ---
 

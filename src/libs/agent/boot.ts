@@ -60,7 +60,7 @@ export const bootstrap =
     });
 
     console.log(result.text);
-    console.log("Total token:", result.totalUsage);
+    // console.log("Total token:", result.totalUsage);
 
     return {
       systemPrompt: [ContextRulesPrompt, result.text].join("\n"),

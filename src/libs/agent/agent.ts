@@ -27,7 +27,11 @@ export class Agent {
   private abortController: AbortController | undefined;
   private toolContext: object;
 
-  constructor(arg: { model: LanguageModel; systemPrompt: string; toolContext?: object }) {
+  constructor(arg: {
+    model: LanguageModel;
+    systemPrompt: string;
+    toolContext?: object;
+  }) {
     this.model = arg.model;
     this.systemPrompt = arg.systemPrompt;
 
@@ -123,10 +127,13 @@ export class Agent {
    * 然后将包含Context的内容
    */
   private processAssistantOutput(rawText: string) {
-    const start = rawText.indexOf("<context>");
-    const end = rawText.indexOf("</context>", start + 9);
+    const start = rawText.indexOf(CONTEXT_TAG_START);
+    const end = rawText.indexOf(
+      CONTEXT_TAG_END,
+      start + CONTEXT_TAG_START.length,
+    );
     if (end !== -1) {
-      const json = rawText.slice(start + 9, end);
+      const json = rawText.slice(start + CONTEXT_TAG_START.length, end);
       this.rawContext = json;
       try {
         this.context = JSON.parse(json);
@@ -136,7 +143,7 @@ export class Agent {
     }
 
     // 回答用户的文本
-    const cleanText = rawText.slice(end + 10).trimStart();
+    const cleanText = rawText.slice(end + CONTEXT_TAG_END.length).trimStart();
     return cleanText;
   }
 }
