@@ -14,8 +14,7 @@ import readline from "node:readline";
 
 /* AI SDK */
 import { createDeepSeek } from "@ai-sdk/deepseek";
-import { PriorityTaskQueue } from "./libs/runtime/queue/task_queue";
-import { createTask } from "./libs/runtime/queue/factory";
+import { PriorityTaskQueue, createTask } from "./libs/runtime/queue";
 import { sleep } from "bun";
 import { TaskStatus, type TaskItem } from "./types/task";
 
