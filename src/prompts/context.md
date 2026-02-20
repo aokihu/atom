@@ -1,85 +1,71 @@
-# Context Rules --- Hybrid Mode (XML Wrapper + JSON Core)
+# Context Protocol --- Hybrid Mode (Text + JSON Snapshot)
 
-## 强制规则
+## Mandatory Rules
 
-- Output MUST INCLUDE `<context>` module
-- `<context>` 必须位于`user`响应消息的底部
-- `<context>` 内部内容必须为合法 JSON
-- `<context>` 中间内容**不允许**出现任何换行符
-- 不允许在 JSON 内出现 XML 标签
-- 输出合法的能够被`JSON.parse()`正确解析的JSON内容
-- 所有 memory 项必须包含：
-  - `id`
-  - `type`
-  - `decay`
-  - `round`
-  - `tags`
-- 每轮必须更新 `round`
-{{context_part1}}
+1.  Every response MUST include a `<<<CONTEXT>>>` section.
+2.  `<<<CONTEXT>>>` MUST appear at the very bottom of the response.
+3.  `<<<CONTEXT>>>` MUST be the ONLY separator between response text and
+    structured context.
+4.  All content AFTER `<<<CONTEXT>>>` MUST be valid JSON.
+5.  JSON MUST be directly parseable by `JSON.parse()` without
+    preprocessing.
+6.  No extra characters are allowed before or after the JSON block.
+7.  `round`, `datetime`, and `startup_at` are SYSTEM-INJECTED fields.
+    -   The model MUST NOT modify them.
+    -   The model MUST preserve them exactly as received.
+8.  All memory objects MUST contain:
+    -   `id`
+    -   `type`
+    -   `decay`
+    -   `round`
+    -   `tags`
+    -   `content`
+9.  `decay` MUST be a floating point number between 0 and 1.
+    -   0 = highest importance
+    -   1 = lowest importance
+10. Context represents a computable state snapshot, NOT narrative text.
 
----
+------------------------------------------------------------------------
 
-## Context Template
+## Strict Output Format
 
-``` md
-<context>
-{
-  "version": "1.2",
-  "round": 5,
+User Response Content...
 
-  "memory": {
-    "core": [
-      {
-        "id": "core-001",
-        "type": "identity",
-        "decay": 0.05,
-        "round": 1,
-        "tags": ["agent", "self", "identity"],
-        "content": "核心长期记忆内容"
-      }
-    ],
+\<\<`<CONTEXT>`{=html}\>\> {JSON}
 
-    "working": [
-      {
-        "id": "work-001",
-        "type": "task",
-        "decay": 0.4,
-        "round": 3,
-        "tags": ["task", "current"],
-        "content": "当前任务相关记忆"
-      }
-    ],
+No markdown wrapping around JSON. No XML tags. No comments inside JSON.
 
-    "ephemeral": [
-      {
-        "id": "temp-001",
-        "type": "hint",
-        "decay": 0.8,
-        "round": 4,
-        "tags": ["temporary"],
-        "content": "临时上下文信息"
-      }
-    ]
-  },
+------------------------------------------------------------------------
 
-  "capabilities": [
-    {
-      "name": "memory",
-      "scope": "write_once"
-    }
-  ],
+## Context JSON Template
 
-  "task": "当前任务描述"
-}
-</context>
-```
----
+{ "version": "2.1", "runtime": { "round": 1, "datetime":
+"2026-02-20T18:45:12Z", "startup_at": "2026-02-20T18:30:00Z" },
+"memory": { "core": \[ { "id": "core-001", "type": "identity", "decay":
+0.05, "round": 1, "tags": \["agent", "identity"\], "content":
+"长期核心记忆" } \], "working": \[ { "id": "work-001", "type": "task",
+"decay": 0.4, "round": 1, "tags": \["task", "active"\], "content":
+"当前任务相关记忆" } \], "ephemeral": \[ { "id": "temp-001", "type":
+"hint", "decay": 0.8, "round": 1, "tags": \["temporary"\], "content":
+"临时上下文信息" } \] }, "capabilities": \[ { "name": "memory", "scope":
+"write_once" } \], "active_task": "当前执行任务摘要" }
 
-## 设计原则
+------------------------------------------------------------------------
 
-- XML 仅用于边界识别
-- JSON 用于结构化计算
-- 所有记忆均具备生命周期
-- Context 为可计算状态快照，而非静态文本
+## Structural Notes
 
----
+### runtime (System Controlled Domain)
+
+-   round: conversation counter (monotonic, system managed)
+-   datetime: current system time (ISO 8601)
+-   startup_at: session start time (ISO 8601)
+
+The model may read but MUST NOT modify runtime fields.
+
+### memory (Model Evolution Domain)
+
+-   core: long-term persistent memory
+-   working: multi-round task memory
+-   ephemeral: short-lived temporary memory
+
+Memory lifecycle is governed by decay and round progression.

@@ -3,6 +3,11 @@
  * @author aokihu <aokihu@gmail.com>
  * @license BSD
  * @version 0.0.1
+ * @description 上下文提示词在启动的时候会干扰到boot agent,让他也产生了<<<context>>>内容
+ *              因此单独使用另一份提示词context_disable_output_context.md, 并且在提示词中设置了开关 `contextMode`
+ *              通过设置`contextMode`为 disabled 避免 boot agent输出<<<context>>>内容
+ *              在组装正式提示词的时候,使用 context.md 作为正式的上下文提示词.
+ *              目前在deepseek上测试是稳定运行的,需要对其他的模型也进行测试
  */
 
 /* 加载AI SDK */
@@ -10,7 +15,8 @@ import { generateText, type LanguageModel } from "ai";
 
 /* 加载提示词文本 */
 import BootstrapPrompt from "../../prompts/bootstrap.md" with { type: "text" };
-import ContextRulesPrompt from "../../prompts/context.md" with { type: "text" };
+import ContextRulesDisabledPrompt from "../../prompts/context_disable_output_context.md" with { type: "text" };
+import ContextRulesEnablePrompt from "../../prompts/context.md" with { type: "text" };
 
 type LifecycleBootParams = {
   userPromptFilePath: string;
@@ -32,11 +38,15 @@ export const bootstrap =
     enableOptimization = true,
     extendContent,
   }: LifecycleBootParams) => {
-    // 1. 根据enableOptimization替换bootstrap提示词中的变量{EO_VALUE}
+    // 1.1 根据enableOptimization替换bootstrap提示词中的变量{EO_VALUE}
     const bootstrapPrompt = BootstrapPrompt.replace(
       "{EO_VALUE}",
       enableOptimization ? "true" : "false",
     );
+
+    // 1.2.1 关闭上下文生成
+    const contextRulesPrompt_disabled_context =
+      ContextRulesDisabledPrompt.replace("{MODE}", "disabled");
 
     // 2. 加载用户设定的提示词,文件名只能是AGENT.md
     const userPromptFile = Bun.file(userPromptFilePath);
@@ -51,9 +61,9 @@ export const bootstrap =
       system: bootstrapPrompt,
       temperature: 0,
       prompt: [
-        "[[[CORE]]]",
-        ContextRulesPrompt,
-        "[[[USER]]]",
+        "<<<CORE>>>",
+        contextRulesPrompt_disabled_context,
+        "<<<USER>>>",
         userPrompt,
         extendContent,
       ].join("\n"),
@@ -63,7 +73,7 @@ export const bootstrap =
     // console.log("Total token:", result.totalUsage);
 
     return {
-      systemPrompt: [ContextRulesPrompt, result.text].join("\n"),
+      systemPrompt: [ContextRulesEnablePrompt, result.text].join("\n"),
       totalUsage: result.totalUsage,
     };
   };

@@ -41,10 +41,10 @@ Core Prompt is NEVER subject to optimization under any condition.
 
 The input will always contain two clearly separated sections:
 
-[[[CORE]]]
+<<<CORE>>>
 (Core Prompt Content)
 
-[[[USER]]]
+<<<USER>>>
 (User Prompt Content)
 
 You must strictly treat them as two independent layers.
