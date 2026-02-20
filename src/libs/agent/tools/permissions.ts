@@ -21,6 +21,15 @@ const matchByRules = (target: string, rules?: AgentPermissionRules) => {
 export const canReadFile = (filepath: string, tools?: AgentToolsConfig) =>
   matchByRules(filepath, tools?.read);
 
+export const canListDir = (dirpath: string, tools?: AgentToolsConfig) =>
+  matchByRules(dirpath, tools?.ls);
+
+export const canReadTree = (dirpath: string, tools?: AgentToolsConfig) =>
+  matchByRules(dirpath, tools?.tree);
+
+export const canRipgrep = (dirpath: string, tools?: AgentToolsConfig) =>
+  matchByRules(dirpath, tools?.ripgrep);
+
 export const canWriteFile = (filepath: string, tools?: AgentToolsConfig) =>
   matchByRules(filepath, tools?.write);
 
