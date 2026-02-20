@@ -25,8 +25,9 @@ export class Agent {
   private model: LanguageModel | undefined;
   private systemPrompt: string | undefined;
   private abortController: AbortController | undefined;
+  private toolContext: object;
 
-  constructor(arg: { model: LanguageModel; systemPrompt: string }) {
+  constructor(arg: { model: LanguageModel; systemPrompt: string; toolContext?: object }) {
     this.model = arg.model;
     this.systemPrompt = arg.systemPrompt;
 
@@ -39,6 +40,7 @@ export class Agent {
 
     // 终止控制器
     this.abortController = new AbortController();
+    this.toolContext = arg.toolContext ?? {};
   }
 
   /**
@@ -87,7 +89,7 @@ export class Agent {
       model: this.model!,
       abortSignal: this.abortController?.signal,
       messages: this.messages,
-      tools: tools({}), // 这里使用一个placeholder表示app_context
+      tools: tools(this.toolContext),
       stopWhen: stepCountIs(7),
     });
 
