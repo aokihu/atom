@@ -1,0 +1,16 @@
+{
+  "tools": {
+    "read": {
+      "allow": ["^/workspace/atom/.*\\.md$", "^/workspace/atom/src/.*"],
+      "deny": ["^/workspace/atom/.*/secret.*"]
+    },
+    "write": {
+      "allow": ["^/workspace/atom/Playground/.*", "^/workspace/atom/tmp/.*"],
+      "deny": ["^/workspace/atom/src/.*"]
+    },
+    "webfetch": {
+      "allow": ["^https://(docs\\.|developer\\.)?example\\.com/.*"],
+      "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
+    }
+  }
+}

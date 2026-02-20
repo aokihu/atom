@@ -8,6 +8,7 @@
 
 import { tool } from "ai";
 import { z } from "zod";
+import { canReadFile } from "./permissions";
 
 export const readTool = (context: any) =>
   tool({
@@ -16,6 +17,12 @@ export const readTool = (context: any) =>
       filepath: z.string().describe("the absolute path of file"),
     }),
     execute: async ({ filepath }) => {
+      if (!canReadFile(filepath, context?.permissions?.tools)) {
+        return {
+          error: "Permission denied: read path not allowed",
+        };
+      }
+
       const file = Bun.file(filepath);
 
       // 错误处理

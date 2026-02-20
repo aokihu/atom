@@ -9,6 +9,7 @@
 import { $ } from "bun";
 import { tool } from "ai";
 import { z } from "zod";
+import { canVisitUrl } from "./permissions";
 
 export const webfetchTool = (context: any) =>
   tool({
@@ -17,7 +18,21 @@ export const webfetchTool = (context: any) =>
       url: z.string().describe("需要获取内容的url"),
     }),
     execute: async ({ url }) => {
-      const result = await $`curl -L ${url}`.text();
+      try {
+        new URL(url);
+      } catch {
+        return {
+          error: "Invalid URL",
+        };
+      }
+
+      if (!canVisitUrl(url, context?.permissions?.tools)) {
+        return {
+          error: "Permission denied: URL not allowed",
+        };
+      }
+
+      const result = await $`curl -L --max-time 20 ${url}`.text();
       return result;
     },
   });

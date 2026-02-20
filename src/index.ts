@@ -8,6 +8,7 @@
 import { join } from "node:path";
 import { bootstrap } from "./libs/agent/boot";
 import { Agent } from "./libs/agent/agent";
+import { loadAgentConfig } from "./libs/agent/config";
 
 import readline from "node:readline";
 
@@ -28,6 +29,8 @@ const GLOBAL_VAR_TABLE = new Map();
 console.time("BootStage 1");
 
 console.log("Bootstrap");
+console.log("Loading agent.config.json...");
+const agentConfig = await loadAgentConfig(process.cwd());
 console.log("Compile agent prompt...");
 const { systemPrompt } = await bootstrap(GlobalModel)({
   userPromptFilePath: join(process.cwd(), "Playground/AGENT.md"),
@@ -41,6 +44,7 @@ console.log("Compiled. Launching agent...");
 const taskAgent = new Agent({
   systemPrompt: systemPrompt,
   model: GlobalModel,
+  toolContext: { permissions: agentConfig },
 });
 
 console.log("Create Task Queue...");
