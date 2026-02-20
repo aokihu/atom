@@ -37,7 +37,14 @@ export class Agent {
 
     // 上下文原始文字内容
     this.rawContext = "";
-    this.context = {};
+    this.context = {
+      version: 2.2,
+      runtime: {
+        round: 1,
+        datetime: Date.now(),
+        startup_at: Date.now(),
+      },
+    };
 
     // 消息数组
     this.messages = [{ role: "system", content: this.systemPrompt }];
