@@ -7,20 +7,25 @@
 
 import { inspect } from "node:util";
 import { encode } from "@toon-format/toon";
+import { set } from "radashi";
 import {
   generateText,
   stepCountIs,
   type LanguageModel,
   type ModelMessage,
 } from "ai";
+import { formatedDatetimeNow } from "../../libs/utils/date";
 import tools from "./tools";
+import type { AgentContext } from "../../types/agent";
 
+// 上下文在用户回答中的分隔符
+const CONTEXT_DIVIDE_TAG = "<<<CONTEXT>>>";
 const CONTEXT_TAG_START = "<context>";
 const CONTEXT_TAG_END = "</context>";
 
 export class Agent {
   private rawContext: string;
-  private context: object;
+  private context: AgentContext;
   private messages: ModelMessage[];
   private model: LanguageModel | undefined;
   private systemPrompt: string | undefined;
@@ -41,7 +46,7 @@ export class Agent {
       version: 2.2,
       runtime: {
         round: 1,
-        datetime: Date.now(),
+        datetime: formatedDatetimeNow(),
         startup_at: Date.now(),
       },
     };
@@ -55,9 +60,20 @@ export class Agent {
   }
 
   /**
+   * 更新上下文内容
+   */
+  private updateConetxt() {
+    this.context.runtime.round += 1;
+    this.context.runtime.datetime = formatedDatetimeNow();
+  }
+
+  /**
    * 向Messages中注入上下文信息
    */
   private injectContext() {
+    this.updateConetxt(); // 更新上下文中的一些数据
+
+    // 插入上下文
     const firstMessage = this.messages[0];
     const contextContent = [
       CONTEXT_TAG_START,
@@ -134,23 +150,22 @@ export class Agent {
    * 然后将包含Context的内容
    */
   private processAssistantOutput(rawText: string) {
-    const start = rawText.indexOf(CONTEXT_TAG_START);
-    const end = rawText.indexOf(
-      CONTEXT_TAG_END,
-      start + CONTEXT_TAG_START.length,
-    );
-    if (end !== -1) {
-      const json = rawText.slice(start + CONTEXT_TAG_START.length, end);
-      this.rawContext = json;
+    const divide_start = rawText.indexOf(CONTEXT_DIVIDE_TAG);
+
+    let cleanedText = rawText;
+
+    if (divide_start >= 0) {
+      const contextRawText = rawText.slice(
+        divide_start + CONTEXT_DIVIDE_TAG.length,
+      );
       try {
-        this.context = JSON.parse(json);
+        this.context = JSON.parse(contextRawText);
+        cleanedText = cleanedText.slice(0, divide_start).trimEnd().trimStart();
       } catch {
-        console.log("Invaild JSON string!");
+        throw new Error("Invaild JSON string!");
       }
     }
 
-    // 回答用户的文本
-    const cleanText = rawText.slice(end + CONTEXT_TAG_END.length).trimStart();
-    return cleanText;
+    return cleanedText;
   }
 }

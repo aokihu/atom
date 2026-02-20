@@ -20,3 +20,12 @@ export type AgentToolsConfig = {
 export type AgentConfig = {
   tools?: AgentToolsConfig;
 };
+
+export type AgentContext = {
+  [key: string]: any;
+  runtime: {
+    round: number;
+    datetime: string;
+    startup_at: number;
+  };
+};

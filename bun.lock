@@ -11,6 +11,7 @@
         "@toon-format/toon": "^2.1.0",
         "ai": "^6.0.86",
         "openai": "^6.22.0",
+        "radashi": "^12.7.1",
         "zod": "^4.3.6",
       },
       "devDependencies": {
@@ -55,6 +56,8 @@
     "json-schema": ["json-schema@0.4.0", "https://registry.npmmirror.com/json-schema/-/json-schema-0.4.0.tgz", {}, "sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA=="],
 
     "openai": ["openai@6.22.0", "https://registry.npmmirror.com/openai/-/openai-6.22.0.tgz", { "peerDependencies": { "ws": "^8.18.0", "zod": "^3.25 || ^4.0" }, "optionalPeers": ["ws", "zod"], "bin": { "openai": "bin/cli" } }, "sha512-7Yvy17F33Bi9RutWbsaYt5hJEEJ/krRPOrwan+f9aCPuMat1WVsb2VNSII5W1EksKT6fF69TG/xj4XzodK3JZw=="],
+
+    "radashi": ["radashi@12.7.1", "https://registry.npmmirror.com/radashi/-/radashi-12.7.1.tgz", {}, "sha512-rwxcGY3oKMQJ+ojhS4MlxyVWqdXPVJSxg3ZjXDYYz26DYRuAAs+7XBM406/GYzPEBbjSJqdKfHDpBRfjWn34RQ=="],
 
     "typescript": ["typescript@5.9.3", "https://registry.npmmirror.com/typescript/-/typescript-5.9.3.tgz", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
