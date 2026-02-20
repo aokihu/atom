@@ -10,7 +10,7 @@
 5.  JSON MUST be directly parseable by `JSON.parse()` without
     preprocessing.
 6.  No extra characters are allowed before or after the JSON block.
-7.  `round`, `datetime`, and `startup_at` are SYSTEM-INJECTED fields.
+7.  `round`, `datetime`, `workspace` and `startup_at` are SYSTEM-INJECTED fields.
     -   The model MUST NOT modify them.
     -   The model MUST preserve them exactly as received.
 8.  All memory objects MUST contain:

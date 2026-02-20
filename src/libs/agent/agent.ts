@@ -46,6 +46,7 @@ export class Agent {
       version: 2.2,
       runtime: {
         round: 1,
+        workspace: process.cwd() + "/", // 暂时使用这个方法获取工作路径,因为在启动参数的时候有指定工作路径的参数
         datetime: formatedDatetimeNow(),
         startup_at: Date.now(),
       },
@@ -117,7 +118,7 @@ export class Agent {
       abortSignal: this.abortController?.signal,
       messages: this.messages,
       tools: tools(this.toolContext),
-      stopWhen: stepCountIs(7),
+      stopWhen: stepCountIs(5),
     });
 
     // 清理接收到的助理消息

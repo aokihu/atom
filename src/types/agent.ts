@@ -25,6 +25,7 @@ export type AgentContext = {
   [key: string]: any;
   runtime: {
     round: number;
+    workspace: string;
     datetime: string;
     startup_at: number;
   };

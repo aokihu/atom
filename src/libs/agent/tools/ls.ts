@@ -9,11 +9,15 @@ import { canListDir } from "./permissions";
 
 export const lsTool = (context: any) =>
   tool({
-    description: "List files in a directory by using ls command",
+    description:
+      "List files in a directory by using ls command, tail slash is need",
     inputSchema: z.object({
       dirpath: z.string().describe("the absolute path of directory"),
       all: z.boolean().optional().describe("list hidden files when true"),
-      long: z.boolean().optional().describe("use long listing format when true"),
+      long: z
+        .boolean()
+        .optional()
+        .describe("use long listing format when true"),
     }),
     execute: async ({ dirpath, all = false, long = false }) => {
       if (!canListDir(dirpath, context?.permissions?.tools)) {

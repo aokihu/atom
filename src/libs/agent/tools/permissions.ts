@@ -1,4 +1,7 @@
-import type { AgentPermissionRules, AgentToolsConfig } from "../../../types/agent";
+import type {
+  AgentPermissionRules,
+  AgentToolsConfig,
+} from "../../../types/agent";
 
 const matchByRules = (target: string, rules?: AgentPermissionRules) => {
   if (!rules) {
