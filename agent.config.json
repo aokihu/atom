@@ -1,12 +1,24 @@
 {
   "tools": {
     "read": {
-      "allow": ["^/workspace/atom/.*\\.md$", "^/workspace/atom/src/.*"],
-      "deny": ["^/workspace/atom/.*/secret.*"]
+      "allow": ["^{workspace}/.*\\.md$", "^{workspace}/src/.*"],
+      "deny": ["^{workspace}/.*/secret.*"]
+    },
+    "ls": {
+      "allow": ["^{workspace}/.*"],
+      "deny": ["^{workspace}/.*/secret.*"]
+    },
+    "tree": {
+      "allow": ["^{workspace}/.*"],
+      "deny": ["^{workspace}/.*/secret.*"]
+    },
+    "ripgrep": {
+      "allow": ["^{workspace}/src/.*", "^{workspace}/.*\\.md$"],
+      "deny": ["^{workspace}/.*/secret.*"]
     },
     "write": {
-      "allow": ["^/workspace/atom/Playground/.*", "^/workspace/atom/tmp/.*"],
-      "deny": ["^/workspace/atom/src/.*"]
+      "allow": ["^{workspace}/Playground/.*", "^{workspace}/tmp/.*"],
+      "deny": ["^{workspace}/src/.*"]
     },
     "webfetch": {
       "allow": ["^https://(docs\\.|developer\\.)?example\\.com/.*"],

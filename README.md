@@ -22,6 +22,7 @@ Atom 会在启动时加载项目根目录下的 `agent.config.json`，用于限�
 - `deny` 优先级高于 `allow`。
 - 如果未配置 `allow`，默认允许（仅受 `deny` 限制）。
 - 如果配置了 `allow`，则必须命中其中至少一条才允许。
+- 支持两个路径变量：`{workspace}`（当前工作目录）与 `{root}`（系统根目录），会在加载配置时自动展开为正则安全的绝对路径文本。
 
 ### 配置示例
 
@@ -29,12 +30,24 @@ Atom 会在启动时加载项目根目录下的 `agent.config.json`，用于限�
 {
   "tools": {
     "read": {
-      "allow": ["^/workspace/atom/src/.*", "^/workspace/atom/.*\\.md$"],
-      "deny": ["^/workspace/atom/.*/secret.*"]
+      "allow": ["^{workspace}/src/.*", "^{workspace}/.*\\.md$"],
+      "deny": ["^{workspace}/.*/secret.*"]
+    },
+    "ls": {
+      "allow": ["^{workspace}/.*"],
+      "deny": ["^{workspace}/.*/secret.*"]
+    },
+    "tree": {
+      "allow": ["^{workspace}/.*"],
+      "deny": ["^{workspace}/.*/secret.*"]
+    },
+    "ripgrep": {
+      "allow": ["^{workspace}/src/.*", "^{workspace}/.*\\.md$"],
+      "deny": ["^{workspace}/.*/secret.*"]
     },
     "write": {
-      "allow": ["^/workspace/atom/Playground/.*"],
-      "deny": ["^/workspace/atom/src/.*"]
+      "allow": ["^{workspace}/Playground/.*"],
+      "deny": ["^{workspace}/src/.*"]
     },
     "webfetch": {
       "allow": ["^https://docs\\.example\\.com/.*"],
