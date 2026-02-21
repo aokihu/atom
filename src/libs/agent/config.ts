@@ -15,13 +15,24 @@ const validateConfig = (config: AgentConfig) => {
   const tools = config.tools;
   if (tools === undefined) return;
 
-  const sections: Array<"read" | "ls" | "tree" | "ripgrep" | "write" | "webfetch"> = [
+  const sections: Array<
+    | "read"
+    | "read_email"
+    | "ls"
+    | "tree"
+    | "ripgrep"
+    | "write"
+    | "webfetch"
+    | "send_email"
+  > = [
     "read",
+    "read_email",
     "ls",
     "tree",
     "ripgrep",
     "write",
     "webfetch",
+    "send_email",
   ];
 
   for (const section of sections) {
@@ -55,13 +66,24 @@ const expandPathVariables = (config: AgentConfig, workdir: string): AgentConfig 
   const workspaceRegexText = escapeRegexText(workspacePath);
   const rootRegexText = escapeRegexText(rootPath);
 
-  const sections: Array<"read" | "ls" | "tree" | "ripgrep" | "write" | "webfetch"> = [
+  const sections: Array<
+    | "read"
+    | "read_email"
+    | "ls"
+    | "tree"
+    | "ripgrep"
+    | "write"
+    | "webfetch"
+    | "send_email"
+  > = [
     "read",
+    "read_email",
     "ls",
     "tree",
     "ripgrep",
     "write",
     "webfetch",
+    "send_email",
   ];
 
   for (const section of sections) {

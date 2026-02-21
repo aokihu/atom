@@ -10,11 +10,13 @@ export type AgentPermissionRules = {
 
 export type AgentToolsConfig = {
   read?: AgentPermissionRules;
+  read_email?: AgentPermissionRules;
   ls?: AgentPermissionRules;
   tree?: AgentPermissionRules;
   ripgrep?: AgentPermissionRules;
   write?: AgentPermissionRules;
   webfetch?: AgentPermissionRules;
+  send_email?: AgentPermissionRules;
 };
 
 export type AgentConfig = {

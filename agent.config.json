@@ -23,6 +23,24 @@
     "webfetch": {
       "allow": ["^https://(docs\\.|developer\\.)?example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
+    },
+    "read_email": {
+      "allow": [
+        "^gmail\\.googleapis\\.com$",
+        "^imap\\.gmail\\.com$",
+        "^imap\\.mail\\.me\\.com$",
+        "^outlook\\.office365\\.com$"
+      ],
+      "deny": []
+    },
+    "send_email": {
+      "allow": [
+        "^gmail\\.googleapis\\.com$",
+        "^smtp\\.gmail\\.com$",
+        "^smtp\\.mail\\.me\\.com$",
+        "^smtp\\.office365\\.com$"
+      ],
+      "deny": []
     }
   }
 }

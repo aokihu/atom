@@ -38,3 +38,9 @@ export const canWriteFile = (filepath: string, tools?: AgentToolsConfig) =>
 
 export const canVisitUrl = (url: string, tools?: AgentToolsConfig) =>
   matchByRules(url, tools?.webfetch);
+
+export const canReadEmail = (host: string, tools?: AgentToolsConfig) =>
+  matchByRules(host, tools?.read_email);
+
+export const canSendEmail = (host: string, tools?: AgentToolsConfig) =>
+  matchByRules(host, tools?.send_email);
