@@ -8,8 +8,10 @@
 import {
   type LanguageModelV3Middleware,
   type LanguageModelV3Content,
-  type LanguageModelV3Text,
+  type LanguageModelV3StreamPart,
+  type LanguageModelV3StreamResult,
 } from "@ai-sdk/provider";
+import type { decodeStream } from "@toon-format/toon";
 
 const CONTEXT_DIVIDE_TAG = "<<<CONTEXT>>>";
 
@@ -61,6 +63,5 @@ export const extractContextMiddleware: (
 
       return result;
     },
-    // 流式文本输出
   };
 };

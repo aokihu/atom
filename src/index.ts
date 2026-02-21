@@ -62,7 +62,8 @@ console.log("Create Task Queue...");
 const taskQueue = new PriorityTaskQueue(
   async (task: TaskItem<string, string>) => {
     console.log("Thinking...");
-    return await taskAgent.runTask(task.input);
+    // return await taskAgent.runTask(task.input);
+    return await taskAgent.runAsyncTask(task.input);
   },
 );
 taskQueue.start();

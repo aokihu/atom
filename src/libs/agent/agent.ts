@@ -9,17 +9,13 @@ import { inspect } from "node:util";
 import { sep } from "node:path";
 import { encode } from "@toon-format/toon";
 import {
+  streamText,
   generateText,
   stepCountIs,
   wrapLanguageModel,
-  type LanguageModel,
   type ModelMessage,
 } from "ai";
-import {
-  type LanguageModelV3Middleware,
-  type LanguageModelV3,
-  type JSONValue,
-} from "@ai-sdk/provider";
+import { type LanguageModelV3 } from "@ai-sdk/provider";
 
 import type { AgentContext } from "../../types/agent";
 import { formatedDatetimeNow } from "../../libs/utils/date";
@@ -153,7 +149,42 @@ export class Agent {
   /**
    * 流式输出执行任务
    */
-  async runAsyncTask(question: string) {}
+  async runAsyncTask(question: string) {
+    // 注入上下文数据
+    this.injectContext();
+
+    // 推入用户的会话内容
+    this.messages.push({
+      role: "user",
+      content: question,
+    });
+
+    // 尝试使用middleware
+    const warpedLanguageModel = wrapLanguageModel({
+      model: this.model!,
+      middleware: [
+        extractContextMiddleware((context) => {
+          this.context = context as any as AgentContext;
+        }),
+      ],
+    });
+
+    const result = streamText({
+      model: warpedLanguageModel,
+      messages: this.messages,
+      abortSignal: this.abortController?.signal,
+      tools: tools(this.toolContext),
+      stopWhen: stepCountIs(10),
+    });
+
+    const buffer: string[] = [];
+
+    for await (const textPart of result.textStream) {
+      // process.stdout.write("\x1b[2K\r");
+      // buffer.push(textPart);
+      // console.log(buffer.join(""));
+    }
+  }
 
   displayMessages() {
     console.log(
