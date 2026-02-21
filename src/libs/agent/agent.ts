@@ -8,16 +8,23 @@
 import { inspect } from "node:util";
 import { sep } from "node:path";
 import { encode } from "@toon-format/toon";
-import { set } from "radashi";
 import {
   generateText,
   stepCountIs,
+  wrapLanguageModel,
   type LanguageModel,
   type ModelMessage,
 } from "ai";
-import { formatedDatetimeNow } from "../../libs/utils/date";
-import tools from "./tools";
+import {
+  type LanguageModelV3Middleware,
+  type LanguageModelV3,
+  type JSONValue,
+} from "@ai-sdk/provider";
+
 import type { AgentContext } from "../../types/agent";
+import { formatedDatetimeNow } from "../../libs/utils/date";
+import { extractContextMiddleware } from "../../libs/utils/ai-sdk/middlewares/extractContextMiddleware";
+import tools from "./tools";
 
 // 上下文在用户回答中的分隔符
 const CONTEXT_DIVIDE_TAG = "<<<CONTEXT>>>";
@@ -30,13 +37,13 @@ export class Agent {
   private rawContext: string;
   private context: AgentContext;
   private messages: ModelMessage[];
-  private model: LanguageModel | undefined;
+  private model: LanguageModelV3 | undefined;
   private systemPrompt: string | undefined;
   private abortController: AbortController | undefined;
   private toolContext: object;
 
   constructor(arg: {
-    model: LanguageModel;
+    model: LanguageModelV3;
     systemPrompt: string;
     workspace: string;
     toolContext?: object;
@@ -121,29 +128,32 @@ export class Agent {
       content: question,
     });
 
-    // 生成用户会话结果
-    const { text, response } = await generateText({
+    // 尝试使用middleware
+    const warpedLanguageModel = wrapLanguageModel({
       model: this.model!,
+      middleware: [
+        extractContextMiddleware((context) => {
+          this.context = context as any as AgentContext;
+        }),
+      ],
+    });
+
+    // 生成用户会话结果
+    const { text } = await generateText({
+      model: warpedLanguageModel,
       abortSignal: this.abortController?.signal,
       messages: this.messages,
       tools: tools(this.toolContext),
       stopWhen: stepCountIs(10),
     });
 
-    // 清理接收到的助理消息
-    // 将context内容保存到this.rawContext
-    // 只将非context内容保存到历史消息中
-
-    const lastMessage = response.messages.reverse()[0];
-    const cleanedText = this.processAssistantOutput(text);
-    this.messages.push({
-      role: "assistant",
-      content: cleanedText,
-      providerOptions: lastMessage?.providerOptions,
-    });
-
-    return cleanedText;
+    return text;
   }
+
+  /**
+   * 流式输出执行任务
+   */
+  async runAsyncTask(question: string) {}
 
   displayMessages() {
     console.log(
@@ -153,29 +163,5 @@ export class Agent {
 
   displayContext() {
     console.log(this.context);
-  }
-
-  /**
-   * 清理接收到的AI对话结果
-   * 然后将包含Context的内容
-   */
-  private processAssistantOutput(rawText: string) {
-    const divide_start = rawText.indexOf(CONTEXT_DIVIDE_TAG);
-
-    let cleanedText = rawText;
-
-    if (divide_start >= 0) {
-      const contextRawText = rawText.slice(
-        divide_start + CONTEXT_DIVIDE_TAG.length,
-      );
-      try {
-        this.context = JSON.parse(contextRawText);
-        cleanedText = cleanedText.slice(0, divide_start).trimEnd().trimStart();
-      } catch {
-        throw new Error("Invaild JSON string!");
-      }
-    }
-
-    return cleanedText;
   }
 }
