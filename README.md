@@ -52,6 +52,26 @@ Atom 会在启动时加载项目根目录下的 `agent.config.json`，用于限�
     "webfetch": {
       "allow": ["^https://docs\\.example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
+    },
+    "read_email": {
+      "allow": [
+        "^gmail\\.googleapis\\.com$",
+        "^imap\\.gmail\\.com$",
+        "^imap\\.mail\\.me\\.com$",
+        "^outlook\\.office365\\.com$",
+        "^imap\\.example\\.com$"
+      ],
+      "deny": []
+    },
+    "send_email": {
+      "allow": [
+        "^gmail\\.googleapis\\.com$",
+        "^smtp\\.gmail\\.com$",
+        "^smtp\\.mail\\.me\\.com$",
+        "^smtp\\.office365\\.com$",
+        "^smtp\\.example\\.com$"
+      ],
+      "deny": []
     }
   }
 }
