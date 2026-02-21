@@ -2,6 +2,10 @@ import { parse, resolve } from "node:path";
 import type { AgentConfig } from "../../types/agent";
 
 const AGENT_CONFIG_FILENAME = "agent.config.json";
+type LoadAgentConfigOptions = {
+  workspace: string;
+  configPath?: string;
+};
 
 const ensureStringArray = (value: unknown, keyPath: string) => {
   if (value === undefined) return;
@@ -55,13 +59,16 @@ const validateConfig = (config: AgentConfig) => {
 const escapeRegexText = (text: string) =>
   text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const expandPathVariables = (config: AgentConfig, workdir: string): AgentConfig => {
+const expandPathVariables = (
+  config: AgentConfig,
+  workspace: string,
+): AgentConfig => {
   const tools = config.tools;
   if (!tools) {
     return config;
   }
 
-  const workspacePath = resolve(workdir);
+  const workspacePath = resolve(workspace);
   const rootPath = parse(workspacePath).root;
   const workspaceRegexText = escapeRegexText(workspacePath);
   const rootRegexText = escapeRegexText(rootPath);
@@ -107,9 +114,12 @@ const expandPathVariables = (config: AgentConfig, workdir: string): AgentConfig 
 };
 
 export const loadAgentConfig = async (
-  workdir = process.cwd(),
+  options: LoadAgentConfigOptions,
 ): Promise<AgentConfig> => {
-  const filepath = resolve(workdir, AGENT_CONFIG_FILENAME);
+  const workspacePath = resolve(options.workspace);
+  const filepath = options.configPath
+    ? resolve(options.configPath)
+    : resolve(workspacePath, AGENT_CONFIG_FILENAME);
   const file = Bun.file(filepath);
 
   if (!(await file.exists())) {
@@ -122,14 +132,14 @@ export const loadAgentConfig = async (
   try {
     rawConfig = JSON.parse(content);
   } catch {
-    throw new Error(`Invalid JSON in ${AGENT_CONFIG_FILENAME}`);
+    throw new Error(`Invalid JSON in ${filepath}`);
   }
 
   if (typeof rawConfig !== "object" || rawConfig === null) {
-    throw new Error(`${AGENT_CONFIG_FILENAME} must be a JSON object`);
+    throw new Error(`${filepath} must be a JSON object`);
   }
 
-  const config = expandPathVariables(rawConfig as AgentConfig, workdir);
+  const config = expandPathVariables(rawConfig as AgentConfig, workspacePath);
   validateConfig(config);
   return config;
 };

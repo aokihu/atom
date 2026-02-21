@@ -6,6 +6,7 @@
  */
 
 import { inspect } from "node:util";
+import { sep } from "node:path";
 import { encode } from "@toon-format/toon";
 import { set } from "radashi";
 import {
@@ -24,6 +25,8 @@ const CONTEXT_TAG_START = "<context>";
 const CONTEXT_TAG_END = "</context>";
 
 export class Agent {
+  // 启动时注入的工作目录，供运行时上下文和后续行为统一使用。
+  private workspace: string;
   private rawContext: string;
   private context: AgentContext;
   private messages: ModelMessage[];
@@ -35,10 +38,16 @@ export class Agent {
   constructor(arg: {
     model: LanguageModel;
     systemPrompt: string;
+    workspace: string;
     toolContext?: object;
   }) {
     this.model = arg.model;
     this.systemPrompt = arg.systemPrompt;
+    // 统一保证 workspace 以路径分隔符结尾，避免上下文中出现格式不一致的路径。
+    const workspace = arg.workspace.endsWith(sep)
+      ? arg.workspace
+      : `${arg.workspace}${sep}`;
+    this.workspace = workspace;
 
     // 上下文原始文字内容
     this.rawContext = "";
@@ -46,7 +55,7 @@ export class Agent {
       version: 2.2,
       runtime: {
         round: 1,
-        workspace: process.cwd() + "/", // 暂时使用这个方法获取工作路径,因为在启动参数的时候有指定工作路径的参数
+        workspace: this.workspace,
         datetime: formatedDatetimeNow(),
         startup_at: Date.now(),
       },

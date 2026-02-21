@@ -9,12 +9,28 @@ bun install
 To run:
 
 ```bash
-bun run index.ts
+bun run src/index.ts --workspace=./Playground
+```
+
+### Startup arguments
+
+- `--workspace <path>` / `--workspace=<path>`
+  - 工作目录，默认是启动时的当前目录（`process.cwd()`）。
+  - 启动时会从 `<workspace>/AGENT.md` 加载提示词。
+- `--config <path>` / `--config=<path>`
+  - 指定配置文件路径，可选。
+  - 未传时默认读取 `<workspace>/agent.config.json`。
+
+示例：
+
+```bash
+bun run src/index.ts --workspace ./Playground
+bun run src/index.ts --workspace ./Playground --config ./agent.config.json
 ```
 
 ## Tool permission config
 
-Atom 会在启动时加载项目根目录下的 `agent.config.json`，用于限制 tools 的读写路径和网络访问地址。
+Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/agent.config.json`），用于限制 tools 的读写路径和网络访问地址。
 
 ### 规则说明
 
@@ -77,6 +93,6 @@ Atom 会在启动时加载项目根目录下的 `agent.config.json`，用于限�
 }
 ```
 
-项目根目录内附带了一个可直接修改的默认模板文件：`agent.config.json`。
+默认配置文件位于 `<workspace>/agent.config.json`。
 
 This project was created using `bun init` in bun v1.3.8. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.

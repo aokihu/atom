@@ -19,6 +19,7 @@ import { TaskStatus, type TaskItem } from "./types/task";
 import { bootstrap } from "./libs/agent/boot";
 import { Agent } from "./libs/agent/agent";
 import { loadAgentConfig } from "./libs/agent/config";
+import { parseCliOptions } from "./libs/utils/cli";
 
 /* 创建全局大语言模型处理对象 */
 const GlobalModel = createDeepSeek({
@@ -30,12 +31,19 @@ const GLOBAL_VAR_TABLE = new Map();
 
 console.time("BootStage 1");
 
+const startupCwd = process.cwd();
+const cliOptions = parseCliOptions(process.argv.slice(2), startupCwd);
+
 console.log("Bootstrap");
-console.log("Loading agent.config.json...");
-const agentConfig = await loadAgentConfig(process.cwd());
+console.log("Workspace:", cliOptions.workspace);
+console.log("Loading agent config...");
+const agentConfig = await loadAgentConfig({
+  workspace: cliOptions.workspace,
+  configPath: cliOptions.configPath,
+});
 console.log("Compile agent prompt...");
 const { systemPrompt } = await bootstrap(GlobalModel)({
-  userPromptFilePath: join(process.cwd(), "Playground/AGENT.md"),
+  userPromptFilePath: join(cliOptions.workspace, "AGENT.md"),
   enableOptimization: true,
 });
 console.timeEnd("BootStage 1");
@@ -46,6 +54,7 @@ console.log("Compiled. Launching agent...");
 const taskAgent = new Agent({
   systemPrompt: systemPrompt,
   model: GlobalModel,
+  workspace: cliOptions.workspace,
   toolContext: { permissions: agentConfig },
 });
 
