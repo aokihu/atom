@@ -118,7 +118,7 @@ export class Agent {
       abortSignal: this.abortController?.signal,
       messages: this.messages,
       tools: tools(this.toolContext),
-      stopWhen: stepCountIs(5),
+      stopWhen: stepCountIs(10),
     });
 
     // 清理接收到的助理消息

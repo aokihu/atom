@@ -2,19 +2,19 @@
   "tools": {
     "read": {
       "allow": ["^{workspace}/.*", "^{workspace}/src/.*"],
-      "deny": ["^{workspace}/.*/secret.*"]
+      "deny": []
     },
     "ls": {
       "allow": ["^{workspace}/.*"],
-      "deny": ["^{workspace}/.*/secret.*"]
+      "deny": []
     },
     "tree": {
       "allow": ["^{workspace}/.*"],
-      "deny": ["^{workspace}/.*/secret.*"]
+      "deny": []
     },
     "ripgrep": {
       "allow": ["^{workspace}/.*"],
-      "deny": ["^{workspace}/.*/secret.*"]
+      "deny": []
     },
     "write": {
       "allow": ["^{workspace}/Playground/.*", "^{workspace}/tmp/.*"],

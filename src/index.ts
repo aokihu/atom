@@ -5,11 +5,8 @@
  * @license BSD
  */
 
+/* Runtime */
 import { join } from "node:path";
-import { bootstrap } from "./libs/agent/boot";
-import { Agent } from "./libs/agent/agent";
-import { loadAgentConfig } from "./libs/agent/config";
-
 import readline from "node:readline";
 
 /* AI SDK */
@@ -18,6 +15,12 @@ import { PriorityTaskQueue, createTask } from "./libs/runtime/queue";
 import { sleep } from "bun";
 import { TaskStatus, type TaskItem } from "./types/task";
 
+/* Framework */
+import { bootstrap } from "./libs/agent/boot";
+import { Agent } from "./libs/agent/agent";
+import { loadAgentConfig } from "./libs/agent/config";
+
+/* 创建全局大语言模型处理对象 */
 const GlobalModel = createDeepSeek({
   apiKey: process.env.AI_API_KEY,
 })("deepseek-chat");
