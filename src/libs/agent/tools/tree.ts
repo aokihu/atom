@@ -9,10 +9,15 @@ import { canReadTree } from "./permissions";
 
 export const treeTool = (context: any) =>
   tool({
-    description: "Show directory tree by using tree command",
+    description: "Show directory tree by using tree command, need tail slash",
     inputSchema: z.object({
       dirpath: z.string().describe("the absolute path of directory"),
-      level: z.number().int().positive().optional().describe("max display depth"),
+      level: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("max display depth"),
       all: z.boolean().optional().describe("list hidden files when true"),
     }),
     execute: async ({ dirpath, level, all = false }) => {
@@ -22,7 +27,12 @@ export const treeTool = (context: any) =>
         };
       }
 
-      const command = ["tree", all ? "-a" : "", level ? `-L ${level}` : "", dirpath]
+      const command = [
+        "tree",
+        all ? "-a" : "",
+        level ? `-L ${level}` : "",
+        dirpath,
+      ]
         .filter(Boolean)
         .join(" ");
 

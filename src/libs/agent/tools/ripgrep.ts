@@ -9,12 +9,19 @@ import { canRipgrep } from "./permissions";
 
 export const ripgrepTool = (context: any) =>
   tool({
-    description: "Search file content in directory by using ripgrep",
+    description:
+      "Search file content in directory by using ripgrep, need tail slash",
     inputSchema: z.object({
       dirpath: z.string().describe("the absolute path of directory"),
       pattern: z.string().describe("search pattern used by rg"),
-      caseSensitive: z.boolean().optional().describe("use case-sensitive matching when true"),
-      fileGlob: z.string().optional().describe("optional glob for filtering files, e.g. *.ts"),
+      caseSensitive: z
+        .boolean()
+        .optional()
+        .describe("use case-sensitive matching when true"),
+      fileGlob: z
+        .string()
+        .optional()
+        .describe("optional glob for filtering files, e.g. *.ts"),
     }),
     execute: async ({ dirpath, pattern, caseSensitive = false, fileGlob }) => {
       if (!canRipgrep(dirpath, context?.permissions?.tools)) {
@@ -53,7 +60,8 @@ export const ripgrepTool = (context: any) =>
         };
       } catch (error) {
         return {
-          error: error instanceof Error ? error.message : "ripgrep command failed",
+          error:
+            error instanceof Error ? error.message : "ripgrep command failed",
           command,
         };
       }
