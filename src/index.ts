@@ -17,6 +17,7 @@ import { TaskStatus, type TaskItem } from "./types/task";
 
 /* Framework */
 import { bootstrap } from "./libs/agent/boot";
+import { workspace_check } from "./libs/utils/workspace_check";
 import { Agent } from "./libs/agent/agent";
 import { loadAgentConfig } from "./libs/agent/config";
 import { parseCliOptions } from "./libs/utils/cli";
@@ -41,6 +42,12 @@ const agentConfig = await loadAgentConfig({
   workspace: cliOptions.workspace,
   configPath: cliOptions.configPath,
 });
+
+/* 检查工作目录 */
+console.log("Check workspace...");
+await workspace_check(cliOptions.workspace);
+console.log("Workspace checked.");
+
 console.log("Compile agent prompt...");
 const { systemPrompt } = await bootstrap(GlobalModel)({
   userPromptFilePath: join(cliOptions.workspace, "AGENT.md"),
