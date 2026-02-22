@@ -9,9 +9,7 @@ import {
   type LanguageModelV3Middleware,
   type LanguageModelV3Content,
   type LanguageModelV3StreamPart,
-  type LanguageModelV3StreamResult,
 } from "@ai-sdk/provider";
-import type { decodeStream } from "@toon-format/toon";
 
 const CONTEXT_DIVIDE_TAG = "<<<CONTEXT>>>";
 
@@ -62,6 +60,76 @@ export const extractContextMiddleware: (
       });
 
       return result;
+    },
+    // 流式文本生成
+    wrapStream: async ({ doStream }) => {
+      const result = await doStream();
+
+      const tagLength = CONTEXT_DIVIDE_TAG.length;
+      let textBuffer = "";
+      let contextBuffer = "";
+      let foundContextTag = false;
+      let lastTextDeltaChunk: Extract<LanguageModelV3StreamPart, { type: "text-delta" }> | undefined;
+
+      const stream = result.stream.pipeThrough(
+        new TransformStream<LanguageModelV3StreamPart, LanguageModelV3StreamPart>({
+          transform(chunk, controller) {
+            if (chunk.type !== "text-delta") {
+              controller.enqueue(chunk);
+              return;
+            }
+
+            lastTextDeltaChunk = chunk;
+
+            if (foundContextTag) {
+              contextBuffer += chunk.delta;
+              return;
+            }
+
+            textBuffer += chunk.delta;
+            const divideStart = textBuffer.indexOf(CONTEXT_DIVIDE_TAG);
+
+            if (divideStart >= 0) {
+              const plainText = textBuffer.slice(0, divideStart);
+              const contextRaw = textBuffer.slice(divideStart + tagLength);
+
+              if (plainText) {
+                controller.enqueue({ ...chunk, delta: plainText });
+              }
+
+              foundContextTag = true;
+              contextBuffer += contextRaw;
+              textBuffer = "";
+              return;
+            }
+
+            // 保留尾部字符，避免分片导致无法匹配分隔标记
+            const minTailLength = tagLength - 1;
+            if (textBuffer.length > minTailLength) {
+              const outputText = textBuffer.slice(0, -minTailLength);
+              textBuffer = textBuffer.slice(-minTailLength);
+              controller.enqueue({ ...chunk, delta: outputText });
+            }
+          },
+          flush(controller) {
+            if (!foundContextTag && textBuffer && lastTextDeltaChunk) {
+              controller.enqueue({ ...lastTextDeltaChunk, delta: textBuffer });
+            }
+
+            if (foundContextTag) {
+              const { context } = extractContext(
+                `${CONTEXT_DIVIDE_TAG}${contextBuffer}`,
+              );
+              onExtractContext(context);
+            }
+          },
+        }),
+      );
+
+      return {
+        ...result,
+        stream,
+      };
     },
   };
 };
