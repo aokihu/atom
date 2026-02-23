@@ -6,7 +6,7 @@
 
 ```text
 src/
-  index.ts                # 进程入口与模式编排（hybrid/server/tui）
+  index.ts                # 进程入口与模式编排（tui/server/tui-client）
   clients/                # 用户侧客户端实现（当前 Ink TUI，后续 web/bot）
   libs/
     agent/                # Agent 核心逻辑、提示词注入、工具集成

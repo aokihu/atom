@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 export type CliOptions = {
-  mode: "hybrid" | "server" | "tui";
+  mode: "tui" | "server" | "tui-client";
   workspace: string;
   configPath?: string;
   httpHost: string;
@@ -44,10 +44,23 @@ export const parseCliOptions = (
     throw new Error(message);
   }
 
-  const rawMode = values.mode ?? "hybrid";
-  if (rawMode !== "hybrid" && rawMode !== "server" && rawMode !== "tui") {
-    throw new Error("Invalid --mode. Supported values: hybrid, server, tui");
+  const rawMode = values.mode ?? "tui";
+  if (
+    rawMode !== "hybrid" &&
+    rawMode !== "server" &&
+    rawMode !== "tui" &&
+    rawMode !== "tui-client"
+  ) {
+    throw new Error(
+      "Invalid --mode. Supported values: tui, server, tui-client (legacy alias: hybrid)",
+    );
   }
+
+  if (rawMode === "hybrid") {
+    console.warn("[startup] `--mode hybrid` is deprecated; use `--mode tui`.");
+  }
+
+  const mode: CliOptions["mode"] = rawMode === "hybrid" ? "tui" : rawMode;
 
   const httpHost = values["http-host"]?.trim() || "127.0.0.1";
   const rawPort = values["http-port"] ?? "8787";
@@ -67,7 +80,7 @@ export const parseCliOptions = (
   }
 
   return {
-    mode: rawMode,
+    mode,
     workspace: resolve(startupCwd, values.workspace ?? "."),
     configPath: values.config ? resolve(startupCwd, values.config) : undefined,
     httpHost,
