@@ -17,16 +17,26 @@ import { copyFile, mkdir, exists } from "node:fs/promises";
 /* 内置模版文件 */
 import AgentMdFile from "../../templates/AGENT.md" with { type: "file" };
 import AgentConfigJsonFile from "../../templates/agent.config.json" with { type: "file" };
+import AgentEnvFile from "../../templates/env.txt" with { type: "file" };
 
 /**
  * 检查工作目录环境
  * @param workspace 当前工作的目录
  */
 export const workspace_check = async (workspace: string) => {
+  await checkEnv(workspace);
   await checkAgentFile(workspace);
   await checkAgentConfigJsonFile(workspace);
   await checkMemoryFolder(workspace);
   await checkSecretsFolder(workspace);
+};
+
+const checkEnv = async (workspace: string) => {
+  const envFilePath = resolve(workspace, ".env");
+  const envFileExists = await Bun.file(envFilePath).exists();
+  if (!envFileExists) {
+    await copyFile(AgentEnvFile, envFilePath);
+  }
 };
 
 const checkAgentFile = async (workspace: string) => {
@@ -46,7 +56,7 @@ const checkAgentConfigJsonFile = async (workspace: string) => {
     // @ts-ignore
     await copyFile(AgentConfigJsonFile, agentConfigJsonFilePath);
   }
-};   
+};
 
 const checkMemoryFolder = async (workspace: string) => {
   const memoryFolderPath = resolve(workspace, "memory");
