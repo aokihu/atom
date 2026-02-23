@@ -12,7 +12,7 @@
  */
 
 import { resolve } from "node:path";
-import { copyFile } from "node:fs/promises";
+import { copyFile, mkdir, exists } from "node:fs/promises";
 
 /* 内置模版文件 */
 import AgentMdFile from "../../templates/AGENT.md" with { type: "file" };
@@ -25,6 +25,8 @@ import AgentConfigJsonFile from "../../templates/agent.config.json" with { type:
 export const workspace_check = async (workspace: string) => {
   await checkAgentFile(workspace);
   await checkAgentConfigJsonFile(workspace);
+  await checkMemoryFolder(workspace);
+  await checkSecretsFolder(workspace);
 };
 
 const checkAgentFile = async (workspace: string) => {
@@ -43,5 +45,21 @@ const checkAgentConfigJsonFile = async (workspace: string) => {
   if (!agentConfigJsonFileExists) {
     // @ts-ignore
     await copyFile(AgentConfigJsonFile, agentConfigJsonFilePath);
+  }
+};   
+
+const checkMemoryFolder = async (workspace: string) => {
+  const memoryFolderPath = resolve(workspace, "memory");
+  const memoryFolderExists = await exists(memoryFolderPath);
+  if (!memoryFolderExists) {
+    await mkdir(memoryFolderPath);
+  }
+};
+
+const checkSecretsFolder = async (workspace: string) => {
+  const secretsFolderPath = resolve(workspace, "secrets");
+  const secretsFolderExists = await exists(secretsFolderPath);
+  if (!secretsFolderExists) {
+    await mkdir(secretsFolderPath);
   }
 };

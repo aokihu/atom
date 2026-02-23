@@ -66,11 +66,14 @@ const taskAgent = new Agent({
 });
 
 console.log("Create Task Queue...");
+
+/* 这里是Agent处理消息队列的代码,之后需要重构到一个单独模块中执行 */
+/* 并添加更多的任务处理逻辑 */
 const taskQueue = new PriorityTaskQueue(
   async (task: TaskItem<string, string>) => {
     console.log("Thinking...");
-    // return await taskAgent.runTask(task.input);
-    return await taskAgent.runAsyncTask(task.input);
+    return await taskAgent.runTask(task.input);
+    // return await taskAgent.runAsyncTask(task.input);
   },
 );
 taskQueue.start();

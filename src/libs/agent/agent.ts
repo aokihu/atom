@@ -8,6 +8,7 @@
 import { inspect } from "node:util";
 import { sep } from "node:path";
 import { encode } from "@toon-format/toon";
+import { construct, crush } from "radashi";
 import {
   streamText,
   generateText,
@@ -21,9 +22,9 @@ import type { AgentContext } from "../../types/agent";
 import { formatedDatetimeNow } from "../../libs/utils/date";
 import { extractContextMiddleware } from "../../libs/utils/ai-sdk/middlewares/extractContextMiddleware";
 import tools from "./tools";
+import { memoryMCPClient } from "../../libs/mcp/memory";
 
 // 上下文在用户回答中的分隔符
-const CONTEXT_DIVIDE_TAG = "<<<CONTEXT>>>";
 const CONTEXT_TAG_START = "<context>";
 const CONTEXT_TAG_END = "</context>";
 
@@ -70,6 +71,18 @@ export class Agent {
     // 终止控制器
     this.abortController = new AbortController();
     this.toolContext = arg.toolContext ?? {};
+  }
+
+  /**
+   * 合并上下文对象数据
+   * @param context 将要合并的上下文对象数据
+   * @description 通过crush扁平化上下文对象,然后合并,最后使用construct重新组合成新的上下文对象
+   */
+  private mergeContext(context: Partial<AgentContext>) {
+    const originalContext = crush(this.context);
+    const targetContext = crush(context);
+    const mergedContext = { ...originalContext, ...targetContext };
+    this.context = construct(mergedContext) as AgentContext;
   }
 
   /**
@@ -129,17 +142,21 @@ export class Agent {
       model: this.model!,
       middleware: [
         extractContextMiddleware((context) => {
-          this.context = context as any as AgentContext;
+          // 合并上下文数据
+          this.mergeContext(context);
         }),
       ],
     });
+
+    // 使用MCP工具
+    const memoryTools = await memoryMCPClient.tools();
 
     // 生成用户会话结果
     const { text } = await generateText({
       model: warpedLanguageModel,
       abortSignal: this.abortController?.signal,
       messages: this.messages,
-      tools: tools(this.toolContext),
+      tools: { ...memoryTools, ...tools(this.toolContext) },
       stopWhen: stepCountIs(10),
     });
 
@@ -164,7 +181,8 @@ export class Agent {
       model: this.model!,
       middleware: [
         extractContextMiddleware((context) => {
-          this.context = context as any as AgentContext;
+          // 合并上下文数据
+          this.mergeContext(context);
         }),
       ],
     });
@@ -193,6 +211,8 @@ export class Agent {
   }
 
   displayContext() {
-    console.log(this.context);
+    console.log(
+      inspect(this.context, { depth: null, colors: true, compact: false }),
+    );
   }
 }
