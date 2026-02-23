@@ -1,8 +1,13 @@
 import {
+  canCopyFrom,
+  canCopyTo,
   canListDir,
+  canMoveFrom,
+  canMoveTo,
   canReadFile,
   canReadTree,
   canRipgrep,
+  canUseGit,
   canVisitUrl,
   canWriteFile,
 } from "../permissions";
@@ -33,6 +38,26 @@ export class PermissionPolicy {
     return canWriteFile(filepath, getToolsPermissions(this.context));
   }
 
+  canCopyFrom(filepath: string) {
+    return canCopyFrom(filepath, getToolsPermissions(this.context));
+  }
+
+  canCopyTo(filepath: string) {
+    return canCopyTo(filepath, getToolsPermissions(this.context));
+  }
+
+  canMoveFrom(filepath: string) {
+    return canMoveFrom(filepath, getToolsPermissions(this.context));
+  }
+
+  canMoveTo(filepath: string) {
+    return canMoveTo(filepath, getToolsPermissions(this.context));
+  }
+
+  canUseGit(dirpath: string) {
+    return canUseGit(dirpath, getToolsPermissions(this.context));
+  }
+
   canVisitUrl(url: string) {
     return canVisitUrl(url, getToolsPermissions(this.context));
   }
@@ -40,4 +65,3 @@ export class PermissionPolicy {
 
 export const createPermissionPolicy = (context: ToolExecutionContext) =>
   new PermissionPolicy(context);
-

@@ -212,6 +212,36 @@ export const canWriteFile = (filepath: string, tools?: AgentToolsConfig) =>
   matchByRules(filepath, tools?.write);
 
 /**
+ * 检查是否允许从源路径复制
+ */
+export const canCopyFrom = (filepath: string, tools?: AgentToolsConfig) =>
+  matchByRules(filepath, tools?.cp);
+
+/**
+ * 检查是否允许复制到目标路径
+ */
+export const canCopyTo = (filepath: string, tools?: AgentToolsConfig) =>
+  matchByRules(filepath, tools?.cp);
+
+/**
+ * 检查是否允许从源路径移动
+ */
+export const canMoveFrom = (filepath: string, tools?: AgentToolsConfig) =>
+  matchByRules(filepath, tools?.mv);
+
+/**
+ * 检查是否允许移动到目标路径
+ */
+export const canMoveTo = (filepath: string, tools?: AgentToolsConfig) =>
+  matchByRules(filepath, tools?.mv);
+
+/**
+ * 检查是否允许在指定目录执行 git
+ */
+export const canUseGit = (dirpath: string, tools?: AgentToolsConfig) =>
+  matchByRules(dirpath, tools?.git);
+
+/**
  * 检查是否允许访问URL
  *
  * @param {string} url - URL地址

@@ -7,6 +7,9 @@ export const BUILTIN_TOOL_NAMES = [
   "tree",
   "ripgrep",
   "write",
+  "cp",
+  "mv",
+  "git",
   "webfetch",
 ] as const;
 

@@ -14,6 +14,9 @@ export type AgentToolsConfig = {
   tree?: AgentPermissionRules;
   ripgrep?: AgentPermissionRules;
   write?: AgentPermissionRules;
+  cp?: AgentPermissionRules;
+  mv?: AgentPermissionRules;
+  git?: AgentPermissionRules;
   webfetch?: AgentPermissionRules;
 };
 
