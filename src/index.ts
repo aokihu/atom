@@ -157,7 +157,7 @@ const initializeRuntimeService = async (cliOptions: CliOptions) => {
   logStage("starting task runtime...");
   const runtimeService = new AgentRuntimeService(
     taskAgent,
-    cliOptions.mode === "hybrid" ? { log: () => {} } : console,
+    cliOptions.mode === "tui" ? { log: () => {} } : console,
   );
   runtimeService.start();
 
@@ -172,7 +172,7 @@ const main = async () => {
 
   printStartupBanner(version, cliOptions.mode);
 
-  if (cliOptions.mode === "tui") {
+  if (cliOptions.mode === "tui-client") {
     const serverUrl = buildServerUrl(cliOptions);
     console.log(`[tui] server = ${serverUrl}`);
     printTuiCommands();
@@ -180,7 +180,7 @@ const main = async () => {
     await startTuiClient({
       client: new HttpGatewayClient(serverUrl),
       serverUrl,
-      mode: "tui",
+      mode: "tui-client",
     });
     return;
   }
@@ -215,7 +215,7 @@ const main = async () => {
     await startTuiClient({
       client: new HttpGatewayClient(gateway.baseUrl),
       serverUrl: gateway.baseUrl,
-      mode: "hybrid",
+      mode: "tui",
     });
   } finally {
     await shutdown.run("tui exit");

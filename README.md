@@ -16,11 +16,11 @@ To run:
 bun run src/index.ts --workspace=./Playground
 ```
 
-默认是 `hybrid` 模式：同进程启动 HTTP 服务端，并启动本地 Ink TUI 客户端通过 HTTP 通讯。
+默认是 `tui` 模式：同进程启动 HTTP 服务端，并启动本地 Ink TUI 客户端通过 HTTP 通讯（兼容旧名 `hybrid`）。
 
 ## 0.2.0 Breaking Changes
 
-- `--mode repl` 已移除，改为 `--mode tui`
+- `--mode repl` 已移除；当前使用 `--mode tui`（组合模式）或 `--mode tui-client`（仅客户端）
 - 本地客户端命令改为 slash 命令：`/help`、`/messages`、`/context`、`/exit`
 - 裸命令 `messages` / `context` / `exit` 不再保留兼容
 
@@ -57,28 +57,28 @@ docs/
 - `--config <path>` / `--config=<path>`
   - 指定配置文件路径，可选。
   - 未传时默认读取 `<workspace>/agent.config.json`。
-- `--mode <hybrid|server|tui>`
-  - `hybrid`（默认）：启动 HTTP 服务端 + 本地 Ink TUI 客户端（HTTP 通讯）。
+- `--mode <tui|server|tui-client>`
+  - `tui`（默认，旧名 `hybrid`）：启动 HTTP 服务端 + 本地 Ink TUI 客户端（HTTP 通讯）。
   - `server`：仅启动 HTTP 服务端。
-  - `tui`：仅启动 Ink TUI 客户端，通过 HTTP 连接到服务端。
+  - `tui-client`：仅启动 Ink TUI 客户端，通过 HTTP 连接到服务端。
 - `--http-host <host>`
   - HTTP 服务监听地址，默认 `127.0.0.1`（仅本机访问）。
 - `--http-port <port>`
   - HTTP 服务监听端口，默认 `8787`。
 - `--server-url <url>`
-  - `tui` 模式连接的服务端地址（优先级高于 `--http-host/--http-port`）。
+  - `tui-client` 模式连接的服务端地址（优先级高于 `--http-host/--http-port`）。
 
 示例：
 
 ```bash
-# 默认 hybrid 模式（推荐，兼容旧用法）
+# 默认 tui 模式（推荐，兼容旧参数名 hybrid）
 bun run src/index.ts --workspace ./Playground
 
 # 仅启动 HTTP 服务端
 bun run src/index.ts --mode server --workspace ./Playground --http-port 8787
 
 # 仅启动 Ink TUI 客户端（连接到已运行服务）
-bun run src/index.ts --mode tui --server-url http://127.0.0.1:8787
+bun run src/index.ts --mode tui-client --server-url http://127.0.0.1:8787
 
 # 指定配置文件
 bun run src/index.ts --workspace ./Playground --config ./agent.config.json
