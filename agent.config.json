@@ -42,5 +42,18 @@
       ],
       "deny": []
     }
+  },
+  "mcp": {
+    "servers": [
+      {
+        "id": "memory",
+        "enabled": true,
+        "transport": {
+          "type": "http",
+          "url": "http://localhost:8787/mcp",
+          "headers": {}
+        }
+      }
+    ]
   }
 }

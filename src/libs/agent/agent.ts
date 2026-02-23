@@ -22,7 +22,6 @@ import type { AgentContext } from "../../types/agent";
 import { formatedDatetimeNow } from "../../libs/utils/date";
 import { extractContextMiddleware } from "../../libs/utils/ai-sdk/middlewares/extractContextMiddleware";
 import tools from "./tools";
-import { memoryMCPClient } from "../../libs/mcp/memory";
 
 // 上下文在用户回答中的分隔符
 const CONTEXT_TAG_START = "<context>";
@@ -38,12 +37,14 @@ export class Agent {
   private systemPrompt: string | undefined;
   private abortController: AbortController | undefined;
   private toolContext: object;
+  private mcpTools: Record<string, any>;
 
   constructor(arg: {
     model: LanguageModelV3;
     systemPrompt: string;
     workspace: string;
     toolContext?: object;
+    mcpTools?: Record<string, any>;
   }) {
     this.model = arg.model;
     this.systemPrompt = arg.systemPrompt;
@@ -71,6 +72,7 @@ export class Agent {
     // 终止控制器
     this.abortController = new AbortController();
     this.toolContext = arg.toolContext ?? {};
+    this.mcpTools = arg.mcpTools ?? {};
   }
 
   /**
@@ -148,15 +150,12 @@ export class Agent {
       ],
     });
 
-    // 使用MCP工具
-    const memoryTools = await memoryMCPClient.tools();
-
     // 生成用户会话结果
     const { text } = await generateText({
       model: warpedLanguageModel,
       abortSignal: this.abortController?.signal,
       messages: this.messages,
-      tools: { ...memoryTools, ...tools(this.toolContext) },
+      tools: { ...this.mcpTools, ...tools(this.toolContext) },
       stopWhen: stepCountIs(10),
     });
 
@@ -191,7 +190,7 @@ export class Agent {
       model: warpedLanguageModel,
       messages: this.messages,
       abortSignal: this.abortController?.signal,
-      tools: tools(this.toolContext),
+      tools: { ...this.mcpTools, ...tools(this.toolContext) },
       stopWhen: stepCountIs(10),
     });
 
