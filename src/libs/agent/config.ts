@@ -41,22 +41,18 @@ const validateToolsConfig = (config: AgentConfig) => {
 
   const sections: Array<
     | "read"
-    | "read_email"
     | "ls"
     | "tree"
     | "ripgrep"
     | "write"
     | "webfetch"
-    | "send_email"
   > = [
     "read",
-    "read_email",
     "ls",
     "tree",
     "ripgrep",
     "write",
     "webfetch",
-    "send_email",
   ];
 
   for (const section of sections) {
@@ -167,22 +163,18 @@ const expandPathVariables = (
 
   const sections: Array<
     | "read"
-    | "read_email"
     | "ls"
     | "tree"
     | "ripgrep"
     | "write"
     | "webfetch"
-    | "send_email"
   > = [
     "read",
-    "read_email",
     "ls",
     "tree",
     "ripgrep",
     "write",
     "webfetch",
-    "send_email",
   ];
 
   for (const section of sections) {

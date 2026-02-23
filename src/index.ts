@@ -1,28 +1,20 @@
 /* Runtime */
 import { join } from "node:path";
-import readline from "node:readline";
 import { readFileSync } from "node:fs";
 
 /* AI SDK */
 import { createDeepSeek } from "@ai-sdk/deepseek";
-import { PriorityTaskQueue, createTask } from "./libs/runtime/queue";
-import { sleep } from "bun";
-import { TaskStatus, type TaskItem } from "./types/task";
 
 /* Framework */
 import { bootstrap } from "./libs/agent/boot";
 import { workspace_check } from "./libs/utils/workspace_check";
 import { Agent } from "./libs/agent/agent";
 import { loadAgentConfig } from "./libs/agent/config";
-import { parseCliOptions } from "./libs/utils/cli";
+import { parseCliOptions, type CliOptions } from "./libs/utils/cli";
 import { initMCPTools } from "./libs/mcp";
-
-/* 创建全局大语言模型处理对象 */
-const GlobalModel = createDeepSeek({
-  apiKey: process.env.AI_API_KEY,
-})("deepseek-chat");
-
-const GLOBAL_VAR_TABLE = new Map();
+import { AgentRuntimeService } from "./libs/runtime";
+import { HttpGatewayClient, startHttpGateway } from "./libs/channel";
+import { startReadlineClient } from "./clients";
 
 const APP_NAME = "Atom";
 
@@ -43,80 +35,70 @@ const formatDuration = (startTime: number): string =>
 
 const logStage = (message: string) => console.log(`[startup] ${message}`);
 
-const printStartupBanner = (version: string) => {
-  console.log(`${APP_NAME} v${version}`);
+const printStartupBanner = (version: string, mode: CliOptions["mode"]) => {
+  console.log(`${APP_NAME} v${version} (${mode})`);
+};
+
+const printReplCommands = () => {
   console.log("Commands: `messages`, `context`, `exit`");
 };
 
-const startRepl = (
-  taskAgent: Agent,
-  taskQueue: PriorityTaskQueue,
-) => {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+const createModel = () =>
+  createDeepSeek({
+    apiKey: process.env.AI_API_KEY,
+  })("deepseek-chat");
 
-  function ask() {
-    rl.question("> ", async (input) => {
-      const command = input.trim();
-
-      if (command === "exit") {
-        rl.close();
-        return;
-      }
-
-      if (command === "messages") {
-        taskAgent.displayMessages();
-        ask();
-        return;
-      }
-
-      if (command === "context") {
-        taskAgent.displayContext();
-        ask();
-        return;
-      }
-
-      if (!command) {
-        ask();
-        return;
-      }
-
-      const task = createTask<string, string>("rl.input", command);
-      taskQueue.add(task);
-
-      while (
-        task.status === TaskStatus.Pending ||
-        task.status === TaskStatus.Running
-      ) {
-        await sleep(1000);
-      }
-
-      if (task.status === TaskStatus.Success && task.result !== undefined) {
-        console.log("Answer:", task.result);
-      } else if (task.status === TaskStatus.Failed) {
-        console.error("Error:", task.error?.message ?? "Unknown error");
-      } else if (task.status === TaskStatus.Cancelled) {
-        console.log("Task was cancelled");
-      } else {
-        console.log("Task completed with unexpected status:", task.status);
-      }
-
-      ask();
-    });
-  }
-
-  ask();
+type ShutdownController = {
+  run: (reason?: string) => Promise<void>;
+  wait: Promise<void>;
+  dispose: () => void;
 };
 
-const main = async () => {
-  const startupStartTime = performance.now();
-  const version = getAppVersion();
-  printStartupBanner(version);
+const createShutdownController = (
+  cleanup: () => Promise<void> | void,
+): ShutdownController => {
+  let shuttingDown = false;
+  let resolveWait: (() => void) | undefined;
+  const wait = new Promise<void>((resolve) => {
+    resolveWait = resolve;
+  });
 
-  const startupCwd = process.cwd();
-  const cliOptions = parseCliOptions(process.argv.slice(2), startupCwd);
+  const run = async (reason?: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
+    if (reason) {
+      console.log(`[shutdown] ${reason}`);
+    }
+
+    try {
+      await cleanup();
+    } finally {
+      resolveWait?.();
+    }
+  };
+
+  const onSignal = (signal: NodeJS.Signals) => {
+    void run(`signal ${signal}`);
+  };
+
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
+  return {
+    run,
+    wait,
+    dispose: () => {
+      process.off("SIGINT", onSignal);
+      process.off("SIGTERM", onSignal);
+    },
+  };
+};
+
+const buildServerUrl = (options: Pick<CliOptions, "httpHost" | "httpPort" | "serverUrl">) =>
+  options.serverUrl ?? `http://${options.httpHost}:${options.httpPort}`;
+
+const initializeRuntimeService = async (cliOptions: CliOptions) => {
   logStage(`workspace = ${cliOptions.workspace}`);
   if (cliOptions.configPath) {
     logStage(`config = ${cliOptions.configPath}`);
@@ -154,8 +136,10 @@ const main = async () => {
   const mcpAvailableCount = mcpStatus.filter((status) => status.available).length;
   logStage(`MCP ready (${mcpAvailableCount}/${mcpStatus.length})`);
 
+  const model = createModel();
+
   logStage("compiling agent prompt...");
-  const { systemPrompt } = await bootstrap(GlobalModel)({
+  const { systemPrompt } = await bootstrap(model)({
     userPromptFilePath: join(cliOptions.workspace, "AGENT.md"),
     enableOptimization: true,
   });
@@ -164,24 +148,72 @@ const main = async () => {
   logStage("creating agent...");
   const taskAgent = new Agent({
     systemPrompt,
-    model: GlobalModel,
+    model,
     workspace: cliOptions.workspace,
     toolContext: { permissions: agentConfig },
     mcpTools,
   });
 
-  logStage("starting task queue...");
-  const taskQueue = new PriorityTaskQueue(
-    async (task: TaskItem<string, string>) => {
-      console.log("[agent] thinking...");
-      return await taskAgent.runTask(task.input);
-      // return await taskAgent.runAsyncTask(task.input);
-    },
-  );
-  taskQueue.start();
+  logStage("starting task runtime...");
+  const runtimeService = new AgentRuntimeService(taskAgent);
+  runtimeService.start();
+
+  return runtimeService;
+};
+
+const main = async () => {
+  const startupStartTime = performance.now();
+  const version = getAppVersion();
+  const startupCwd = process.cwd();
+  const cliOptions = parseCliOptions(process.argv.slice(2), startupCwd);
+
+  printStartupBanner(version, cliOptions.mode);
+
+  if (cliOptions.mode === "repl") {
+    const serverUrl = buildServerUrl(cliOptions);
+    console.log(`[repl] server = ${serverUrl}`);
+    printReplCommands();
+    logStage(`ready in ${formatDuration(startupStartTime)}`);
+    await startReadlineClient({
+      client: new HttpGatewayClient(serverUrl),
+    });
+    return;
+  }
+
+  const runtimeService = await initializeRuntimeService(cliOptions);
+  const gateway = startHttpGateway({
+    runtime: runtimeService,
+    host: cliOptions.httpHost,
+    port: cliOptions.httpPort,
+    appName: APP_NAME,
+    version,
+    startupAt: runtimeService.startupAt,
+  });
+
+  console.log(`[http] listening on ${gateway.baseUrl}`);
+
+  const shutdown = createShutdownController(async () => {
+    gateway.stop();
+    runtimeService.stop();
+  });
 
   logStage(`ready in ${formatDuration(startupStartTime)}`);
-  startRepl(taskAgent, taskQueue);
+
+  if (cliOptions.mode === "server") {
+    await shutdown.wait;
+    shutdown.dispose();
+    return;
+  }
+
+  printReplCommands();
+  try {
+    await startReadlineClient({
+      client: new HttpGatewayClient(gateway.baseUrl),
+    });
+  } finally {
+    await shutdown.run("repl exit");
+    shutdown.dispose();
+  }
 };
 
 try {

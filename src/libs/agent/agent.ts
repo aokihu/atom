@@ -203,15 +203,31 @@ export class Agent {
     }
   }
 
+  getMessagesSnapshot() {
+    return structuredClone(this.messages);
+  }
+
+  getContextSnapshot() {
+    return structuredClone(this.context);
+  }
+
   displayMessages() {
     console.log(
-      inspect(this.messages, { depth: null, colors: true, compact: false }),
+      inspect(this.getMessagesSnapshot(), {
+        depth: null,
+        colors: true,
+        compact: false,
+      }),
     );
   }
 
   displayContext() {
     console.log(
-      inspect(this.context, { depth: null, colors: true, compact: false }),
+      inspect(this.getContextSnapshot(), {
+        depth: null,
+        colors: true,
+        compact: false,
+      }),
     );
   }
 }

@@ -40,5 +40,5 @@ export interface TaskQueue {
   add(task: TaskItem<any, any>): void;
   start(): void;
   stop(): void;
-  size(): void;
+  size(): number;
 }

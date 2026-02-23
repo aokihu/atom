@@ -1,5 +1,9 @@
 # atom
 
+## Documentation
+
+- 架构与模块边界：[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
+
 To install dependencies:
 
 ```bash
@@ -12,6 +16,33 @@ To run:
 bun run src/index.ts --workspace=./Playground
 ```
 
+默认是 `hybrid` 模式：同进程启动 HTTP 服务端，并启动本地 `readline` 客户端通过 HTTP 通讯。
+
+## Project Structure
+
+```text
+src/
+  index.ts                # 启动入口与模式编排
+  clients/                # 客户端实现（当前为 readline）
+  libs/
+    agent/                # Agent 核心与工具
+    channel/              # 通道契约与 HTTP 网关/客户端
+    runtime/              # 任务运行时与队列
+    mcp/                  # MCP 初始化
+    utils/                # CLI/日期/workspace 等工具
+  prompts/                # Prompt 模板
+  templates/              # 工作区模板
+  types/                  # 共享类型定义
+docs/
+  ARCHITECTURE.md         # 架构设计与扩展约定
+```
+
+结构约定：
+
+- `clients` 只通过 `libs/channel` 通信，不直接操作 `Agent` 或队列。
+- `libs/runtime` 负责任务编排，不负责 UI/交互。
+- `src/index.ts` 作为 composition root，只负责装配模块和启动模式。
+
 ### Startup arguments
 
 - `--workspace <path>` / `--workspace=<path>`
@@ -20,13 +51,59 @@ bun run src/index.ts --workspace=./Playground
 - `--config <path>` / `--config=<path>`
   - 指定配置文件路径，可选。
   - 未传时默认读取 `<workspace>/agent.config.json`。
+- `--mode <hybrid|server|repl>`
+  - `hybrid`（默认）：启动 HTTP 服务端 + 本地 `readline` 客户端（HTTP 通讯）。
+  - `server`：仅启动 HTTP 服务端。
+  - `repl`：仅启动 `readline` 客户端，通过 HTTP 连接到服务端。
+- `--http-host <host>`
+  - HTTP 服务监听地址，默认 `127.0.0.1`（仅本机访问）。
+- `--http-port <port>`
+  - HTTP 服务监听端口，默认 `8787`。
+- `--server-url <url>`
+  - `repl` 模式连接的服务端地址（优先级高于 `--http-host/--http-port`）。
 
 示例：
 
 ```bash
+# 默认 hybrid 模式（推荐，兼容旧用法）
 bun run src/index.ts --workspace ./Playground
+
+# 仅启动 HTTP 服务端
+bun run src/index.ts --mode server --workspace ./Playground --http-port 8787
+
+# 仅启动 readline 客户端（连接到已运行服务）
+bun run src/index.ts --mode repl --server-url http://127.0.0.1:8787
+
+# 指定配置文件
 bun run src/index.ts --workspace ./Playground --config ./agent.config.json
 ```
+
+### HTTP API (v1)
+
+当前输入输出已解耦，`readline` 客户端通过 HTTP 与服务端通讯（轮询模式）。
+
+- `GET /healthz`
+- `POST /v1/tasks`
+- `GET /v1/tasks/:id`
+- `GET /v1/agent/context`
+- `GET /v1/agent/messages`
+
+#### 提交任务并轮询
+
+```bash
+# 1) 创建任务
+curl -s -X POST http://127.0.0.1:8787/v1/tasks \
+  -H 'content-type: application/json' \
+  -d '{"input":"你好","type":"curl.input"}'
+
+# 2) 查询任务状态（将 <taskId> 替换为上一步返回值）
+curl -s http://127.0.0.1:8787/v1/tasks/<taskId>
+```
+
+#### 返回格式
+
+- 成功：`{"ok": true, "data": ...}`
+- 失败：`{"ok": false, "error": {"code": "...", "message": "..."}}`
 
 ## Tool permission config
 
@@ -69,25 +146,6 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
       "allow": ["^https://docs\\.example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
     },
-    "read_email": {
-      "allow": [
-        "^gmail\\.googleapis\\.com$",
-        "^imap\\.gmail\\.com$",
-        "^imap\\.mail\\.me\\.com$",
-        "^outlook\\.office365\\.com$",
-        "^imap\\.example\\.com$"
-      ],
-      "deny": []
-    },
-    "send_email": {
-      "allow": [
-        "^gmail\\.googleapis\\.com$",
-        "^smtp\\.gmail\\.com$",
-        "^smtp\\.mail\\.me\\.com$",
-        "^smtp\\.office365\\.com$",
-        "^smtp\\.example\\.com$"
-      ],
-      "deny": []
     }
   }
 }

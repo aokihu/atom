@@ -220,23 +220,3 @@ export const canWriteFile = (filepath: string, tools?: AgentToolsConfig) =>
  */
 export const canVisitUrl = (url: string, tools?: AgentToolsConfig) =>
   matchByRules(url, tools?.webfetch);
-
-/**
- * 检查是否允许读取邮件
- *
- * @param {string} host - 邮件服务器主机名
- * @param {AgentToolsConfig} [tools] - 工具配置
- * @returns {boolean} 是否允许读取邮件
- */
-export const canReadEmail = (host: string, tools?: AgentToolsConfig) =>
-  matchByRules(host, tools?.read_email);
-
-/**
- * 检查是否允许发送邮件
- *
- * @param {string} host - 邮件服务器主机名
- * @param {AgentToolsConfig} [tools] - 工具配置
- * @returns {boolean} 是否允许发送邮件
- */
-export const canSendEmail = (host: string, tools?: AgentToolsConfig) =>
-  matchByRules(host, tools?.send_email);
