@@ -6,8 +6,8 @@
 
 ```text
 src/
-  index.ts                # 进程入口与模式编排（hybrid/server/repl）
-  clients/                # 用户侧客户端实现（readline、后续 web/tui）
+  index.ts                # 进程入口与模式编排（hybrid/server/tui）
+  clients/                # 用户侧客户端实现（当前 Ink TUI，后续 web/bot）
   libs/
     agent/                # Agent 核心逻辑、提示词注入、工具集成
     channel/              # 通信通道契约与 HTTP 实现（gateway/client）
@@ -25,8 +25,8 @@ docs/
 
 ### `src/clients`
 - 放置“用户交互端”实现，例如：
-  - `readline`
-  - 后续 Web UI / TUI / Bot adapter
+  - `tui`（Ink）
+  - 后续 Web UI / Bot adapter
 - 只通过 `GatewayClient`（或其他通道抽象）访问服务端。
 - 不直接依赖 `Agent`、`PriorityTaskQueue`、`AgentRuntimeService`。
 
@@ -47,7 +47,7 @@ docs/
 
 ### `src/libs/agent`
 - 负责模型调用、上下文注入、工具执行集成。
-- 不处理 HTTP 或 readline 等传输/客户端细节。
+- 不处理 HTTP 或客户端等传输/交互细节。
 
 ### `src/types`
 - 存放跨层类型：

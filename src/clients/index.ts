@@ -1,1 +1,1 @@
-export { startReadlineClient } from "./readline_client";
+export { startTuiClient } from "./tui_client";

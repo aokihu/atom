@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 export type CliOptions = {
-  mode: "hybrid" | "server" | "repl";
+  mode: "hybrid" | "server" | "tui";
   workspace: string;
   configPath?: string;
   httpHost: string;
@@ -45,8 +45,8 @@ export const parseCliOptions = (
   }
 
   const rawMode = values.mode ?? "hybrid";
-  if (rawMode !== "hybrid" && rawMode !== "server" && rawMode !== "repl") {
-    throw new Error("Invalid --mode. Supported values: hybrid, server, repl");
+  if (rawMode !== "hybrid" && rawMode !== "server" && rawMode !== "tui") {
+    throw new Error("Invalid --mode. Supported values: hybrid, server, tui");
   }
 
   const httpHost = values["http-host"]?.trim() || "127.0.0.1";

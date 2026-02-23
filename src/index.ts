@@ -14,7 +14,7 @@ import { parseCliOptions, type CliOptions } from "./libs/utils/cli";
 import { initMCPTools } from "./libs/mcp";
 import { AgentRuntimeService } from "./libs/runtime";
 import { HttpGatewayClient, startHttpGateway } from "./libs/channel";
-import { startReadlineClient } from "./clients";
+import { startTuiClient } from "./clients";
 
 const APP_NAME = "Atom";
 
@@ -39,8 +39,8 @@ const printStartupBanner = (version: string, mode: CliOptions["mode"]) => {
   console.log(`${APP_NAME} v${version} (${mode})`);
 };
 
-const printReplCommands = () => {
-  console.log("Commands: `messages`, `context`, `exit`");
+const printTuiCommands = () => {
+  console.log("Commands: `/help`, `/messages`, `/context`, `/exit`");
 };
 
 const createModel = () =>
@@ -155,7 +155,10 @@ const initializeRuntimeService = async (cliOptions: CliOptions) => {
   });
 
   logStage("starting task runtime...");
-  const runtimeService = new AgentRuntimeService(taskAgent);
+  const runtimeService = new AgentRuntimeService(
+    taskAgent,
+    cliOptions.mode === "hybrid" ? { log: () => {} } : console,
+  );
   runtimeService.start();
 
   return runtimeService;
@@ -169,13 +172,15 @@ const main = async () => {
 
   printStartupBanner(version, cliOptions.mode);
 
-  if (cliOptions.mode === "repl") {
+  if (cliOptions.mode === "tui") {
     const serverUrl = buildServerUrl(cliOptions);
-    console.log(`[repl] server = ${serverUrl}`);
-    printReplCommands();
+    console.log(`[tui] server = ${serverUrl}`);
+    printTuiCommands();
     logStage(`ready in ${formatDuration(startupStartTime)}`);
-    await startReadlineClient({
+    await startTuiClient({
       client: new HttpGatewayClient(serverUrl),
+      serverUrl,
+      mode: "tui",
     });
     return;
   }
@@ -205,13 +210,15 @@ const main = async () => {
     return;
   }
 
-  printReplCommands();
+  printTuiCommands();
   try {
-    await startReadlineClient({
+    await startTuiClient({
       client: new HttpGatewayClient(gateway.baseUrl),
+      serverUrl: gateway.baseUrl,
+      mode: "hybrid",
     });
   } finally {
-    await shutdown.run("repl exit");
+    await shutdown.run("tui exit");
     shutdown.dispose();
   }
 };
