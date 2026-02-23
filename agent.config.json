@@ -21,6 +21,18 @@
       "allow": ["^{workspace}/.*"],
       "deny": []
     },
+    "cp": {
+      "allow": ["^{workspace}/.*"],
+      "deny": []
+    },
+    "mv": {
+      "allow": ["^{workspace}/.*"],
+      "deny": []
+    },
+    "git": {
+      "allow": ["^{workspace}/.*"],
+      "deny": []
+    },
     "webfetch": {
       "allow": ["^https://(docs\\.|developer\\.)?example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]

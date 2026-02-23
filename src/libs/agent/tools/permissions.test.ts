@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  canCopyFrom,
+  canMoveTo,
   canReadFile,
+  canUseGit,
   canVisitUrl,
   canWriteFile,
 } from "./permissions";
@@ -33,6 +36,45 @@ describe("agent tool permissions", () => {
     expect(
       canVisitUrl("file:///etc/passwd", {
         webfetch: { allow: [".*"] },
+      }),
+    ).toBe(false);
+  });
+
+  test("cp permission follows tools.cp rules", () => {
+    expect(
+      canCopyFrom("/Users/example/work/file.txt", {
+        cp: { allow: ["^/Users/example/work/.*"] },
+      }),
+    ).toBe(true);
+    expect(
+      canCopyFrom("/tmp/file.txt", {
+        cp: { allow: ["^/Users/example/work/.*"] },
+      }),
+    ).toBe(false);
+  });
+
+  test("mv permission follows tools.mv rules", () => {
+    expect(
+      canMoveTo("/Users/example/work/file.txt", {
+        mv: { allow: ["^/Users/example/work/.*"] },
+      }),
+    ).toBe(true);
+    expect(
+      canMoveTo("/tmp/file.txt", {
+        mv: { deny: ["^/tmp/"] },
+      }),
+    ).toBe(false);
+  });
+
+  test("git permission checks cwd path", () => {
+    expect(
+      canUseGit("/Users/example/work/repo", {
+        git: { allow: ["^/Users/example/work/.*"] },
+      }),
+    ).toBe(true);
+    expect(
+      canUseGit("/Users/example/secret/repo", {
+        git: { deny: ["^/Users/example/secret/.*"] },
       }),
     ).toBe(false);
   });

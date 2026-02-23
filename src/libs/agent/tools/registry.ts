@@ -1,4 +1,7 @@
+import { cpTool } from "./cp";
+import { gitTool } from "./git";
 import { lsTool } from "./ls";
+import { mvTool } from "./mv";
 import { readTool } from "./read";
 import { ripgrepTool } from "./ripgrep";
 import { treeTool } from "./tree";
@@ -18,6 +21,9 @@ const BUILTIN_TOOL_FACTORIES: Record<BuiltinToolName, ToolFactory> = {
   tree: treeTool,
   ripgrep: ripgrepTool,
   write: writeTool,
+  cp: cpTool,
+  mv: mvTool,
+  git: gitTool,
   webfetch: webfetchTool,
 };
 
@@ -55,4 +61,3 @@ export const createToolRegistry = ({
     ...builtinTools,
   };
 };
-

@@ -125,6 +125,7 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
 ### 规则说明
 
 - 每个工具支持 `allow` / `deny` 两组正则。
+- 新增内置工具 `cp` / `mv` / `git` 支持独立权限配置。
 - `deny` 优先级高于 `allow`。
 - 如果未配置 `allow`，默认允许（仅受 `deny` 限制）。
 - 如果配置了 `allow`，则必须命中其中至少一条才允许。
@@ -156,6 +157,18 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
       "allow": ["^{workspace}/Playground/.*"],
       "deny": ["^{workspace}/src/.*"]
     },
+    "cp": {
+      "allow": ["^{workspace}/.*"],
+      "deny": []
+    },
+    "mv": {
+      "allow": ["^{workspace}/.*"],
+      "deny": []
+    },
+    "git": {
+      "allow": ["^{workspace}/.*"],
+      "deny": []
+    },
     "webfetch": {
       "allow": ["^https://docs\\.example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
@@ -165,5 +178,9 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
 ```
 
 默认配置文件位于 `<workspace>/agent.config.json`。
+
+补充说明：
+- `cp` / `mv` 工具默认不覆盖目标文件，需显式传入 `overwrite: true`。
+- `git` 工具在执行时会检查运行环境是否安装 `git`；若未安装会返回错误，而不会在启动阶段失败。
 
 This project was created using `bun init` in bun v1.3.8. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
