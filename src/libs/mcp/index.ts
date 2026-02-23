@@ -1,6 +1,7 @@
 import type { MCPConfig } from "../../types/agent";
+import type { ToolDefinitionMap } from "../agent/tools";
 
-export type MCPTools = Record<string, any>;
+export type MCPTools = ToolDefinitionMap;
 
 export type MCPServerStatus = {
   id: string;
@@ -17,7 +18,7 @@ const toErrorMessage = (error: unknown) => {
   return String(error);
 };
 
-const prefixTools = (serverId: string, toolMap: Record<string, any>): MCPTools => {
+const prefixTools = (serverId: string, toolMap: ToolDefinitionMap): MCPTools => {
   const namespacedTools: MCPTools = {};
 
   for (const [toolName, tool] of Object.entries(toolMap)) {
@@ -64,7 +65,7 @@ export const initMCPTools = async (
             headers: server.transport.headers,
           },
         });
-        const rawTools = (await client.tools()) as Record<string, any>;
+        const rawTools = (await client.tools()) as ToolDefinitionMap;
         const tools = prefixTools(server.id, rawTools);
 
         return {

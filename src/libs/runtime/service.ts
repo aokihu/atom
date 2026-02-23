@@ -13,6 +13,8 @@ import type {
 } from "../../types/http";
 import type { TaskItem } from "../../types/task";
 
+const DEFAULT_AGENT_SESSION_ID = "default";
+
 const toTaskSnapshot = (task: TaskItem<string, string>): TaskSnapshot => ({
   id: task.id,
   type: task.type,
@@ -39,18 +41,28 @@ export class AgentRuntimeService implements RuntimeGateway {
 
   private taskQueue: PriorityTaskQueue;
   private taskRegistry = new Map<string, TaskItem<string, string>>();
+  private readonly agentSessions = new Map<string, Agent>();
   private started = false;
 
   constructor(
     private readonly agent: Agent,
     private readonly logger: Pick<Console, "log"> = console,
   ) {
+    this.agentSessions.set(DEFAULT_AGENT_SESSION_ID, this.agent);
     this.taskQueue = new PriorityTaskQueue(
       async (task: TaskItem<string, string>) => {
         this.logger.log("[agent] thinking...");
-        return await this.agent.runTask(task.input);
+        return await this.getAgent().runTask(task.input);
       },
     );
+  }
+
+  private getAgent(sessionId = DEFAULT_AGENT_SESSION_ID): Agent {
+    const agent = this.agentSessions.get(sessionId);
+    if (!agent) {
+      throw new Error(`Unknown agent session: ${sessionId}`);
+    }
+    return agent;
   }
 
   start() {
@@ -96,13 +108,13 @@ export class AgentRuntimeService implements RuntimeGateway {
 
   getAgentContext(): AgentContextResponse {
     return {
-      context: this.agent.getContextSnapshot(),
+      context: this.getAgent().getContextSnapshot(),
     };
   }
 
   getAgentMessages(): AgentMessagesResponse {
     return {
-      messages: this.agent.getMessagesSnapshot(),
+      messages: this.getAgent().getMessagesSnapshot(),
     };
   }
 }

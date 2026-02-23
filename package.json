@@ -3,12 +3,15 @@
   "module": "index.ts",
   "description": "Atom 智能生命体",
   "type": "module",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "scripts": {
-    "dev": "bun run src/index.ts --workspace=./Playground"
+    "dev": "bun run src/index.ts --workspace=./Playground",
+    "typecheck": "bun x tsc --noEmit",
+    "test": "bun test"
   },
   "devDependencies": {
-    "@types/bun": "^1.3.9"
+    "@types/bun": "^1.3.9",
+    "@types/node": "^22.18.12"
   },
   "peerDependencies": {
     "typescript": "^5"

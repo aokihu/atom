@@ -13,7 +13,7 @@ import {
 
 const CONTEXT_DIVIDE_TAG = "<<<CONTEXT>>>";
 
-function extractContext(rawText: string) {
+export function extractContext(rawText: string) {
   const divide_start = rawText.indexOf(CONTEXT_DIVIDE_TAG);
 
   let cleanedText = rawText;
@@ -33,6 +33,10 @@ function extractContext(rawText: string) {
 
   return { context: {}, cleanedText };
 }
+
+export const __extractContextMiddlewareInternals = {
+  extractContext,
+};
 
 /**
  * 生成提取上下文的中间件方法
