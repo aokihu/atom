@@ -19,9 +19,9 @@ import ContextRulesDisabledPrompt from "../../prompts/context_disable_output_con
 import ContextRulesEnablePrompt from "../../prompts/context.md" with { type: "text" };
 
 type LifecycleBootParams = {
-  userPromptFilePath: string;
-  enableOptimization?: boolean;
-  extendContent?: string;
+    userPromptFilePath: string;
+    enableOptimization?: boolean;
+    extendContent?: string;
 };
 
 /**
@@ -32,48 +32,48 @@ type LifecycleBootParams = {
  * @returns 返回整合了核心提示词和用户提示词的最终提示词
  */
 export const bootstrap =
-  (llmModel: LanguageModel) =>
-  async ({
-    userPromptFilePath,
-    enableOptimization = true,
-    extendContent,
-  }: LifecycleBootParams) => {
-    // 1.1 根据enableOptimization替换bootstrap提示词中的变量{EO_VALUE}
-    const bootstrapPrompt = BootstrapPrompt.replace(
-      "{EO_VALUE}",
-      enableOptimization ? "true" : "false",
-    );
-
-    // 1.2.1 关闭上下文生成
-    const contextRulesPrompt_disabled_context =
-      ContextRulesDisabledPrompt.replace("{MODE}", "disabled");
-
-    // 2. 加载用户设定的提示词,文件名只能是AGENT.md
-    const userPromptFile = Bun.file(userPromptFilePath);
-    if (!(await userPromptFile.exists())) {
-      throw new Error("AGENT.md is not exists");
-    }
-
-    const userPrompt = await userPromptFile.text();
-
-    const result = await generateText({
-      model: llmModel,
-      system: bootstrapPrompt,
-      temperature: 0,
-      prompt: [
-        "<<<CORE>>>",
-        contextRulesPrompt_disabled_context,
-        "<<<USER>>>",
-        userPrompt,
+    (llmModel: LanguageModel) =>
+    async ({
+        userPromptFilePath,
+        enableOptimization = true,
         extendContent,
-      ].join("\n"),
-    });
+    }: LifecycleBootParams) => {
+        // 1.1 根据enableOptimization替换bootstrap提示词中的变量{EO_VALUE}
+        const bootstrapPrompt = BootstrapPrompt.replace(
+            "{EO_VALUE}",
+            enableOptimization ? "true" : "false",
+        );
 
-    console.log(result.text);
-    // console.log("Total token:", result.totalUsage);
+        // 1.2.1 关闭上下文生成
+        const contextRulesPrompt_disabled_context =
+            ContextRulesDisabledPrompt.replace("{MODE}", "disabled");
 
-    return {
-      systemPrompt: [ContextRulesEnablePrompt, result.text].join("\n"),
-      totalUsage: result.totalUsage,
+        // 2. 加载用户设定的提示词,文件名只能是AGENT.md
+        const userPromptFile = Bun.file(userPromptFilePath);
+        if (!(await userPromptFile.exists())) {
+            throw new Error("AGENT.md is not exists");
+        }
+
+        const userPrompt = await userPromptFile.text();
+
+        const result = await generateText({
+            model: llmModel,
+            system: bootstrapPrompt,
+            temperature: 0,
+            prompt: [
+                "<<<CORE>>>",
+                contextRulesPrompt_disabled_context,
+                "<<<USER>>>",
+                userPrompt,
+                extendContent,
+            ].join("\n"),
+        });
+
+        // console.log(result.text);
+        // console.log("Total token:", result.totalUsage);
+
+        return {
+            systemPrompt: [ContextRulesEnablePrompt, result.text].join("\n"),
+            totalUsage: result.totalUsage,
+        };
     };
-  };
