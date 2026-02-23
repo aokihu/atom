@@ -8,16 +8,21 @@
 
 import { tool } from "ai";
 import { z } from "zod";
-import { canReadFile } from "./permissions";
+import { createPermissionPolicy } from "./permissions/policy";
+import type { ToolExecutionContext } from "./types";
 
-export const readTool = (context: any) =>
+type ReadToolInput = {
+  filepath: string;
+};
+
+export const readTool = (context: ToolExecutionContext) =>
   tool({
     description: "Read file content, include line numbder and content",
     inputSchema: z.object({
       filepath: z.string().describe("the absolute path of file"),
     }),
-    execute: async ({ filepath }) => {
-      if (!canReadFile(filepath, context?.permissions?.tools)) {
+    execute: async ({ filepath }: ReadToolInput) => {
+      if (!createPermissionPolicy(context).canReadFile(filepath)) {
         return {
           error: "Permission denied: read path not allowed",
         };
@@ -33,7 +38,7 @@ export const readTool = (context: any) =>
 
       const lines = (await file.text())
         .split("\n")
-        .map((line, idx) => [idx, line]);
+        .map((line: string, idx: number) => [idx, line] as const);
 
       // 读取文件
       return {

@@ -9,15 +9,20 @@
 import { $ } from "bun";
 import { tool } from "ai";
 import { z } from "zod";
-import { canVisitUrl } from "./permissions";
+import { createPermissionPolicy } from "./permissions/policy";
+import type { ToolExecutionContext } from "./types";
 
-export const webfetchTool = (context: any) =>
+type WebfetchToolInput = {
+  url: string;
+};
+
+export const webfetchTool = (context: ToolExecutionContext) =>
   tool({
     description: "从网络获取内容",
     inputSchema: z.object({
       url: z.string().describe("需要获取内容的url"),
     }),
-    execute: async ({ url }) => {
+    execute: async ({ url }: WebfetchToolInput) => {
       try {
         new URL(url);
       } catch {
@@ -26,7 +31,7 @@ export const webfetchTool = (context: any) =>
         };
       }
 
-      if (!canVisitUrl(url, context?.permissions?.tools)) {
+      if (!createPermissionPolicy(context).canVisitUrl(url)) {
         return {
           error: "Permission denied: URL not allowed",
         };

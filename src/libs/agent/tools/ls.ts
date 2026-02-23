@@ -5,9 +5,16 @@
 import { $ } from "bun";
 import { tool } from "ai";
 import { z } from "zod";
-import { canListDir } from "./permissions";
+import { createPermissionPolicy } from "./permissions/policy";
+import type { ToolExecutionContext } from "./types";
 
-export const lsTool = (context: any) =>
+type LsToolInput = {
+  dirpath: string;
+  all?: boolean;
+  long?: boolean;
+};
+
+export const lsTool = (context: ToolExecutionContext) =>
   tool({
     description:
       "List files in a directory by using ls command, tail slash is need",
@@ -19,8 +26,8 @@ export const lsTool = (context: any) =>
         .optional()
         .describe("use long listing format when true"),
     }),
-    execute: async ({ dirpath, all = false, long = false }) => {
-      if (!canListDir(dirpath, context?.permissions?.tools)) {
+    execute: async ({ dirpath, all = false, long = false }: LsToolInput) => {
+      if (!createPermissionPolicy(context).canListDir(dirpath)) {
         return {
           error: "Permission denied: ls path not allowed",
         };

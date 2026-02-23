@@ -1,15 +1,12 @@
-import { lsTool } from "./ls";
-import { readTool } from "./read";
-import { ripgrepTool } from "./ripgrep";
-import { treeTool } from "./tree";
-import { webfetchTool } from "./webfetch";
-import { writeTool } from "./write";
+import {
+  createBuiltinToolRegistry,
+  createToolRegistry,
+} from "./registry";
+import type { ToolDefinitionMap, ToolExecutionContext } from "./types";
 
-export default (context: any) => ({
-  ls: lsTool(context),
-  read: readTool(context),
-  tree: treeTool(context),
-  ripgrep: ripgrepTool(context),
-  write: writeTool(context),
-  webfetch: webfetchTool(context),
-});
+export type { ToolDefinitionMap, ToolExecutionContext } from "./types";
+export { BUILTIN_TOOL_NAMES } from "./types";
+export { createBuiltinToolRegistry, createToolRegistry } from "./registry";
+
+export default (context: ToolExecutionContext): ToolDefinitionMap =>
+  createBuiltinToolRegistry(context);

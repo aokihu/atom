@@ -5,9 +5,17 @@
 import { $ } from "bun";
 import { tool } from "ai";
 import { z } from "zod";
-import { canRipgrep } from "./permissions";
+import { createPermissionPolicy } from "./permissions/policy";
+import type { ToolExecutionContext } from "./types";
 
-export const ripgrepTool = (context: any) =>
+type RipgrepToolInput = {
+  dirpath: string;
+  pattern: string;
+  caseSensitive?: boolean;
+  fileGlob?: string;
+};
+
+export const ripgrepTool = (context: ToolExecutionContext) =>
   tool({
     description:
       "Search file content in directory by using ripgrep, need tail slash",
@@ -23,8 +31,13 @@ export const ripgrepTool = (context: any) =>
         .optional()
         .describe("optional glob for filtering files, e.g. *.ts"),
     }),
-    execute: async ({ dirpath, pattern, caseSensitive = false, fileGlob }) => {
-      if (!canRipgrep(dirpath, context?.permissions?.tools)) {
+    execute: async ({
+      dirpath,
+      pattern,
+      caseSensitive = false,
+      fileGlob,
+    }: RipgrepToolInput) => {
+      if (!createPermissionPolicy(context).canRipgrep(dirpath)) {
         return {
           error: "Permission denied: ripgrep path not allowed",
         };

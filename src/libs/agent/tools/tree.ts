@@ -5,9 +5,16 @@
 import { $ } from "bun";
 import { tool } from "ai";
 import { z } from "zod";
-import { canReadTree } from "./permissions";
+import { createPermissionPolicy } from "./permissions/policy";
+import type { ToolExecutionContext } from "./types";
 
-export const treeTool = (context: any) =>
+type TreeToolInput = {
+  dirpath: string;
+  level?: number;
+  all?: boolean;
+};
+
+export const treeTool = (context: ToolExecutionContext) =>
   tool({
     description: "Show directory tree by using tree command, need tail slash",
     inputSchema: z.object({
@@ -20,8 +27,8 @@ export const treeTool = (context: any) =>
         .describe("max display depth"),
       all: z.boolean().optional().describe("list hidden files when true"),
     }),
-    execute: async ({ dirpath, level, all = false }) => {
-      if (!canReadTree(dirpath, context?.permissions?.tools)) {
+    execute: async ({ dirpath, level, all = false }: TreeToolInput) => {
+      if (!createPermissionPolicy(context).canReadTree(dirpath)) {
         return {
           error: "Permission denied: tree path not allowed",
         };

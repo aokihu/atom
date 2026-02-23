@@ -1,214 +1,76 @@
 /**
- * Agent自动执行单元
- * @author aokihu <aokihu@gmail.com>
- * @license BSD
- * @version 0.0.10
+ * Agent自动执行单元（兼容门面）
  */
 
 import { inspect } from "node:util";
-import { sep } from "node:path";
-import { encode } from "@toon-format/toon";
-import { construct, crush } from "radashi";
+import type { LanguageModelV3 } from "@ai-sdk/provider";
+
+import { AgentRunner, type AgentDependencies } from "./core/agent_runner";
 import {
-  streamText,
-  generateText,
-  stepCountIs,
-  wrapLanguageModel,
-  type ModelMessage,
-} from "ai";
-import { type LanguageModelV3 } from "@ai-sdk/provider";
+  AgentSession,
+  type AgentSessionSnapshot,
+} from "./session/agent_session";
+import type { ToolDefinitionMap, ToolExecutionContext } from "./tools";
 
-import type { AgentContext } from "../../types/agent";
-import { formatedDatetimeNow } from "../../libs/utils/date";
-import { extractContextMiddleware } from "../../libs/utils/ai-sdk/middlewares/extractContextMiddleware";
-import tools from "./tools";
-
-// 上下文在用户回答中的分隔符
-const CONTEXT_TAG_START = "<context>";
-const CONTEXT_TAG_END = "</context>";
+export type {
+  AgentDependencies,
+  AgentSessionSnapshot,
+  ToolDefinitionMap,
+  ToolExecutionContext,
+};
 
 export class Agent {
-  // 启动时注入的工作目录，供运行时上下文和后续行为统一使用。
-  private workspace: string;
-  private rawContext: string;
-  private context: AgentContext;
-  private messages: ModelMessage[];
-  private model: LanguageModelV3 | undefined;
-  private systemPrompt: string | undefined;
-  private abortController: AbortController | undefined;
-  private toolContext: object;
-  private mcpTools: Record<string, any>;
+  private readonly session: AgentSession;
+  private readonly runner: AgentRunner;
 
   constructor(arg: {
     model: LanguageModelV3;
     systemPrompt: string;
     workspace: string;
-    toolContext?: object;
-    mcpTools?: Record<string, any>;
+    toolContext?: ToolExecutionContext;
+    mcpTools?: ToolDefinitionMap;
+    dependencies?: AgentDependencies;
   }) {
-    this.model = arg.model;
-    this.systemPrompt = arg.systemPrompt;
-    // 统一保证 workspace 以路径分隔符结尾，避免上下文中出现格式不一致的路径。
-    const workspace = arg.workspace.endsWith(sep)
-      ? arg.workspace
-      : `${arg.workspace}${sep}`;
-    this.workspace = workspace;
-
-    // 上下文原始文字内容
-    this.rawContext = "";
-    this.context = {
-      version: 2.2,
-      runtime: {
-        round: 1,
-        workspace: this.workspace,
-        datetime: formatedDatetimeNow(),
-        startup_at: Date.now(),
-      },
-    };
-
-    // 消息数组
-    this.messages = [{ role: "system", content: this.systemPrompt }];
-
-    // 终止控制器
-    this.abortController = new AbortController();
-    this.toolContext = arg.toolContext ?? {};
-    this.mcpTools = arg.mcpTools ?? {};
-  }
-
-  /**
-   * 合并上下文对象数据
-   * @param context 将要合并的上下文对象数据
-   * @description 通过crush扁平化上下文对象,然后合并,最后使用construct重新组合成新的上下文对象
-   */
-  private mergeContext(context: Partial<AgentContext>) {
-    const originalContext = crush(this.context);
-    const targetContext = crush(context);
-    const mergedContext = { ...originalContext, ...targetContext };
-    this.context = construct(mergedContext) as AgentContext;
-  }
-
-  /**
-   * 更新上下文内容
-   */
-  private updateConetxt() {
-    this.context.runtime.round += 1;
-    this.context.runtime.datetime = formatedDatetimeNow();
-  }
-
-  /**
-   * 向Messages中注入上下文信息
-   */
-  private injectContext() {
-    this.updateConetxt(); // 更新上下文中的一些数据
-
-    // 插入上下文
-    const firstMessage = this.messages[0];
-    const contextContent = [
-      CONTEXT_TAG_START,
-      encode(this.context),
-      CONTEXT_TAG_END,
-    ].join("\n");
-
-    if (
-      firstMessage?.role === "system" &&
-      !firstMessage.content.startsWith(CONTEXT_TAG_START)
-    ) {
-      // 插入context内容
-      this.messages = [
-        {
-          role: "system",
-          content: contextContent,
-        },
-        ...this.messages,
-      ];
-    } else {
-      this.messages[0]!.content = contextContent;
-    }
+    this.session = new AgentSession({
+      workspace: arg.workspace,
+      systemPrompt: arg.systemPrompt,
+    });
+    this.runner = new AgentRunner({
+      model: arg.model,
+      toolContext: arg.toolContext,
+      mcpTools: arg.mcpTools,
+      dependencies: arg.dependencies,
+    });
   }
 
   /**
    * 执行一个任务
    */
   async runTask(question: string) {
-    // 注入上下文数据
-    this.injectContext();
-
-    // 推入用户的会话内容
-    this.messages.push({
-      role: "user",
-      content: question,
-    });
-
-    // 尝试使用middleware
-    const warpedLanguageModel = wrapLanguageModel({
-      model: this.model!,
-      middleware: [
-        extractContextMiddleware((context) => {
-          // 合并上下文数据
-          this.mergeContext(context);
-        }),
-      ],
-    });
-
-    // 生成用户会话结果
-    const { text } = await generateText({
-      model: warpedLanguageModel,
-      abortSignal: this.abortController?.signal,
-      messages: this.messages,
-      tools: { ...this.mcpTools, ...tools(this.toolContext) },
-      stopWhen: stepCountIs(10),
-    });
-
-    return text;
+    return await this.runner.runTask(this.session, question);
   }
 
   /**
-   * 流式输出执行任务
+   * 流式输出执行任务（兼容保留，当前不对外返回流）
    */
   async runAsyncTask(question: string) {
-    // 注入上下文数据
-    this.injectContext();
+    const result = this.runner.runTaskStream(this.session, question);
 
-    // 推入用户的会话内容
-    this.messages.push({
-      role: "user",
-      content: question,
-    });
-
-    // 尝试使用middleware
-    const warpedLanguageModel = wrapLanguageModel({
-      model: this.model!,
-      middleware: [
-        extractContextMiddleware((context) => {
-          // 合并上下文数据
-          this.mergeContext(context);
-        }),
-      ],
-    });
-
-    const result = streamText({
-      model: warpedLanguageModel,
-      messages: this.messages,
-      abortSignal: this.abortController?.signal,
-      tools: { ...this.mcpTools, ...tools(this.toolContext) },
-      stopWhen: stepCountIs(10),
-    });
-
-    const buffer: string[] = [];
-
-    for await (const textPart of result.textStream) {
-      // process.stdout.write("\x1b[2K\r");
-      // buffer.push(textPart);
-      // console.log(buffer.join(""));
+    for await (const _textPart of result.textStream) {
+      // 保持旧行为：消费流但不输出
     }
   }
 
   getMessagesSnapshot() {
-    return structuredClone(this.messages);
+    return this.session.getMessagesSnapshot();
   }
 
   getContextSnapshot() {
-    return structuredClone(this.context);
+    return this.session.getContextSnapshot();
+  }
+
+  getSessionSnapshot(): AgentSessionSnapshot {
+    return this.session.snapshot();
   }
 
   displayMessages() {
@@ -231,3 +93,4 @@ export class Agent {
     );
   }
 }
+

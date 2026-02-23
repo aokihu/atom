@@ -8,9 +8,16 @@
 
 import { tool } from "ai";
 import { z } from "zod";
-import { canWriteFile } from "./permissions";
+import { createPermissionPolicy } from "./permissions/policy";
+import type { ToolExecutionContext } from "./types";
 
-export const writeTool = (context: any) =>
+type WriteToolInput = {
+  filepath: string;
+  content: string;
+  append?: boolean;
+};
+
+export const writeTool = (context: ToolExecutionContext) =>
   tool({
     description: "Write content to a file",
     inputSchema: z.object({
@@ -18,8 +25,12 @@ export const writeTool = (context: any) =>
       content: z.string().describe("the file content to write"),
       append: z.boolean().optional().describe("append to file if true"),
     }),
-    execute: async ({ filepath, content, append = false }) => {
-      if (!canWriteFile(filepath, context?.permissions?.tools)) {
+    execute: async ({
+      filepath,
+      content,
+      append = false,
+    }: WriteToolInput) => {
+      if (!createPermissionPolicy(context).canWriteFile(filepath)) {
         return {
           error: "Permission denied: write path not allowed",
         };
