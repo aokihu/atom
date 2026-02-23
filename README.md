@@ -16,7 +16,7 @@ To run:
 bun run src/index.ts --workspace=./Playground
 ```
 
-默认是 `tui` 模式：同进程启动 HTTP 服务端，并启动本地 Ink TUI 客户端通过 HTTP 通讯（兼容旧名 `hybrid`）。
+默认是 `tui` 模式：同进程启动 HTTP 服务端，并启动本地 OpenTUI TUI 客户端通过 HTTP 通讯（兼容旧名 `hybrid`）。
 
 ## 0.2.0 Breaking Changes
 
@@ -29,7 +29,7 @@ bun run src/index.ts --workspace=./Playground
 ```text
 src/
   index.ts                # 启动入口与模式编排
-  clients/                # 客户端实现（当前为 Ink TUI）
+  clients/                # 客户端实现（当前为 OpenTUI TUI）
   libs/
     agent/                # Agent 核心与工具
     channel/              # 通道契约与 HTTP 网关/客户端
@@ -58,9 +58,9 @@ docs/
   - 指定配置文件路径，可选。
   - 未传时默认读取 `<workspace>/agent.config.json`。
 - `--mode <tui|server|tui-client>`
-  - `tui`（默认，旧名 `hybrid`）：启动 HTTP 服务端 + 本地 Ink TUI 客户端（HTTP 通讯）。
+  - `tui`（默认，旧名 `hybrid`）：启动 HTTP 服务端 + 本地 OpenTUI TUI 客户端（HTTP 通讯）。
   - `server`：仅启动 HTTP 服务端。
-  - `tui-client`：仅启动 Ink TUI 客户端，通过 HTTP 连接到服务端。
+  - `tui-client`：仅启动 OpenTUI TUI 客户端，通过 HTTP 连接到服务端。
 - `--http-host <host>`
   - HTTP 服务监听地址，默认 `127.0.0.1`（仅本机访问）。
 - `--http-port <port>`
@@ -77,7 +77,7 @@ bun run src/index.ts --workspace ./Playground
 # 仅启动 HTTP 服务端
 bun run src/index.ts --mode server --workspace ./Playground --http-port 8787
 
-# 仅启动 Ink TUI 客户端（连接到已运行服务）
+# 仅启动 OpenTUI TUI 客户端（连接到已运行服务）
 bun run src/index.ts --mode tui-client --server-url http://127.0.0.1:8787
 
 # 指定配置文件
@@ -93,7 +93,7 @@ bun run src/index.ts --workspace ./Playground --config ./agent.config.json
 
 ### HTTP API (v1)
 
-当前输入输出已解耦，Ink TUI 客户端通过 HTTP 与服务端通讯（轮询模式，非流式）。
+当前输入输出已解耦，OpenTUI TUI 客户端通过 HTTP 与服务端通讯（轮询模式，非流式）。
 
 - `GET /healthz`
 - `POST /v1/tasks`

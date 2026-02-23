@@ -1,8 +1,12 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Box, Text, render, useApp, useInput, useStdout } from "ink";
-import TextInput from "ink-text-input";
-
+import { useEffect, useRef, useState } from "react";
 import { sleep } from "bun";
+import { createCliRenderer } from "@opentui/core";
+import {
+  createRoot,
+  useKeyboard,
+  useRenderer,
+  useTerminalDimensions,
+} from "@opentui/react";
 
 import type { GatewayClient } from "../libs/channel/channel";
 import { TaskStatus } from "../types/task";
@@ -35,14 +39,6 @@ type MainPanelContent = {
   sourceLabel?: string;
 };
 
-type ViewportState = {
-  scrollOffset: number;
-  viewportHeight: number;
-  contentWidth: number;
-  wrappedLinesCount: number;
-  maxScrollOffset: number;
-};
-
 type TerminalSize = {
   columns: number;
   rows: number;
@@ -66,17 +62,10 @@ type TuiAppProps = {
   mode?: "hybrid" | "tui" | "tui-client";
 };
 
-type ScrollbarThumb = {
-  visible: boolean;
-  start: number;
-  size: number;
-};
-
 const MAX_RENDER_ENTRIES = 200;
 const MIN_TERMINAL_COLUMNS = 20;
 const MIN_TERMINAL_ROWS = 8;
 const ANSWER_PANEL_VERTICAL_OVERHEAD = 4; // border(2) + title(1) + status(1)
-const ANSWER_PANEL_HORIZONTAL_OVERHEAD = 6; // border(2) + paddingX(2) + gap+scrollbar(2)
 const PANEL_INNER_HORIZONTAL_OVERHEAD = 4; // border(2) + paddingX(2)
 const ELLIPSIS = "...";
 
@@ -95,7 +84,7 @@ const createInitialEntries = (): LogEntry[] => [
   {
     id: 1,
     kind: "system",
-    text: "Ink TUI ready. Type /help to see commands.",
+    text: "OpenTUI TUI ready. Type /help to see commands.",
     createdAt: Date.now(),
   },
 ];
@@ -109,10 +98,11 @@ const createInitialMainPanelContent = (): MainPanelContent => ({
     "",
     "Shortcuts:",
     "  Tab              Switch focus (Input / Answer)",
-    "  j / k, Up / Down Scroll answer content",
-    "  PageUp / PageDown Scroll faster",
-    "  Home / End       Jump to top / bottom",
+    "  Enter            Submit when input is focused",
     "  Ctrl+C           Exit",
+    "",
+    "Answer scrolling:",
+    "  Use Scroll Area default keyboard/mouse behavior when Answer is focused.",
     "",
     "Slash commands:",
     "  /help  /messages  /context  /exit",
@@ -171,6 +161,13 @@ const helpText = [
   "/messages Show agent messages snapshot",
   "/context  Show agent context snapshot",
   "/exit     Exit TUI",
+  "",
+  "Shortcuts:",
+  "Tab       Switch focus (Input / Answer)",
+  "Enter     Submit when input is focused",
+  "Ctrl+C    Exit",
+  "",
+  "Answer panel uses OpenTUI Scroll Area default scrolling when focused.",
 ].join("\n");
 
 const toSafeNumber = (value: number, fallback: number): number =>
@@ -237,116 +234,19 @@ const truncateToDisplayWidth = (value: string, width: number): string => {
   return `${current}${ELLIPSIS}`;
 };
 
-export const summarizeEventText = (text: string, maxWidth = 80): string => {
+const summarizeEventText = (text: string, maxWidth = 80): string => {
   const singleLine = text.replace(/\s+/g, " ").trim();
   if (!singleLine) return "(empty)";
   return truncateToDisplayWidth(singleLine, maxWidth);
 };
 
-export const wrapContentToLines = (text: string, width: number): string[] => {
-  const safeWidth = Math.max(1, Math.floor(width));
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const rawLines = normalized.split("\n");
-  const wrapped: string[] = [];
-
-  for (const rawLine of rawLines) {
-    const expanded = rawLine.replace(/\t/g, "  ");
-
-    if (expanded.length === 0) {
-      wrapped.push("");
-      continue;
-    }
-
-    let buffer = "";
-    let bufferWidth = 0;
-
-    for (const char of Array.from(expanded)) {
-      const charWidth = Math.max(1, charDisplayWidth(char));
-
-      if (bufferWidth + charWidth > safeWidth && buffer.length > 0) {
-        wrapped.push(buffer);
-        buffer = "";
-        bufferWidth = 0;
-      }
-
-      if (charWidth > safeWidth && buffer.length === 0) {
-        wrapped.push(char);
-        continue;
-      }
-
-      buffer += char;
-      bufferWidth += charWidth;
-    }
-
-    if (buffer.length > 0) {
-      wrapped.push(buffer);
-    }
-  }
-
-  return wrapped.length > 0 ? wrapped : [""];
-};
-
-export const clampScrollOffset = (
-  offset: number,
-  wrappedLinesCount: number,
-  viewportHeight: number,
-): number => {
-  const safeViewport = Math.max(1, Math.floor(viewportHeight));
-  const safeTotal = Math.max(0, Math.floor(wrappedLinesCount));
-  const maxOffset = Math.max(0, safeTotal - safeViewport);
-  const safeOffset = Math.floor(Number.isFinite(offset) ? offset : 0);
-  return Math.max(0, Math.min(safeOffset, maxOffset));
-};
-
-export const computeScrollbarThumb = (
-  wrappedLinesCount: number,
-  viewportHeight: number,
-  scrollOffset: number,
-): ScrollbarThumb => {
-  const safeViewport = Math.max(1, Math.floor(viewportHeight));
-  const safeTotal = Math.max(0, Math.floor(wrappedLinesCount));
-
-  if (safeTotal <= safeViewport) {
-    return { visible: false, start: 0, size: safeViewport };
-  }
-
-  const maxOffset = Math.max(0, safeTotal - safeViewport);
-  const clampedOffset = clampScrollOffset(scrollOffset, safeTotal, safeViewport);
-  const thumbSize = Math.max(1, Math.min(safeViewport, Math.floor((safeViewport * safeViewport) / safeTotal)));
-  const maxStart = Math.max(0, safeViewport - thumbSize);
-  const thumbStart = maxOffset === 0 ? 0 : Math.round((clampedOffset / maxOffset) * maxStart);
+const useTerminalSize = (): TerminalSize => {
+  const { width, height } = useTerminalDimensions();
 
   return {
-    visible: true,
-    start: thumbStart,
-    size: thumbSize,
+    columns: Math.max(MIN_TERMINAL_COLUMNS, toSafeNumber(width, 80)),
+    rows: Math.max(MIN_TERMINAL_ROWS, toSafeNumber(height, 24)),
   };
-};
-
-const useTerminalSize = (): TerminalSize => {
-  const { stdout } = useStdout();
-
-  const getSize = (): TerminalSize => ({
-    columns: Math.max(MIN_TERMINAL_COLUMNS, toSafeNumber(stdout.columns, 80)),
-    rows: Math.max(MIN_TERMINAL_ROWS, toSafeNumber(stdout.rows, 24)),
-  });
-
-  const [size, setSize] = useState<TerminalSize>(() => getSize());
-
-  useEffect(() => {
-    setSize(getSize());
-
-    const onResize = () => {
-      setSize(getSize());
-    };
-
-    stdout.on("resize", onResize);
-    return () => {
-      stdout.off("resize", onResize);
-    };
-  }, [stdout]);
-
-  return size;
 };
 
 const getLayoutMetrics = (terminal: TerminalSize): LayoutMetrics => {
@@ -382,20 +282,18 @@ const buildAnswerTitleLine = (
 
 const buildAgentMetaLine = (props: {
   mainPanel: MainPanelContent;
-  viewport: ViewportState;
   compact: boolean;
 }): string => {
-  const { mainPanel, viewport, compact } = props;
-  const scrollText = `${viewport.scrollOffset}/${viewport.maxScrollOffset}`;
+  const { mainPanel, compact } = props;
   const sourceText = mainPanel.sourceLabel
     ? truncateToDisplayWidth(mainPanel.sourceLabel, compact ? 12 : 20)
     : "-";
 
   if (compact) {
-    return `type:${mainPanel.kind} src:${sourceText} scroll:${scrollText}`;
+    return `type:${mainPanel.kind} src:${sourceText} scroll:scrollbox`;
   }
 
-  return `type:${mainPanel.kind} source:${sourceText} scroll:${scrollText} lines:${viewport.wrappedLinesCount}`;
+  return `type:${mainPanel.kind} source:${sourceText} scroll:scrollbox(default)`;
 };
 
 const AnswerPane = (props: {
@@ -403,41 +301,24 @@ const AnswerPane = (props: {
   terminalWidth: number;
   mainPanel: MainPanelContent;
   focus: FocusTarget;
-  viewport: ViewportState;
-  visibleLines: string[];
 }) => {
-  const {
-    height,
-    terminalWidth,
-    mainPanel,
-    focus,
-    viewport,
-    visibleLines,
-  } = props;
+  const { height, terminalWidth, mainPanel, focus } = props;
 
   const headerWidth = Math.max(1, terminalWidth - PANEL_INNER_HORIZONTAL_OVERHEAD);
   const titleLine = buildAnswerTitleLine(mainPanel, headerWidth);
   const statusLine = truncateToDisplayWidth(
     buildAgentMetaLine({
       mainPanel,
-      viewport,
       compact: terminalWidth < 50,
     }),
     headerWidth,
   );
-  const scrollbarThumb = computeScrollbarThumb(
-    viewport.wrappedLinesCount,
-    viewport.viewportHeight,
-    viewport.scrollOffset,
-  );
   const contentColor = getMainPanelColor(mainPanel.kind);
-  const paddedLines = [...visibleLines];
-  while (paddedLines.length < viewport.viewportHeight) {
-    paddedLines.push("");
-  }
+  const scrollAreaHeight = Math.max(1, height - ANSWER_PANEL_VERTICAL_OVERHEAD);
 
   return (
-    <Box
+    <box
+      border
       borderStyle="single"
       borderColor={focus === "answer" ? "cyan" : "gray"}
       paddingX={1}
@@ -445,32 +326,22 @@ const AnswerPane = (props: {
       height={height}
       width="100%"
     >
-      <Text color="cyan">{titleLine || "Atom Answer Zone"}</Text>
-      <Text dimColor>{statusLine || "status unavailable"}</Text>
-      <Box flexDirection="row" height={Math.max(1, viewport.viewportHeight)}>
-        <Box flexDirection="column" flexGrow={1} width="100%">
-          {paddedLines.map((line, index) => (
-            <Text key={`answer-line-${index}`} color={contentColor} dimColor={mainPanel.kind === "empty"}>
-              {line.length > 0 ? line : " "}
-            </Text>
-          ))}
-        </Box>
-        <Box width={1} marginLeft={1} flexDirection="column">
-          {Array.from({ length: Math.max(1, viewport.viewportHeight) }, (_, index) => {
-            const isThumb =
-              scrollbarThumb.visible && index >= scrollbarThumb.start && index < scrollbarThumb.start + scrollbarThumb.size;
-            return (
-              <Text
-                key={`scrollbar-${index}`}
-                color={isThumb ? (focus === "answer" ? "cyan" : "white") : "gray"}
-              >
-                {isThumb ? "#" : "|"}
-              </Text>
-            );
-          })}
-        </Box>
-      </Box>
-    </Box>
+      <text fg="cyan">{titleLine || "Atom Answer Zone"}</text>
+      <text fg="gray">{statusLine || "status unavailable"}</text>
+      <scrollbox
+        height={scrollAreaHeight}
+        width="100%"
+        focused={focus === "answer"}
+        scrollX={false}
+        scrollY
+      >
+        <box width="100%">
+          <text fg={mainPanel.kind === "empty" ? "gray" : contentColor} wrapMode="char">
+            {mainPanel.body.length > 0 ? mainPanel.body : " "}
+          </text>
+        </box>
+      </scrollbox>
+    </box>
   );
 };
 
@@ -486,7 +357,6 @@ const SystemStatusStrip = (props: {
   focus: FocusTarget;
   terminal: TerminalSize;
   layoutMode: LayoutMode;
-  viewport: ViewportState;
   mainPanel: MainPanelContent;
 }) => {
   const {
@@ -501,7 +371,6 @@ const SystemStatusStrip = (props: {
     focus,
     terminal,
     layoutMode,
-    viewport,
     mainPanel,
   } = props;
   const rowWidth = Math.max(1, terminalWidth - PANEL_INNER_HORIZONTAL_OVERHEAD);
@@ -509,14 +378,15 @@ const SystemStatusStrip = (props: {
   const rows = [
     `mode:${displayMode}  layout:${layoutMode}  conn:${connection}  state:${phase}`,
     `server:${serverUrl ?? "(unknown)"}${activeTaskId ? `  task:${activeTaskId}` : ""}`,
-    `term:${terminal.columns}x${terminal.rows}  focus:${focus}  scroll:${viewport.scrollOffset}/${viewport.maxScrollOffset}  lines:${viewport.wrappedLinesCount}`,
+    `term:${terminal.columns}x${terminal.rows}  focus:${focus}  scroll:scrollbox`,
     `panel:${mainPanel.kind}  title:${mainPanel.title}${mainPanel.sourceLabel ? `  src:${mainPanel.sourceLabel}` : ""}`,
   ]
     .slice(0, Math.max(0, visibleRows))
     .map((line) => truncateToDisplayWidth(line, rowWidth));
 
   return (
-    <Box
+    <box
+      border
       borderStyle="single"
       borderColor="gray"
       paddingX={1}
@@ -524,24 +394,24 @@ const SystemStatusStrip = (props: {
       height={height}
       width="100%"
     >
-      <Text color="cyan">System Status</Text>
+      <text fg="cyan">System Status</text>
       {Array.from({ length: visibleRows }, (_, index) => {
         const line = rows[index];
         if (!line) {
           return (
-            <Box key={`status-empty-${index}`} width="100%">
-              <Text> </Text>
-            </Box>
+            <box key={`status-empty-${index}`} width="100%">
+              <text>{" "}</text>
+            </box>
           );
         }
 
         return (
-          <Box key={`status-line-${index}`} width="100%">
-            <Text color="gray">{line.length > 0 ? line : " "}</Text>
-          </Box>
+          <box key={`status-line-${index}`} width="100%">
+            <text fg="gray">{line.length > 0 ? line : " "}</text>
+          </box>
         );
       })}
-    </Box>
+    </box>
   );
 };
 
@@ -551,14 +421,14 @@ const InputPane = (props: {
   focus: FocusTarget;
   inputValue: string;
   onChange: (value: string) => void;
-  onSubmit: (value: string) => void;
   showHint: boolean;
 }) => {
-  const { height, isBusy, focus, inputValue, onChange, onSubmit, showHint } = props;
+  const { height, isBusy, focus, inputValue, onChange, showHint } = props;
   const inputFocused = !isBusy && focus === "input";
 
   return (
-    <Box
+    <box
+      border
       borderStyle="single"
       borderColor={inputFocused ? "cyan" : "gray"}
       paddingX={1}
@@ -566,31 +436,29 @@ const InputPane = (props: {
       height={height}
       width="100%"
     >
-      <Text color="cyan">User Input Zone</Text>
+      <text fg="cyan">User Input Zone</text>
       {showHint ? (
-        <Text dimColor>
+        <text fg="gray">
           {isBusy
             ? "Task in progress... input is locked; switch to answer view to scroll."
             : "Enter to submit. Tab switches focus."}
-        </Text>
+        </text>
       ) : null}
-      <Box width="100%">
-        <TextInput
+      <box width="100%">
+        <input
           value={inputValue}
           onChange={onChange}
-          onSubmit={onSubmit}
           placeholder={isBusy ? "Waiting for task completion..." : "Ask Atom or type /help"}
-          focus={inputFocused}
-          showCursor={inputFocused}
+          focused={inputFocused}
+          width="100%"
         />
-      </Box>
-    </Box>
+      </box>
+    </box>
   );
 };
 
 const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
-  const { exit } = useApp();
-
+  const renderer = useRenderer();
   const terminal = useTerminalSize();
 
   const [inputValue, setInputValue] = useState("");
@@ -602,38 +470,14 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
   const [connection, setConnection] = useState<ConnectionState>("unknown");
   const [activeTaskId, setActiveTaskId] = useState<string | undefined>(undefined);
   const [focusTarget, setFocusTarget] = useState<FocusTarget>("input");
-  const [scrollOffset, setScrollOffset] = useState(0);
 
   const mountedRef = useRef(true);
   const nextLogIdRef = useRef(2);
   const phaseRef = useRef<ClientPhase>("idle");
 
   const layout = getLayoutMetrics(terminal);
-  const answerViewportHeight = Math.max(1, layout.answerHeight - ANSWER_PANEL_VERTICAL_OVERHEAD);
-  const answerContentWidth = Math.max(1, terminal.columns - ANSWER_PANEL_HORIZONTAL_OVERHEAD);
-  const wrappedLines = wrapContentToLines(mainPanelContent.body, answerContentWidth);
-  const clampedOffset = clampScrollOffset(scrollOffset, wrappedLines.length, answerViewportHeight);
-  const maxScrollOffset = Math.max(0, wrappedLines.length - answerViewportHeight);
-  const viewport: ViewportState = {
-    scrollOffset: clampedOffset,
-    viewportHeight: answerViewportHeight,
-    contentWidth: answerContentWidth,
-    wrappedLinesCount: wrappedLines.length,
-    maxScrollOffset,
-  };
-  const visibleAnswerLines = wrappedLines.slice(
-    viewport.scrollOffset,
-    viewport.scrollOffset + viewport.viewportHeight,
-  );
-
   const isBusy = phase !== "idle";
   const effectiveFocus: FocusTarget = isBusy ? "answer" : focusTarget;
-
-  useEffect(() => {
-    if (clampedOffset !== scrollOffset) {
-      setScrollOffset(clampedOffset);
-    }
-  }, [clampedOffset, scrollOffset]);
 
   const appendLog = (kind: LogKind, text: string) => {
     if (!mountedRef.current) return;
@@ -651,10 +495,9 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
     });
   };
 
-  const setMainPanelContentAndResetScroll = (next: MainPanelContent) => {
+  const setMainPanelContentSafe = (next: MainPanelContent) => {
     if (!mountedRef.current) return;
     setMainPanelContent(next);
-    setScrollOffset(0);
   };
 
   const setClientPhase = (nextPhase: ClientPhase) => {
@@ -711,69 +554,8 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
     }
   }, [focusTarget, isBusy]);
 
-  useInput((input, key) => {
-    if (key.ctrl && input.toLowerCase() === "c") {
-      exit();
-      return;
-    }
-
-    if (key.tab) {
-      if (isBusy) {
-        setFocusTarget("answer");
-      } else {
-        setFocusTarget((prev) => (prev === "input" ? "answer" : "input"));
-      }
-      return;
-    }
-
-    if (effectiveFocus !== "answer") {
-      return;
-    }
-
-    if (key.ctrl || key.meta) {
-      return;
-    }
-
-    const pageStep = Math.max(1, viewport.viewportHeight - 1);
-
-    const scrollBy = (delta: number) => {
-      setScrollOffset((prev) =>
-        clampScrollOffset(prev + delta, viewport.wrappedLinesCount, viewport.viewportHeight),
-      );
-    };
-
-    if (key.upArrow || input === "k") {
-      scrollBy(-1);
-      return;
-    }
-
-    if (key.downArrow || input === "j") {
-      scrollBy(1);
-      return;
-    }
-
-    if (key.pageUp) {
-      scrollBy(-pageStep);
-      return;
-    }
-
-    if (key.pageDown) {
-      scrollBy(pageStep);
-      return;
-    }
-
-    if (key.home) {
-      setScrollOffset(0);
-      return;
-    }
-
-    if (key.end) {
-      setScrollOffset(clampScrollOffset(Number.MAX_SAFE_INTEGER, viewport.wrappedLinesCount, viewport.viewportHeight));
-    }
-  });
-
   const presentError = (title: string, errorText: string, sourceLabel?: string) => {
-    setMainPanelContentAndResetScroll({
+    setMainPanelContentSafe({
       kind: "error",
       title,
       body: errorText,
@@ -785,7 +567,7 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
     appendLog("command", command);
 
     if (command === "/help") {
-      setMainPanelContentAndResetScroll({
+      setMainPanelContentSafe({
         kind: "system",
         title: "Help",
         body: helpText,
@@ -796,7 +578,7 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
     }
 
     if (command === "/exit") {
-      exit();
+      renderer.destroy();
       return;
     }
 
@@ -821,7 +603,7 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
       if (command === "/messages") {
         const data = await withConnectionTracking(() => client.getAgentMessages());
         const body = formatJson(data.messages);
-        setMainPanelContentAndResetScroll({
+        setMainPanelContentSafe({
           kind: "system",
           title: "Agent Messages Snapshot",
           body,
@@ -831,7 +613,7 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
       } else {
         const data = await withConnectionTracking(() => client.getAgentContext());
         const body = formatJson(data.context);
-        setMainPanelContentAndResetScroll({
+        setMainPanelContentSafe({
           kind: "system",
           title: "Agent Context Snapshot",
           body,
@@ -885,7 +667,7 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
 
         if (task.status === TaskStatus.Success) {
           if (task.result !== undefined) {
-            setMainPanelContentAndResetScroll({
+            setMainPanelContentSafe({
               kind: "assistant",
               title: "Latest Reply",
               body: task.result,
@@ -894,7 +676,7 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
             appendLog("assistant", `Reply received (${task.result.length} chars)`);
           } else {
             const message = "Task succeeded with empty result.";
-            setMainPanelContentAndResetScroll({
+            setMainPanelContentSafe({
               kind: "system",
               title: "Empty Result",
               body: message,
@@ -909,7 +691,7 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
         } else if (task.status === TaskStatus.Cancelled) {
           const message = "Task was cancelled.";
           appendLog("system", message);
-          setMainPanelContentAndResetScroll({
+          setMainPanelContentSafe({
             kind: "system",
             title: "Task Cancelled",
             body: `${created.taskId}\n\n${message}`,
@@ -918,7 +700,7 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
         } else {
           const message = `Task completed with unexpected status: ${task.status}`;
           appendLog("system", message);
-          setMainPanelContentAndResetScroll({
+          setMainPanelContentSafe({
             kind: "system",
             title: "Task Completed",
             body: `${created.taskId}\n\n${message}`,
@@ -956,19 +738,38 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
     void runPromptTask(value);
   };
 
+  useKeyboard((key) => {
+    if (key.eventType !== "press") {
+      return;
+    }
+
+    if (key.name === "tab") {
+      if (isBusy) {
+        setFocusTarget("answer");
+      } else {
+        setFocusTarget((prev) => (prev === "input" ? "answer" : "input"));
+      }
+      return;
+    }
+
+    if ((key.name === "enter" || key.name === "return") && !key.ctrl && !key.meta) {
+      if (effectiveFocus === "input" && !isBusy) {
+        handleSubmit(inputValue);
+      }
+    }
+  });
+
   return (
-    <Box flexDirection="column" height={terminal.rows} width={terminal.columns}>
+    <box flexDirection="column" height={terminal.rows} width={terminal.columns}>
       <AnswerPane
         height={layout.answerHeight}
         terminalWidth={terminal.columns}
         mainPanel={mainPanelContent}
         focus={effectiveFocus}
-        viewport={viewport}
-        visibleLines={visibleAnswerLines}
       />
 
       {layout.showEventStrip ? (
-        <Box width="100%">
+        <box width="100%">
           <SystemStatusStrip
             height={layout.eventStripHeight}
             terminalWidth={terminal.columns}
@@ -981,42 +782,49 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
             focus={effectiveFocus}
             terminal={terminal}
             layoutMode={layout.mode}
-            viewport={viewport}
             mainPanel={mainPanelContent}
           />
-        </Box>
+        </box>
       ) : null}
 
-      <Box width="100%">
+      <box width="100%">
         <InputPane
           height={layout.inputHeight}
           isBusy={isBusy}
           focus={effectiveFocus}
           inputValue={inputValue}
           onChange={setInputValue}
-          onSubmit={handleSubmit}
           showHint={layout.showInputHint}
         />
-      </Box>
-    </Box>
+      </box>
+    </box>
   );
 };
 
 export const startTuiClient = async (options: StartTuiClientOptions): Promise<void> => {
   const { client, pollIntervalMs = 500, serverUrl, mode } = options;
 
-  const instance = render(
-    <TuiApp client={client} pollIntervalMs={pollIntervalMs} serverUrl={serverUrl} mode={mode} />,
-    {
-      patchConsole: true,
-      exitOnCtrlC: true,
-      incrementalRendering: true,
+  let resolveExit: (() => void) | undefined;
+  const waitForExit = new Promise<void>((resolve) => {
+    resolveExit = resolve;
+  });
+
+  const renderer = await createCliRenderer({
+    exitOnCtrlC: true,
+    onDestroy: () => {
+      resolveExit?.();
     },
-  );
+  });
+
+  const root = createRoot(renderer);
 
   try {
-    await instance.waitUntilExit();
-  } finally {
-    instance.cleanup();
+    root.render(
+      <TuiApp client={client} pollIntervalMs={pollIntervalMs} serverUrl={serverUrl} mode={mode} />,
+    );
+    await waitForExit;
+  } catch (error) {
+    renderer.destroy();
+    throw error;
   }
 };

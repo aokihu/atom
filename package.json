@@ -3,7 +3,7 @@
   "module": "index.ts",
   "description": "Atom 智能生命体",
   "type": "module",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "scripts": {
     "dev": "bun run src/index.ts --workspace=./Playground"
   },
@@ -19,10 +19,10 @@
     "@ai-sdk/mcp": "^1.0.21",
     "@ai-sdk/openai-compatible": "^2.0.30",
     "@openrouter/ai-sdk-provider": "^2.2.3",
+    "@opentui/core": "^0.1.81",
+    "@opentui/react": "^0.1.81",
     "@toon-format/toon": "^2.1.0",
     "ai": "^6.0.86",
-    "ink": "^6.8.0",
-    "ink-text-input": "^6.0.0",
     "openai": "^6.22.0",
     "radashi": "^12.7.1",
     "react": "^19.2.4",

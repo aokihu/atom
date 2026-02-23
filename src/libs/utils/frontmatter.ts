@@ -44,41 +44,49 @@ export async function extractFrontmatterStream(
   let state = SEARCH_START;
   let buffer = "";
 
-  for await (const chunk of stream) {
-    buffer += decoder.decode(chunk, { stream: true });
-
+  const reader = stream.getReader();
+  try {
     while (true) {
-      if (state === SEARCH_START) {
-        // 允许文件开头有 BOM 或空白
-        let i = 0;
-        while (i < buffer.length && /\s/.test(buffer.charAt(i))) i++;
+      const { value: chunk, done } = await reader.read();
+      if (done || !chunk) break;
 
-        if (buffer.slice(i, i + 3) !== "---") {
-          return "";
+      buffer += decoder.decode(chunk, { stream: true });
+
+      while (true) {
+        if (state === SEARCH_START) {
+          // 允许文件开头有 BOM 或空白
+          let i = 0;
+          while (i < buffer.length && /\s/.test(buffer.charAt(i))) i++;
+
+          if (buffer.slice(i, i + 3) !== "---") {
+            return "";
+          }
+
+          // 等待完整的起始行
+          const lineEnd = buffer.indexOf("\n", i + 3);
+          if (lineEnd === -1) break;
+
+          buffer = buffer.slice(lineEnd + 1);
+          state = READ_BODY;
         }
 
-        // 等待完整的起始行
-        const lineEnd = buffer.indexOf("\n", i + 3);
-        if (lineEnd === -1) break;
-
-        buffer = buffer.slice(lineEnd + 1);
-        state = READ_BODY;
-      }
-
-      if (state === READ_BODY) {
-        // 查找结束标记
-        const idx = buffer.indexOf("\n---");
-        if (idx !== -1) {
-          return buffer.slice(0, idx);
+        if (state === READ_BODY) {
+          // 查找结束标记
+          const idx = buffer.indexOf("\n---");
+          if (idx !== -1) {
+            return buffer.slice(0, idx);
+          }
+          break;
         }
-        break;
+      }
+
+      // 控制 buffer 大小，防止无限增长
+      if (buffer.length > 8192) {
+        buffer = buffer.slice(-4096);
       }
     }
-
-    // 控制 buffer 大小，防止无限增长
-    if (buffer.length > 8192) {
-      buffer = buffer.slice(-4096);
-    }
+  } finally {
+    reader.releaseLock();
   }
 
   return "";

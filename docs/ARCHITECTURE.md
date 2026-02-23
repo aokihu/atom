@@ -7,7 +7,7 @@
 ```text
 src/
   index.ts                # 进程入口与模式编排（tui/server/tui-client）
-  clients/                # 用户侧客户端实现（当前 Ink TUI，后续 web/bot）
+  clients/                # 用户侧客户端实现（当前 OpenTUI TUI，后续 web/bot）
   libs/
     agent/                # Agent 核心逻辑、提示词注入、工具集成
     channel/              # 通信通道契约与 HTTP 实现（gateway/client）
@@ -25,7 +25,7 @@ docs/
 
 ### `src/clients`
 - 放置“用户交互端”实现，例如：
-  - `tui`（Ink）
+  - `tui`（OpenTUI）
   - 后续 Web UI / Bot adapter
 - 只通过 `GatewayClient`（或其他通道抽象）访问服务端。
 - 不直接依赖 `Agent`、`PriorityTaskQueue`、`AgentRuntimeService`。
