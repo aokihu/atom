@@ -19,8 +19,25 @@ export type AgentToolsConfig = {
   send_email?: AgentPermissionRules;
 };
 
+export type MCPHttpTransportConfig = {
+  type: "http";
+  url: string;
+  headers?: Record<string, string>;
+};
+
+export type MCPServerConfig = {
+  id: string;
+  enabled?: boolean;
+  transport: MCPHttpTransportConfig;
+};
+
+export type MCPConfig = {
+  servers?: MCPServerConfig[];
+};
+
 export type AgentConfig = {
   tools?: AgentToolsConfig;
+  mcp?: MCPConfig;
 };
 
 export type AgentContext = {

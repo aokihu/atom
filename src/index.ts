@@ -21,6 +21,7 @@ import { workspace_check } from "./libs/utils/workspace_check";
 import { Agent } from "./libs/agent/agent";
 import { loadAgentConfig } from "./libs/agent/config";
 import { parseCliOptions } from "./libs/utils/cli";
+import { initMCPTools } from "./libs/mcp";
 
 /* 创建全局大语言模型处理对象 */
 const GlobalModel = createDeepSeek({
@@ -43,6 +44,33 @@ const agentConfig = await loadAgentConfig({
   configPath: cliOptions.configPath,
 });
 
+console.log("Initializing MCP servers...");
+const { tools: mcpTools, status: mcpStatus } = await initMCPTools(agentConfig.mcp);
+
+for (const serverStatus of mcpStatus) {
+  if (serverStatus.available) {
+    console.log(
+      `MCP check: ${serverStatus.id} OK | url=${serverStatus.url ?? "unknown"} | tools=${serverStatus.toolCount ?? 0}`,
+    );
+    if ((serverStatus.toolNames?.length ?? 0) > 0) {
+      console.log(`MCP info: ${serverStatus.id} tools -> ${serverStatus.toolNames!.join(", ")}`);
+    }
+    continue;
+  }
+
+  console.warn(
+    `MCP check: ${serverStatus.id} unavailable | url=${serverStatus.url ?? "unknown"} | MCP tools cannot connect: ${
+      serverStatus.message ?? "Unknown error"
+    }`,
+  );
+}
+
+console.log(
+  `MCP initialized: ${
+    mcpStatus.filter((status) => status.available).length
+  }/${mcpStatus.length} servers available`,
+);
+
 /* 检查工作目录 */
 console.log("Check workspace...");
 await workspace_check(cliOptions.workspace);
@@ -63,6 +91,7 @@ const taskAgent = new Agent({
   model: GlobalModel,
   workspace: cliOptions.workspace,
   toolContext: { permissions: agentConfig },
+  mcpTools,
 });
 
 console.log("Create Task Queue...");
