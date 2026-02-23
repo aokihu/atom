@@ -16,7 +16,7 @@ import { AgentRuntimeService } from "./libs/runtime";
 import { HttpGatewayClient, startHttpGateway } from "./libs/channel";
 import { startTuiClient } from "./clients";
 
-const APP_NAME = "Atom";
+const DEFAULT_AGENT_NAME = "Atom";
 
 const getAppVersion = (): string => {
   try {
@@ -35,8 +35,17 @@ const formatDuration = (startTime: number): string =>
 
 const logStage = (message: string) => console.log(`[startup] ${message}`);
 
-const printStartupBanner = (version: string, mode: CliOptions["mode"]) => {
-  console.log(`${APP_NAME} v${version} (${mode})`);
+const resolveAgentName = (agentName?: string): string => {
+  const normalized = agentName?.trim();
+  return normalized && normalized.length > 0 ? normalized : DEFAULT_AGENT_NAME;
+};
+
+const printStartupBanner = (
+  agentName: string,
+  version: string,
+  mode: CliOptions["mode"],
+) => {
+  console.log(`${agentName} v${version} (${mode})`);
 };
 
 const printTuiCommands = () => {
@@ -98,7 +107,10 @@ const createShutdownController = (
 const buildServerUrl = (options: Pick<CliOptions, "httpHost" | "httpPort" | "serverUrl">) =>
   options.serverUrl ?? `http://${options.httpHost}:${options.httpPort}`;
 
-const initializeRuntimeService = async (cliOptions: CliOptions) => {
+const initializeRuntimeService = async (
+  cliOptions: CliOptions,
+  agentConfig: Awaited<ReturnType<typeof loadAgentConfig>>,
+) => {
   logStage(`workspace = ${cliOptions.workspace}`);
   if (cliOptions.configPath) {
     logStage(`config = ${cliOptions.configPath}`);
@@ -107,13 +119,6 @@ const initializeRuntimeService = async (cliOptions: CliOptions) => {
   logStage("checking workspace...");
   await workspace_check(cliOptions.workspace);
   logStage("workspace ready");
-
-  logStage("loading agent config...");
-  const agentConfig = await loadAgentConfig({
-    workspace: cliOptions.workspace,
-    configPath: cliOptions.configPath,
-  });
-  logStage("agent config loaded");
 
   logStage("initializing MCP servers...");
   const { tools: mcpTools, status: mcpStatus } = await initMCPTools(agentConfig.mcp);
@@ -170,9 +175,8 @@ const main = async () => {
   const startupCwd = process.cwd();
   const cliOptions = parseCliOptions(process.argv.slice(2), startupCwd);
 
-  printStartupBanner(version, cliOptions.mode);
-
   if (cliOptions.mode === "tui-client") {
+    printStartupBanner(DEFAULT_AGENT_NAME, version, cliOptions.mode);
     const serverUrl = buildServerUrl(cliOptions);
     console.log(`[tui] server = ${serverUrl}`);
     printTuiCommands();
@@ -181,16 +185,27 @@ const main = async () => {
       client: new HttpGatewayClient(serverUrl),
       serverUrl,
       mode: "tui-client",
+      agentName: DEFAULT_AGENT_NAME,
     });
     return;
   }
 
-  const runtimeService = await initializeRuntimeService(cliOptions);
+  logStage("loading agent config...");
+  const agentConfig = await loadAgentConfig({
+    workspace: cliOptions.workspace,
+    configPath: cliOptions.configPath,
+  });
+  logStage("agent config loaded");
+  const agentName = resolveAgentName(agentConfig.agentName);
+
+  printStartupBanner(agentName, version, cliOptions.mode);
+
+  const runtimeService = await initializeRuntimeService(cliOptions, agentConfig);
   const gateway = startHttpGateway({
     runtime: runtimeService,
     host: cliOptions.httpHost,
     port: cliOptions.httpPort,
-    appName: APP_NAME,
+    appName: agentName,
     version,
     startupAt: runtimeService.startupAt,
   });
@@ -216,6 +231,7 @@ const main = async () => {
       client: new HttpGatewayClient(gateway.baseUrl),
       serverUrl: gateway.baseUrl,
       mode: "tui",
+      agentName,
     });
   } finally {
     await shutdown.run("tui exit");

@@ -1,4 +1,5 @@
 {
+  "agentName": "Atom",
   "tools": {
     "read": {
       "allow": ["^{workspace}/.*"],

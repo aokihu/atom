@@ -35,6 +35,16 @@ const ensureStringRecord = (value: unknown, keyPath: string) => {
   }
 };
 
+const ensureNonEmptyString = (value: unknown, keyPath: string) => {
+  if (value === undefined) return;
+  if (typeof value !== "string") {
+    throw new Error(`${keyPath} must be a string`);
+  }
+  if (value.trim() === "") {
+    throw new Error(`${keyPath} must be a non-empty string`);
+  }
+};
+
 const validateToolsConfig = (config: AgentConfig) => {
   const tools = config.tools;
   if (tools === undefined) return;
@@ -140,6 +150,7 @@ const validateMcpConfig = (config: AgentConfig) => {
 };
 
 const validateConfig = (config: AgentConfig) => {
+  ensureNonEmptyString(config.agentName, "agentName");
   validateToolsConfig(config);
   validateMcpConfig(config);
 };

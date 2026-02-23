@@ -34,6 +34,7 @@ export type MCPConfig = {
 };
 
 export type AgentConfig = {
+  agentName?: string;
   tools?: AgentToolsConfig;
   mcp?: MCPConfig;
 };

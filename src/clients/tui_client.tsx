@@ -16,6 +16,7 @@ type StartTuiClientOptions = {
   pollIntervalMs?: number;
   serverUrl?: string;
   mode?: "hybrid" | "tui" | "tui-client";
+  agentName?: string;
 };
 
 type ClientPhase = "idle" | "submitting" | "polling";
@@ -60,6 +61,7 @@ type TuiAppProps = {
   pollIntervalMs: number;
   serverUrl?: string;
   mode?: "hybrid" | "tui" | "tui-client";
+  agentName?: string;
 };
 
 const MAX_RENDER_ENTRIES = 200;
@@ -68,6 +70,7 @@ const MIN_TERMINAL_ROWS = 8;
 const ANSWER_PANEL_VERTICAL_OVERHEAD = 4; // border(2) + title(1) + status(1)
 const PANEL_INNER_HORIZONTAL_OVERHEAD = 4; // border(2) + paddingX(2)
 const ELLIPSIS = "...";
+const DEFAULT_AGENT_NAME = "Atom";
 
 const formatErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -89,12 +92,12 @@ const createInitialEntries = (): LogEntry[] => [
   },
 ];
 
-const createInitialMainPanelContent = (): MainPanelContent => ({
+const createInitialMainPanelContent = (agentName: string): MainPanelContent => ({
   kind: "empty",
   title: "Ready",
   sourceLabel: "startup",
   body: [
-    "Atom TUI is ready.",
+    `${agentName} TUI is ready.`,
     "",
     "Shortcuts:",
     "  Tab              Switch focus (Input / Answer)",
@@ -125,12 +128,12 @@ const getKindColor = (kind: LogKind): string => {
   }
 };
 
-const getKindPrefix = (kind: LogKind): string => {
+const getKindPrefix = (kind: LogKind, agentName: string): string => {
   switch (kind) {
     case "user":
       return "You";
     case "assistant":
-      return "Atom";
+      return agentName;
     case "error":
       return "Error";
     case "command":
@@ -274,9 +277,10 @@ const getLayoutMetrics = (terminal: TerminalSize): LayoutMetrics => {
 const buildAnswerTitleLine = (
   mainPanel: MainPanelContent,
   headerWidth: number,
+  agentName: string,
 ): string => {
   const source = mainPanel.sourceLabel ? ` | ${mainPanel.sourceLabel}` : "";
-  const raw = `Atom Answer Zone | ${mainPanel.title}${source}`;
+  const raw = `${agentName} Answer Zone | ${mainPanel.title}${source}`;
   return truncateToDisplayWidth(raw, headerWidth);
 };
 
@@ -301,11 +305,12 @@ const AnswerPane = (props: {
   terminalWidth: number;
   mainPanel: MainPanelContent;
   focus: FocusTarget;
+  agentName: string;
 }) => {
-  const { height, terminalWidth, mainPanel, focus } = props;
+  const { height, terminalWidth, mainPanel, focus, agentName } = props;
 
   const headerWidth = Math.max(1, terminalWidth - PANEL_INNER_HORIZONTAL_OVERHEAD);
-  const titleLine = buildAnswerTitleLine(mainPanel, headerWidth);
+  const titleLine = buildAnswerTitleLine(mainPanel, headerWidth, agentName);
   const statusLine = truncateToDisplayWidth(
     buildAgentMetaLine({
       mainPanel,
@@ -326,7 +331,7 @@ const AnswerPane = (props: {
       height={height}
       width="100%"
     >
-      <text fg="cyan">{titleLine || "Atom Answer Zone"}</text>
+      <text fg="cyan">{titleLine || `${agentName} Answer Zone`}</text>
       <text fg="gray">{statusLine || "status unavailable"}</text>
       <scrollbox
         height={scrollAreaHeight}
@@ -422,8 +427,9 @@ const InputPane = (props: {
   inputValue: string;
   onChange: (value: string) => void;
   showHint: boolean;
+  agentName: string;
 }) => {
-  const { height, isBusy, focus, inputValue, onChange, showHint } = props;
+  const { height, isBusy, focus, inputValue, onChange, showHint, agentName } = props;
   const inputFocused = !isBusy && focus === "input";
 
   return (
@@ -448,7 +454,9 @@ const InputPane = (props: {
         <input
           value={inputValue}
           onChange={onChange}
-          placeholder={isBusy ? "Waiting for task completion..." : "Ask Atom or type /help"}
+          placeholder={
+            isBusy ? "Waiting for task completion..." : `Ask ${agentName} or type /help`
+          }
           focused={inputFocused}
           width="100%"
         />
@@ -457,14 +465,16 @@ const InputPane = (props: {
   );
 };
 
-const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
+const TuiApp = ({ client, pollIntervalMs, serverUrl, mode, agentName: initialAgentName }: TuiAppProps) => {
   const renderer = useRenderer();
   const terminal = useTerminalSize();
+  const fallbackAgentName = initialAgentName?.trim() || DEFAULT_AGENT_NAME;
 
   const [inputValue, setInputValue] = useState("");
   const [entries, setEntries] = useState<LogEntry[]>(() => createInitialEntries());
+  const [agentName, setAgentName] = useState<string>(fallbackAgentName);
   const [mainPanelContent, setMainPanelContent] = useState<MainPanelContent>(() =>
-    createInitialMainPanelContent(),
+    createInitialMainPanelContent(fallbackAgentName),
   );
   const [phase, setPhase] = useState<ClientPhase>("idle");
   const [connection, setConnection] = useState<ConnectionState>("unknown");
@@ -537,7 +547,11 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
 
     void (async () => {
       try {
-        await withConnectionTracking(() => client.getHealth());
+        const health = await withConnectionTracking(() => client.getHealth());
+        const remoteAgentName = health.name?.trim();
+        if (remoteAgentName) {
+          setAgentName(remoteAgentName);
+        }
       } catch {
         // Keep startup non-blocking; errors are surfaced on demand.
       }
@@ -553,6 +567,15 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
       setFocusTarget("answer");
     }
   }, [focusTarget, isBusy]);
+
+  useEffect(() => {
+    setMainPanelContent((prev) => {
+      if (prev.kind !== "empty" || prev.sourceLabel !== "startup") {
+        return prev;
+      }
+      return createInitialMainPanelContent(agentName);
+    });
+  }, [agentName]);
 
   const presentError = (title: string, errorText: string, sourceLabel?: string) => {
     setMainPanelContentSafe({
@@ -766,6 +789,7 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
         terminalWidth={terminal.columns}
         mainPanel={mainPanelContent}
         focus={effectiveFocus}
+        agentName={agentName}
       />
 
       {layout.showEventStrip ? (
@@ -795,6 +819,7 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
           inputValue={inputValue}
           onChange={setInputValue}
           showHint={layout.showInputHint}
+          agentName={agentName}
         />
       </box>
     </box>
@@ -802,7 +827,7 @@ const TuiApp = ({ client, pollIntervalMs, serverUrl, mode }: TuiAppProps) => {
 };
 
 export const startTuiClient = async (options: StartTuiClientOptions): Promise<void> => {
-  const { client, pollIntervalMs = 500, serverUrl, mode } = options;
+  const { client, pollIntervalMs = 500, serverUrl, mode, agentName } = options;
 
   let resolveExit: (() => void) | undefined;
   const waitForExit = new Promise<void>((resolve) => {
@@ -820,7 +845,13 @@ export const startTuiClient = async (options: StartTuiClientOptions): Promise<vo
 
   try {
     root.render(
-      <TuiApp client={client} pollIntervalMs={pollIntervalMs} serverUrl={serverUrl} mode={mode} />,
+      <TuiApp
+        client={client}
+        pollIntervalMs={pollIntervalMs}
+        serverUrl={serverUrl}
+        mode={mode}
+        agentName={agentName}
+      />,
     );
     await waitForExit;
   } catch (error) {

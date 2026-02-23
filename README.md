@@ -120,7 +120,7 @@ curl -s http://127.0.0.1:8787/v1/tasks/<taskId>
 
 ## Tool permission config
 
-Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/agent.config.json`），用于限制 tools 的读写路径和网络访问地址。
+Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/agent.config.json`），用于限制 tools 的读写路径和网络访问地址。顶层 `agentName` 可用于设置 Agent 的显示名称（影响 TUI 和 `/healthz.name`）。
 
 ### 规则说明
 
@@ -134,6 +134,7 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
 
 ```json
 {
+  "agentName": "MyAgent",
   "tools": {
     "read": {
       "allow": ["^{workspace}/src/.*", "^{workspace}/.*\\.md$"],
@@ -158,7 +159,6 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
     "webfetch": {
       "allow": ["^https://docs\\.example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
-    },
     }
   }
 }
