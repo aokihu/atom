@@ -76,6 +76,13 @@ const TEXTAREA_SUBMIT_KEY_BINDINGS = [
 ];
 const formatErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+const isEscapeKey = (key: KeyEvent): boolean => {
+  if (key.name === "escape" || key.name === "esc") return true;
+  if (key.code === "Escape") return true;
+  if (key.baseCode === 27) return true;
+  if (key.raw === "\u001b" || key.sequence === "\u001b") return true;
+  return false;
+};
 
 const formatToolResultBody = (
   message: Extract<TaskOutputMessage, { category: "tool"; type: "tool.result" }>,
@@ -114,6 +121,8 @@ class CoreTuiClientApp {
   private deferredUiSyncTimer: ReturnType<typeof setTimeout> | undefined;
   private ctrlCExitConfirmTimer: ReturnType<typeof setTimeout> | undefined;
   private lastCtrlCPressAt = 0;
+  private escForceAbortConfirmTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastEscPressAt = 0;
   private inputNoticeText = "";
 
   private readonly appRoot: BoxRenderable;
@@ -160,7 +169,10 @@ class CoreTuiClientApp {
   };
 
   private readonly onGlobalKeyPress = (key: KeyEvent) => {
-    if (this.destroyed || key.eventType !== "press") return;
+    if (this.destroyed) return;
+
+    const isPrimaryKeyEvent = key.eventType === "press" || key.eventType === "repeat";
+    if (!isPrimaryKeyEvent) return;
 
     if (key.ctrl && !key.meta && key.name === "c") {
       key.preventDefault();
@@ -174,6 +186,13 @@ class CoreTuiClientApp {
     }
 
     if (this.handleSlashModalKeyPress(key)) {
+      return;
+    }
+
+    if (isEscapeKey(key) && this.isBusy()) {
+      key.preventDefault();
+      key.stopPropagation();
+      this.handleEscForceAbortAttempt();
       return;
     }
 
@@ -267,6 +286,10 @@ class CoreTuiClientApp {
     if (this.ctrlCExitConfirmTimer) {
       clearTimeout(this.ctrlCExitConfirmTimer);
       this.ctrlCExitConfirmTimer = undefined;
+    }
+    if (this.escForceAbortConfirmTimer) {
+      clearTimeout(this.escForceAbortConfirmTimer);
+      this.escForceAbortConfirmTimer = undefined;
     }
 
     this.unbindRendererEvents();
@@ -441,7 +464,7 @@ class CoreTuiClientApp {
   }
 
   private syncSlashModalLayout(layout: LayoutMetrics): void {
-    const modalOpen = this.state.slashModalState.open && !this.isBusy();
+    const modalOpen = this.state.slashModalState.open;
     this.slashOverlay.visible = modalOpen;
     if (!modalOpen) return;
 
@@ -520,18 +543,40 @@ class CoreTuiClientApp {
 
   private handleSlashModalKeyPress(key: KeyEvent): boolean {
     if (this.state.contextModalOpen) return false;
-    if (!this.state.slashModalState.open || this.isBusy()) return false;
+    if (!this.state.slashModalState.open) return false;
+    const currentInput = this.inputTextarea.plainText;
+    const singleLineSlashOnly =
+      !currentInput.includes("\n") && currentInput.trimStart() === "/";
 
-    const inputFocused = this.getEffectiveFocus() === "input";
-    if (!inputFocused) return false;
-
-    if (key.name === "escape") {
+    if (isEscapeKey(key)) {
       key.preventDefault();
       key.stopPropagation();
       this.closeSlashModal();
+      if (!currentInput.includes("\n") && currentInput.trimStart().startsWith("/")) {
+        this.inputTextarea.replaceText("");
+      }
+      this.syncSlashModalStateFromInput();
+      if (this.isBusy()) {
+        this.handleEscForceAbortAttempt();
+      }
+      this.syncInputPane(this.getLayout());
       this.renderer.requestRender();
       return true;
     }
+
+    if ((key.name === "backspace" || key.name === "delete") && singleLineSlashOnly) {
+      key.preventDefault();
+      key.stopPropagation();
+      this.closeSlashModal();
+      this.inputTextarea.replaceText("");
+      this.syncSlashModalStateFromInput();
+      this.syncInputPane(this.getLayout());
+      this.renderer.requestRender();
+      return true;
+    }
+
+    const inputFocused = this.getEffectiveFocus() === "input";
+    if (!inputFocused) return false;
 
     if (this.state.slashFilteredCommands.length === 0) return false;
 
@@ -563,7 +608,7 @@ class CoreTuiClientApp {
   private handleContextModalKeyPress(key: KeyEvent): boolean {
     if (!this.state.contextModalOpen) return false;
 
-    if (key.name === "escape") {
+    if (isEscapeKey(key)) {
       key.preventDefault();
       key.stopPropagation();
       this.closeContextModal();
@@ -620,11 +665,6 @@ class CoreTuiClientApp {
       this.closeSlashModal();
       return;
     }
-    if (this.isBusy()) {
-      this.closeSlashModal();
-      return;
-    }
-
     const input = this.inputTextarea.plainText;
     if (!input.startsWith("/")) {
       if (this.state.slashModalState.open) this.closeSlashModal();
@@ -711,6 +751,7 @@ class CoreTuiClientApp {
     this.state.focusTarget = "input";
 
     if (nextPhase === "idle") {
+      this.resetEscForceAbortConfirmState();
       this.state.busySpinnerIndex = 0;
       this.state.busyAnimationTick = 0;
       this.stopSpinner();
@@ -776,6 +817,66 @@ class CoreTuiClientApp {
     this.appendLog("system", "Press Ctrl+C again to exit");
     this.setStatusNotice("Press Ctrl+C again to exit");
     this.setInputNotice("Press Ctrl+C again to exit");
+  }
+
+  private resetEscForceAbortConfirmState(): void {
+    this.lastEscPressAt = 0;
+    if (this.escForceAbortConfirmTimer) {
+      clearTimeout(this.escForceAbortConfirmTimer);
+      this.escForceAbortConfirmTimer = undefined;
+    }
+    if (this.inputNoticeText === "Press ESC again to force abort") {
+      this.setInputNotice("");
+    }
+  }
+
+  private handleEscForceAbortAttempt(): void {
+    if (!this.isBusy()) {
+      this.resetEscForceAbortConfirmState();
+      return;
+    }
+
+    const now = Date.now();
+    const withinConfirmWindow = now - this.lastEscPressAt <= CTRL_C_EXIT_CONFIRM_MS;
+
+    if (withinConfirmWindow) {
+      this.resetEscForceAbortConfirmState();
+      void this.triggerForceAbort();
+      return;
+    }
+
+    this.lastEscPressAt = now;
+    if (this.escForceAbortConfirmTimer) {
+      clearTimeout(this.escForceAbortConfirmTimer);
+    }
+    this.escForceAbortConfirmTimer = setTimeout(() => {
+      this.escForceAbortConfirmTimer = undefined;
+      this.lastEscPressAt = 0;
+      this.setInputNotice("");
+      if (!this.destroyed && this.state.phase === "idle") {
+        this.setStatusNotice("Ready");
+      }
+    }, CTRL_C_EXIT_CONFIRM_MS);
+
+    this.appendLog("system", "Press ESC again to force abort");
+    this.setStatusNotice("Press ESC again to force abort");
+    this.setInputNotice("Press ESC again to force abort");
+  }
+
+  private async triggerForceAbort(): Promise<void> {
+    this.appendLog("command", "/force_abort");
+    try {
+      const result = await this.withConnectionTracking(() => this.client.forceAbort());
+      this.resetEscForceAbortConfirmState();
+      const line = `/force_abort ok: abortedCurrent=${result.abortedCurrent}, clearedPending=${result.clearedPendingCount}`;
+      this.appendLog("system", line);
+      this.setStatusNotice(`Force abort sent (cleared ${result.clearedPendingCount})`);
+    } catch (error) {
+      this.resetEscForceAbortConfirmState();
+      const message = formatErrorMessage(error);
+      this.appendLog("error", `/force_abort failed: ${message}`);
+      this.setStatusNotice(`/force_abort failed: ${message}`);
+    }
   }
 
   private markConnected(): void {
@@ -867,6 +968,11 @@ class CoreTuiClientApp {
           },
         },
       });
+      return;
+    }
+
+    if (action.type === "force_abort") {
+      await this.triggerForceAbort();
       return;
     }
 
@@ -1024,7 +1130,7 @@ class CoreTuiClientApp {
   }
 
   private handleSubmit(rawValue: string): boolean {
-    if (this.destroyed || this.state.phase !== "idle" || this.getEffectiveFocus() !== "input") {
+    if (this.destroyed || this.getEffectiveFocus() !== "input") {
       return false;
     }
 
@@ -1035,9 +1141,17 @@ class CoreTuiClientApp {
       return true;
     }
 
-    if (!submitValue.includes("\n") && trimmedValue.startsWith("/")) {
+    const isSingleLineSlash = !submitValue.includes("\n") && trimmedValue.startsWith("/");
+    if (isSingleLineSlash) {
+      if (this.state.phase !== "idle" && trimmedValue !== "/force_abort") {
+        return false;
+      }
       void this.runSlashCommand(trimmedValue);
       return true;
+    }
+
+    if (this.state.phase !== "idle") {
+      return false;
     }
 
     void this.runPromptTask(submitValue);

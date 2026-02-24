@@ -32,6 +32,16 @@ export class PriorityTaskQueue implements TaskQueue {
     return this.heap.length;
   }
 
+  getCurrentTask(): Task | null {
+    return this.current;
+  }
+
+  drainPending(): Task[] {
+    const drained = this.heap.slice();
+    this.heap = [];
+    return drained;
+  }
+
   private get(index: number): Task {
     const item = this.heap[index];
     if (!item) {
@@ -62,13 +72,17 @@ export class PriorityTaskQueue implements TaskQueue {
       task.result = result;
       task.status = TaskStatus.Success;
     } catch (err: any) {
-      task.status = TaskStatus.Failed;
-      task.error = { message: err.message };
+      if (this.wasForceCancelled(task) || this.isAbortError(err)) {
+        task.status = TaskStatus.Cancelled;
+      } else {
+        task.status = TaskStatus.Failed;
+        task.error = { message: err?.message ?? String(err) };
 
-      if (task.retries < task.maxRetries) {
-        task.retries++;
-        task.status = TaskStatus.Pending;
-        this.push(task);
+        if (task.retries < task.maxRetries) {
+          task.retries++;
+          task.status = TaskStatus.Pending;
+          this.push(task);
+        }
       }
     } finally {
       task.finishedAt = Date.now();
@@ -147,5 +161,49 @@ export class PriorityTaskQueue implements TaskQueue {
       this.heap[swap] = element;
       index = swap;
     }
+  }
+
+  private isAbortError(err: unknown): boolean {
+    if (!err) {
+      return false;
+    }
+
+    if (typeof err === "string") {
+      return /\b(abort|aborted|cancelled|canceled)\b/i.test(err);
+    }
+
+    if (typeof err !== "object") {
+      return false;
+    }
+
+    const name = "name" in err ? String((err as { name?: unknown }).name ?? "") : "";
+    if (name === "AbortError") {
+      return true;
+    }
+
+    const code = "code" in err ? String((err as { code?: unknown }).code ?? "") : "";
+    if (code === "ABORT_ERR") {
+      return true;
+    }
+
+    const message = "message" in err ? String((err as { message?: unknown }).message ?? "") : "";
+    if (/\b(abort|aborted|cancelled|canceled)\b/i.test(message)) {
+      return true;
+    }
+
+    const cause = (err as { cause?: unknown }).cause;
+    if (cause && cause !== err) {
+      return this.isAbortError(cause);
+    }
+
+    return false;
+  }
+
+  private wasForceCancelled(task: Task): boolean {
+    if (!task.metadata || typeof task.metadata !== "object") {
+      return false;
+    }
+
+    return (task.metadata as Record<string, unknown>).cancelReason === "forceabort";
   }
 }

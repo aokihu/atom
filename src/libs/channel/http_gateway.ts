@@ -175,6 +175,14 @@ export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayS
           return ok(created, 202);
         }
 
+        if (pathname === "/forceabort") {
+          if (request.method !== "POST") {
+            return methodNotAllowed(["POST"]);
+          }
+
+          return ok(await runtime.forceAbort());
+        }
+
         if (pathname.startsWith("/v1/tasks/")) {
           if (request.method !== "GET") {
             return methodNotAllowed(["GET"]);

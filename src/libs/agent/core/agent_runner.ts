@@ -34,7 +34,7 @@ export type AgentRunOptions = {
 };
 
 export class AgentRunner {
-  private readonly abortController: AbortController;
+  private currentAbortController: AbortController | null = null;
   private readonly modelExecutor: AISDKModelExecutor;
   private readonly createToolRegistry: (args: {
     context: ToolExecutionContext;
@@ -58,7 +58,7 @@ export class AgentRunner {
     this.modelParams = args.modelParams;
     const deps = args.dependencies ?? {};
 
-    this.abortController = (deps.createAbortController ?? (() => new AbortController()))();
+    this.createAbortController = deps.createAbortController ?? (() => new AbortController());
     this.modelExecutor = deps.modelExecutor ?? new AISDKModelExecutor();
     this.createToolRegistry = deps.createToolRegistry ?? createToolRegistry;
     this.baseToolContext = args.toolContext ?? {};
@@ -70,6 +70,17 @@ export class AgentRunner {
 
   private readonly model: LanguageModelV3;
   private readonly modelParams?: AgentModelParams;
+  private readonly createAbortController: () => AbortController;
+
+  abortCurrentRun(reason?: string): boolean {
+    const controller = this.currentAbortController;
+    if (!controller || controller.signal.aborted) {
+      return false;
+    }
+
+    controller.abort(reason);
+    return true;
+  }
 
   async runTask(session: AgentSession, question: string, options?: AgentRunOptions) {
     session.prepareUserTurn(question);
@@ -78,15 +89,24 @@ export class AgentRunner {
       session.mergeExtractedContext(context);
     });
 
-    return await this.modelExecutor.generate({
-      model,
-      messages: session.getMessages(),
-      modelParams: this.modelParams,
-      abortSignal: this.abortController.signal,
-      tools: this.createToolRegistryForRun(options),
-      stopWhen: stepCountIs(this.maxSteps),
-      onOutputMessage: options?.onOutputMessage,
-    });
+    const abortController = this.createAbortController();
+    this.currentAbortController = abortController;
+
+    try {
+      return await this.modelExecutor.generate({
+        model,
+        messages: session.getMessages(),
+        modelParams: this.modelParams,
+        abortSignal: abortController.signal,
+        tools: this.createToolRegistryForRun(options),
+        stopWhen: stepCountIs(this.maxSteps),
+        onOutputMessage: options?.onOutputMessage,
+      });
+    } finally {
+      if (this.currentAbortController === abortController) {
+        this.currentAbortController = null;
+      }
+    }
   }
 
   runTaskStream(session: AgentSession, question: string, options?: AgentRunOptions) {
@@ -96,15 +116,38 @@ export class AgentRunner {
       session.mergeExtractedContext(context);
     });
 
-    return this.modelExecutor.stream({
+    const abortController = this.createAbortController();
+    this.currentAbortController = abortController;
+
+    const stream = this.modelExecutor.stream({
       model,
       messages: session.getMessages(),
       modelParams: this.modelParams,
-      abortSignal: this.abortController.signal,
+      abortSignal: abortController.signal,
       tools: this.createToolRegistryForRun(options),
       stopWhen: stepCountIs(this.maxSteps),
       onOutputMessage: options?.onOutputMessage,
     });
+
+    const originalTextStream = stream.textStream;
+    const self = this;
+
+    async function* wrappedTextStream() {
+      try {
+        for await (const part of originalTextStream) {
+          yield part;
+        }
+      } finally {
+        if (self.currentAbortController === abortController) {
+          self.currentAbortController = null;
+        }
+      }
+    }
+
+    return {
+      ...stream,
+      textStream: wrappedTextStream(),
+    };
   }
 
   private createToolRegistryForRun(options?: AgentRunOptions): ToolDefinitionMap {

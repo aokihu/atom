@@ -81,6 +81,10 @@ export class Agent {
     return this.session.snapshot();
   }
 
+  abortCurrentRun(reason?: string): boolean {
+    return this.runner.abortCurrentRun(reason);
+  }
+
   displayMessages() {
     console.log(
       inspect(this.getMessagesSnapshot(), {

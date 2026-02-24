@@ -147,6 +147,12 @@ export type TaskStatusResponse = {
   messages?: TaskMessagesDelta;
 };
 
+export type ForceAbortResponse = {
+  abortedCurrent: boolean;
+  clearedPendingCount: number;
+  timestamp: number;
+};
+
 export type QueueStats = {
   size: number;
 };

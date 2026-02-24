@@ -3,6 +3,7 @@ import type {
   AgentMessagesResponse,
   CreateTaskRequest,
   CreateTaskResponse,
+  ForceAbortResponse,
   HealthzResponse,
   QueueStats,
   TaskStatusResponse,
@@ -19,6 +20,7 @@ export interface RuntimeGateway {
   getQueueStats(): MaybePromise<QueueStats>;
   getAgentContext(): MaybePromise<AgentContextResponse>;
   getAgentMessages(): MaybePromise<AgentMessagesResponse>;
+  forceAbort(): MaybePromise<ForceAbortResponse>;
 }
 
 export interface GatewayClient {
@@ -27,4 +29,5 @@ export interface GatewayClient {
   getTask(taskId: string, options?: GetTaskOptions): Promise<TaskStatusResponse>;
   getAgentContext(): Promise<AgentContextResponse>;
   getAgentMessages(): Promise<AgentMessagesResponse>;
+  forceAbort(): Promise<ForceAbortResponse>;
 }

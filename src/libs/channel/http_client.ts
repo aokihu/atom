@@ -5,6 +5,7 @@ import type {
   ApiSuccessResponse,
   CreateTaskRequest,
   CreateTaskResponse,
+  ForceAbortResponse,
   HealthzResponse,
   TaskStatusResponse,
   AgentContextResponse,
@@ -73,6 +74,10 @@ export class HttpGatewayClient implements GatewayClient {
 
   async getAgentMessages(): Promise<AgentMessagesResponse> {
     return await this.request<AgentMessagesResponse>("/v1/agent/messages", { method: "GET" });
+  }
+
+  async forceAbort(): Promise<ForceAbortResponse> {
+    return await this.request<ForceAbortResponse>("/forceabort", { method: "POST" });
   }
 
   private async request<T>(path: string, init: RequestInit): Promise<T> {

@@ -7,6 +7,7 @@ export type SlashCommandOption = {
 export const SLASH_COMMANDS: SlashCommandOption[] = [
   { name: "/exit", description: "Exit TUI", enabled: true },
   { name: "/context", description: "Show agent context", enabled: true },
+  { name: "/force_abort", description: "Force abort current run and clear queue", enabled: true },
   { name: "/help", description: "Hidden in conversation layout", enabled: false },
   { name: "/messages", description: "Hidden in conversation layout", enabled: false },
 ];

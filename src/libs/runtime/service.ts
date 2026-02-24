@@ -7,6 +7,7 @@ import type {
   AgentMessagesResponse,
   CreateTaskRequest,
   CreateTaskResponse,
+  ForceAbortResponse,
   QueueStats,
   TaskSnapshot,
   TaskMessagesDelta,
@@ -15,6 +16,7 @@ import type {
   TaskStatusResponse,
 } from "../../types/http";
 import type { TaskItem } from "../../types/task";
+import { TaskStatus } from "../../types/task";
 
 const DEFAULT_AGENT_SESSION_ID = "default";
 
@@ -146,6 +148,41 @@ export class AgentRuntimeService implements RuntimeGateway {
   getAgentMessages(): AgentMessagesResponse {
     return {
       messages: this.getAgent().getMessagesSnapshot(),
+    };
+  }
+
+  forceAbort(): ForceAbortResponse {
+    const now = Date.now();
+    const currentTask = this.taskQueue.getCurrentTask();
+    if (currentTask) {
+      currentTask.metadata = {
+        ...(currentTask.metadata && typeof currentTask.metadata === "object" ? currentTask.metadata : {}),
+        cancelReason: "forceabort",
+        cancelledBy: "system.forceabort",
+      };
+    }
+    const abortedCurrent = this.getAgent().abortCurrentRun("forceabort");
+    const pending = this.taskQueue.drainPending();
+
+    for (const task of pending) {
+      task.status = TaskStatus.Cancelled;
+      task.finishedAt = now;
+      task.metadata = {
+        ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
+        cancelReason: "forceabort",
+        cancelledBy: "system.forceabort",
+      };
+      this.appendTaskMessage(task.id, {
+        category: "other",
+        type: "task.status",
+        text: "Task cancelled by force abort",
+      });
+    }
+
+    return {
+      abortedCurrent,
+      clearedPendingCount: pending.length,
+      timestamp: now,
     };
   }
 

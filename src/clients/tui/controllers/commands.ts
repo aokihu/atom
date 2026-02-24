@@ -1,6 +1,7 @@
 export type SlashCommandAction =
   | { type: "exit" }
   | { type: "open_context" }
+  | { type: "force_abort" }
   | { type: "hidden"; message: string }
   | { type: "unknown"; message: string };
 
@@ -11,6 +12,10 @@ export const resolveSlashCommandAction = (command: string): SlashCommandAction =
 
   if (command === "/context") {
     return { type: "open_context" };
+  }
+
+  if (command === "/force_abort") {
+    return { type: "force_abort" };
   }
 
   if (command === "/help" || command === "/messages") {
