@@ -1,5 +1,12 @@
 # atom
 
+## What's New (v0.5.0)
+
+- 重构 OpenTUI 客户端代码：按 `runtime / views / controllers / flows / layout / state / theme / utils` 分层，便于维护和扩展。
+- 保持输入输出解耦：默认 `tui` 模式仍然是「本地 TUI + 同进程 HTTP 服务端」组合，通过 HTTP 通讯。
+- 新增内置工具权限配置项：`cp` / `mv` / `git`（可在 `agent.config.json` 中独立配置 `allow` / `deny`）。
+- `agentName` 配置生效范围扩展：影响 TUI 展示与 `/healthz` 返回的 `name` 字段。
+
 ## Documentation
 
 - 架构与模块边界：[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
@@ -91,6 +98,13 @@ bun run src/index.ts --workspace ./Playground --config ./agent.config.json
 - `/context`
 - `/exit`
 
+说明（当前 `0.5.0` TUI 行为）：
+
+- `/context`：打开上下文弹窗（context modal）。
+- `/exit`：退出 TUI。
+- `/help`、`/messages`：在当前会话布局中已隐藏（输入后会提示 hidden，不再弹出旧面板）。
+- `Tab`：在输入区与回答区之间切换焦点（忙碌状态下会优先聚焦回答区）。
+
 ### HTTP API (v1)
 
 当前输入输出已解耦，OpenTUI TUI 客户端通过 HTTP 与服务端通讯（轮询模式，非流式）。
@@ -117,6 +131,10 @@ curl -s http://127.0.0.1:8787/v1/tasks/<taskId>
 
 - 成功：`{"ok": true, "data": ...}`
 - 失败：`{"ok": false, "error": {"code": "...", "message": "..."}}`
+
+`GET /healthz` 补充：
+
+- 返回 `name`（Agent 显示名）、`version`、`startupAt` 和 `queue`（运行时队列统计）。
 
 ## Tool permission config
 
@@ -182,5 +200,17 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
 补充说明：
 - `cp` / `mv` 工具默认不覆盖目标文件，需显式传入 `overwrite: true`。
 - `git` 工具在执行时会检查运行环境是否安装 `git`；若未安装会返回错误，而不会在启动阶段失败。
+
+## TUI Implementation Notes (for contributors)
+
+`0.5.0` 起 OpenTUI 客户端已做结构化拆分，主要目录如下：
+
+- `src/clients/tui/runtime/`: UI 组件树装配与客户端状态管理
+- `src/clients/tui/views/`: 纯视图构建（消息区、输入区、状态栏、弹窗）
+- `src/clients/tui/controllers/`: slash 命令与交互控制逻辑
+- `src/clients/tui/flows/`: 任务提交/轮询等流程编排
+- `src/clients/tui/layout/`: 终端尺寸与布局计算
+- `src/clients/tui/state/`: TUI 层状态模型与命令列表
+- `src/clients/tui/theme/`: 主题色定义（当前 Nord）
 
 This project was created using `bun init` in bun v1.3.8. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.

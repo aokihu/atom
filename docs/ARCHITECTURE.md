@@ -30,6 +30,32 @@ docs/
 - 只通过 `GatewayClient`（或其他通道抽象）访问服务端。
 - 不直接依赖 `Agent`、`PriorityTaskQueue`、`AgentRuntimeService`。
 
+#### `src/clients/tui`（0.5.0 重构后）
+
+当前 OpenTUI 客户端已按职责拆分，避免单文件膨胀：
+
+- `runtime/`
+  - `state.ts`: TUI 客户端状态模型（连接状态、焦点、消息、弹窗状态等）
+  - `ui.ts`: OpenTUI 组件树装配（bundle）与挂载/卸载
+- `views/`
+  - 消息面板、输入面板、状态栏、slash modal、context modal 的视图构建函数
+  - 目标是“尽量纯视图”，不直接处理业务流程
+- `controllers/`
+  - slash 命令解析与交互控制（如 `/context` / `/exit`）
+- `flows/`
+  - 提交任务、轮询任务状态等流程编排
+- `layout/`
+  - 终端尺寸读取与布局参数计算
+- `state/`
+  - UI 层的静态状态定义（如 slash 命令列表）
+- `theme/` / `utils/`
+  - 主题和文本处理等辅助逻辑
+
+建议约束：
+- `views/` 不直接调用 `GatewayClient`
+- `controllers/` 只返回动作或协调状态，不直接创建网络层实例
+- 与服务端交互集中在 `flows/`（或后续抽出的 data/service 层）
+
 ### `src/libs/channel`
 - 定义通道契约与传输实现。
 - 当前包含：
@@ -37,6 +63,11 @@ docs/
   - `http_gateway.ts`: 服务端 HTTP 网关
   - `http_client.ts`: 客户端 HTTP 调用封装
 - 当增加新协议（如 SSE/WebSocket/gRPC）时，优先扩展这里而不是改客户端业务逻辑。
+
+当前 HTTP 网关特性（补充）：
+- `/healthz` 返回 `name/version/startupAt/queue`
+- 统一响应结构：`{ ok: true, data }` / `{ ok: false, error }`
+- `POST /v1/tasks` 支持请求体校验（`input` 必填，`priority` 范围 `0..4`，`type` 可选）
 
 ### `src/libs/runtime`
 - 负责任务执行编排，不负责 I/O 展示。
@@ -98,3 +129,4 @@ index.ts 负责装配（composition root）
 ## 当前已知技术债
 
 - HTTP API 当前为轮询模式，未实现流式输出与鉴权。
+- OpenTUI 客户端主入口（`src/clients/tui/index.ts`）仍偏大，后续可继续拆分输入处理、渲染同步与轮询状态机。
