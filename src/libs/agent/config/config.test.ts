@@ -10,7 +10,7 @@ import { validateAgentConfig } from "./validator";
 describe("agent config", () => {
   test("expandPathVariables returns a cloned config and expands placeholders", () => {
     const raw = {
-      tools: {
+      permissions: {
         read: {
           allow: ["^{workspace}/.*", "^{root}Users/.*"],
           deny: [],
@@ -21,21 +21,21 @@ describe("agent config", () => {
     const expanded = expandPathVariables(raw, "/Users/me/project");
 
     expect(expanded).not.toBe(raw);
-    expect(raw.tools?.read?.allow?.[0]).toBe("^{workspace}/.*");
-    expect(expanded.tools?.read?.allow?.[0]).toContain("^/Users/me/project");
-    expect(expanded.tools?.read?.allow?.[1]).toContain("^/");
+    expect(raw.permissions?.read?.allow?.[0]).toBe("^{workspace}/.*");
+    expect(expanded.permissions?.read?.allow?.[0]).toContain("^/Users/me/project");
+    expect(expanded.permissions?.read?.allow?.[1]).toContain("^/");
   });
 
   test("validateAgentConfig rejects invalid regex", () => {
     expect(() =>
       validateAgentConfig({
-        tools: {
+        permissions: {
           read: {
             allow: ["["],
           },
         },
       }),
-    ).toThrow("Invalid regex in tools.read");
+    ).toThrow("Invalid regex in permissions.read");
   });
 
   test("validateAgentConfig rejects duplicate MCP server ids", () => {
@@ -84,4 +84,3 @@ describe("agent config", () => {
     await expect(loadAgentConfig({ workspace })).rejects.toThrow("Invalid JSON");
   });
 });
-

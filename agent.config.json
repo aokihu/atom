@@ -1,6 +1,6 @@
 {
   "agentName": "Atom",
-  "tools": {
+  "permissions": {
     "read": {
       "allow": ["^{workspace}/.*"],
       "deny": []

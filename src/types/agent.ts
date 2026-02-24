@@ -8,7 +8,7 @@ export type AgentPermissionRules = {
   deny?: string[];
 };
 
-export type AgentToolsConfig = {
+export type AgentToolsPermission = {
   read?: AgentPermissionRules;
   ls?: AgentPermissionRules;
   tree?: AgentPermissionRules;
@@ -38,7 +38,7 @@ export type MCPConfig = {
 
 export type AgentConfig = {
   agentName?: string;
-  tools?: AgentToolsConfig;
+  permissions?: AgentToolsPermission;
   mcp?: MCPConfig;
 };
 

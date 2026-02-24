@@ -40,21 +40,21 @@ const ensureNonEmptyString = (value: unknown, keyPath: string) => {
 };
 
 export const validateToolsConfig = (config: AgentConfig) => {
-  const tools = config.tools;
-  if (tools === undefined) return;
+  const permissions = config.permissions;
+  if (permissions === undefined) return;
 
   for (const section of BUILTIN_TOOL_CONFIG_SECTIONS) {
-    const rule = tools[section];
+    const rule = permissions[section];
     if (!rule) continue;
 
-    ensureStringArray(rule.allow, `tools.${section}.allow`);
-    ensureStringArray(rule.deny, `tools.${section}.deny`);
+    ensureStringArray(rule.allow, `permissions.${section}.allow`);
+    ensureStringArray(rule.deny, `permissions.${section}.deny`);
 
     for (const regexText of [...(rule.allow ?? []), ...(rule.deny ?? [])]) {
       try {
         new RegExp(regexText);
       } catch {
-        throw new Error(`Invalid regex in tools.${section}: ${regexText}`);
+        throw new Error(`Invalid regex in permissions.${section}: ${regexText}`);
       }
     }
   }
@@ -132,4 +132,3 @@ export const validateAgentConfig = (config: AgentConfig) => {
   validateToolsConfig(config);
   validateMcpConfig(config);
 };
-

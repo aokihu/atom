@@ -17,7 +17,7 @@ describe("git tool", () => {
   test("returns permission error when cwd is denied", async () => {
     const result = await (gitTool({
       permissions: {
-        tools: {
+        permissions: {
           git: {
             deny: [".*"],
           },

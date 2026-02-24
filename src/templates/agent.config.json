@@ -1,6 +1,6 @@
 {
   "agentName": "MyAgent",
-  "tools": {
+  "permissions": {
     "read": {
       "allow": ["^{workspace}/.*"],
       "deny": []

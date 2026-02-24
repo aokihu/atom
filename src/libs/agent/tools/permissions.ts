@@ -12,7 +12,7 @@
 
 import type {
   AgentPermissionRules,
-  AgentToolsConfig,
+  AgentToolsPermission,
 } from "../../../types/agent";
 
 /**
@@ -165,88 +165,88 @@ const matchByRules = (target: string, rules?: AgentPermissionRules) => {
  * 检查是否允许读取文件
  *
  * @param {string} filepath - 文件路径
- * @param {AgentToolsConfig} [tools] - 工具配置
+ * @param {AgentToolsPermission} [tools] - 工具配置
  * @returns {boolean} 是否允许读取
  */
-export const canReadFile = (filepath: string, tools?: AgentToolsConfig) =>
+export const canReadFile = (filepath: string, tools?: AgentToolsPermission) =>
   matchByRules(filepath, tools?.read);
 
 /**
  * 检查是否允许列出目录内容
  *
  * @param {string} dirpath - 目录路径
- * @param {AgentToolsConfig} [tools] - 工具配置
+ * @param {AgentToolsPermission} [tools] - 工具配置
  * @returns {boolean} 是否允许列出目录
  */
-export const canListDir = (dirpath: string, tools?: AgentToolsConfig) =>
+export const canListDir = (dirpath: string, tools?: AgentToolsPermission) =>
   matchByRules(dirpath, tools?.ls);
 
 /**
  * 检查是否允许读取目录树
  *
  * @param {string} dirpath - 目录路径
- * @param {AgentToolsConfig} [tools] - 工具配置
+ * @param {AgentToolsPermission} [tools] - 工具配置
  * @returns {boolean} 是否允许读取目录树
  */
-export const canReadTree = (dirpath: string, tools?: AgentToolsConfig) =>
+export const canReadTree = (dirpath: string, tools?: AgentToolsPermission) =>
   matchByRules(dirpath, tools?.tree);
 
 /**
  * 检查是否允许使用ripgrep搜索目录
  *
  * @param {string} dirpath - 目录路径
- * @param {AgentToolsConfig} [tools] - 工具配置
+ * @param {AgentToolsPermission} [tools] - 工具配置
  * @returns {boolean} 是否允许使用ripgrep
  */
-export const canRipgrep = (dirpath: string, tools?: AgentToolsConfig) =>
+export const canRipgrep = (dirpath: string, tools?: AgentToolsPermission) =>
   matchByRules(dirpath, tools?.ripgrep);
 
 /**
  * 检查是否允许写入文件
  *
  * @param {string} filepath - 文件路径
- * @param {AgentToolsConfig} [tools] - 工具配置
+ * @param {AgentToolsPermission} [tools] - 工具配置
  * @returns {boolean} 是否允许写入
  */
-export const canWriteFile = (filepath: string, tools?: AgentToolsConfig) =>
+export const canWriteFile = (filepath: string, tools?: AgentToolsPermission) =>
   matchByRules(filepath, tools?.write);
 
 /**
  * 检查是否允许从源路径复制
  */
-export const canCopyFrom = (filepath: string, tools?: AgentToolsConfig) =>
+export const canCopyFrom = (filepath: string, tools?: AgentToolsPermission) =>
   matchByRules(filepath, tools?.cp);
 
 /**
  * 检查是否允许复制到目标路径
  */
-export const canCopyTo = (filepath: string, tools?: AgentToolsConfig) =>
+export const canCopyTo = (filepath: string, tools?: AgentToolsPermission) =>
   matchByRules(filepath, tools?.cp);
 
 /**
  * 检查是否允许从源路径移动
  */
-export const canMoveFrom = (filepath: string, tools?: AgentToolsConfig) =>
+export const canMoveFrom = (filepath: string, tools?: AgentToolsPermission) =>
   matchByRules(filepath, tools?.mv);
 
 /**
  * 检查是否允许移动到目标路径
  */
-export const canMoveTo = (filepath: string, tools?: AgentToolsConfig) =>
+export const canMoveTo = (filepath: string, tools?: AgentToolsPermission) =>
   matchByRules(filepath, tools?.mv);
 
 /**
  * 检查是否允许在指定目录执行 git
  */
-export const canUseGit = (dirpath: string, tools?: AgentToolsConfig) =>
+export const canUseGit = (dirpath: string, tools?: AgentToolsPermission) =>
   matchByRules(dirpath, tools?.git);
 
 /**
  * 检查是否允许访问URL
  *
  * @param {string} url - URL地址
- * @param {AgentToolsConfig} [tools] - 工具配置
+ * @param {AgentToolsPermission} [tools] - 工具配置
  * @returns {boolean} 是否允许访问
  */
-export const canVisitUrl = (url: string, tools?: AgentToolsConfig) =>
+export const canVisitUrl = (url: string, tools?: AgentToolsPermission) =>
   matchByRules(url, tools?.webfetch);

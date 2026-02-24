@@ -1,11 +1,12 @@
 # atom
 
-## What's New (v0.5.0)
+## What's New (v0.5.3)
 
 - 重构 OpenTUI 客户端代码：按 `runtime / views / controllers / flows / layout / state / theme / utils` 分层，便于维护和扩展。
 - 保持输入输出解耦：默认 `tui` 模式仍然是「本地 TUI + 同进程 HTTP 服务端」组合，通过 HTTP 通讯。
 - 新增内置工具权限配置项：`cp` / `mv` / `git`（可在 `agent.config.json` 中独立配置 `allow` / `deny`）。
 - `agentName` 配置生效范围扩展：影响 TUI 展示与 `/healthz` 返回的 `name` 字段。
+- `agent.config.json` 顶层权限配置字段由 `tools` 更名为 `permissions`。
 
 ## Documentation
 
@@ -138,7 +139,7 @@ curl -s http://127.0.0.1:8787/v1/tasks/<taskId>
 
 ## Tool permission config
 
-Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/agent.config.json`），用于限制 tools 的读写路径和网络访问地址。顶层 `agentName` 可用于设置 Agent 的显示名称（影响 TUI 和 `/healthz.name`）。
+Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/agent.config.json`），用于限制内置工具的读写路径和网络访问地址。顶层 `agentName` 可用于设置 Agent 的显示名称（影响 TUI 和 `/healthz.name`）。
 
 ### 规则说明
 
@@ -154,7 +155,7 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
 ```json
 {
   "agentName": "MyAgent",
-  "tools": {
+  "permissions": {
     "read": {
       "allow": ["^{workspace}/src/.*", "^{workspace}/.*\\.md$"],
       "deny": ["^{workspace}/.*/secret.*"]

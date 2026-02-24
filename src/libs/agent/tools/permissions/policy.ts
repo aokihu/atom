@@ -13,7 +13,8 @@ import {
 } from "../permissions";
 import type { ToolExecutionContext } from "../types";
 
-const getToolsPermissions = (context: ToolExecutionContext) => context.permissions?.tools;
+const getToolsPermissions = (context: ToolExecutionContext) =>
+  context.permissions?.permissions;
 
 export class PermissionPolicy {
   constructor(private readonly context: ToolExecutionContext) {}

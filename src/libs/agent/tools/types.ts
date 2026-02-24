@@ -1,5 +1,5 @@
 import type { ToolSet } from "ai";
-import type { AgentToolsConfig } from "../../../types/agent";
+import type { AgentToolsPermission } from "../../../types/agent";
 
 export const BUILTIN_TOOL_NAMES = [
   "ls",
@@ -16,7 +16,7 @@ export const BUILTIN_TOOL_NAMES = [
 export type BuiltinToolName = (typeof BUILTIN_TOOL_NAMES)[number];
 
 export type ToolPermissionSource = {
-  tools?: AgentToolsConfig;
+  permissions?: AgentToolsPermission;
 };
 
 export type ToolExecutionContext = {

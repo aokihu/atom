@@ -14,9 +14,9 @@ export const expandPathVariables = (
   workspace: string,
 ): AgentConfig => {
   const normalizedConfig = cloneConfig(config);
-  const tools = normalizedConfig.tools;
+  const permissions = normalizedConfig.permissions;
 
-  if (!tools) {
+  if (!permissions) {
     return normalizedConfig;
   }
 
@@ -26,7 +26,7 @@ export const expandPathVariables = (
   const rootRegexText = escapeRegexText(rootPath);
 
   for (const section of BUILTIN_TOOL_CONFIG_SECTIONS) {
-    const rule = tools[section];
+    const rule = permissions[section];
     if (!rule) continue;
 
     rule.allow = rule.allow?.map((text) =>
