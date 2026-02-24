@@ -1,1 +1,1 @@
-export { startTuiClient } from "./tui_client";
+export { startTuiClient } from "./tui";
