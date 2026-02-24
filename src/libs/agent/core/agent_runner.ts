@@ -13,6 +13,7 @@ import {
 } from "../tools";
 import { AgentSession } from "../session/agent_session";
 import { AISDKModelExecutor } from "./model_executor";
+import type { AgentOutputMessageSink } from "./output_messages";
 
 export type AgentDependencies = {
   modelExecutor?: AISDKModelExecutor;
@@ -27,10 +28,19 @@ export type AgentDependencies = {
   maxSteps?: number;
 };
 
+export type AgentRunOptions = {
+  onOutputMessage?: AgentOutputMessageSink;
+};
+
 export class AgentRunner {
   private readonly abortController: AbortController;
   private readonly modelExecutor: AISDKModelExecutor;
-  private readonly toolRegistry: ToolDefinitionMap;
+  private readonly createToolRegistry: (args: {
+    context: ToolExecutionContext;
+    mcpTools?: ToolDefinitionMap;
+  }) => ToolDefinitionMap;
+  private readonly baseToolContext: ToolExecutionContext;
+  private readonly mcpTools?: ToolDefinitionMap;
   private readonly createExtractContextMiddleware: (
     onExtractContext: (context: Partial<AgentContext>) => void,
   ) => LanguageModelV3Middleware;
@@ -47,18 +57,17 @@ export class AgentRunner {
 
     this.abortController = (deps.createAbortController ?? (() => new AbortController()))();
     this.modelExecutor = deps.modelExecutor ?? new AISDKModelExecutor();
+    this.createToolRegistry = deps.createToolRegistry ?? createToolRegistry;
+    this.baseToolContext = args.toolContext ?? {};
+    this.mcpTools = args.mcpTools;
     this.createExtractContextMiddleware =
       deps.createExtractContextMiddleware ?? extractContextMiddleware;
     this.maxSteps = deps.maxSteps ?? 10;
-    this.toolRegistry = (deps.createToolRegistry ?? createToolRegistry)({
-      context: args.toolContext ?? {},
-      mcpTools: args.mcpTools,
-    });
   }
 
   private readonly model: LanguageModelV3;
 
-  async runTask(session: AgentSession, question: string) {
+  async runTask(session: AgentSession, question: string, options?: AgentRunOptions) {
     session.prepareUserTurn(question);
 
     const model = this.createContextAwareModel((context) => {
@@ -69,12 +78,13 @@ export class AgentRunner {
       model,
       messages: session.getMessages(),
       abortSignal: this.abortController.signal,
-      tools: this.toolRegistry,
+      tools: this.createToolRegistryForRun(options),
       stopWhen: stepCountIs(this.maxSteps),
+      onOutputMessage: options?.onOutputMessage,
     });
   }
 
-  runTaskStream(session: AgentSession, question: string) {
+  runTaskStream(session: AgentSession, question: string, options?: AgentRunOptions) {
     session.prepareUserTurn(question);
 
     const model = this.createContextAwareModel((context) => {
@@ -85,8 +95,19 @@ export class AgentRunner {
       model,
       messages: session.getMessages(),
       abortSignal: this.abortController.signal,
-      tools: this.toolRegistry,
+      tools: this.createToolRegistryForRun(options),
       stopWhen: stepCountIs(this.maxSteps),
+      onOutputMessage: options?.onOutputMessage,
+    });
+  }
+
+  private createToolRegistryForRun(options?: AgentRunOptions): ToolDefinitionMap {
+    return this.createToolRegistry({
+      context: {
+        ...this.baseToolContext,
+        onOutputMessage: options?.onOutputMessage,
+      },
+      mcpTools: this.mcpTools,
     });
   }
 

@@ -1,4 +1,5 @@
 import type { GatewayClient } from "./channel";
+import type { GetTaskOptions } from "./channel";
 import type {
   ApiErrorResponse,
   ApiSuccessResponse,
@@ -53,8 +54,15 @@ export class HttpGatewayClient implements GatewayClient {
     });
   }
 
-  async getTask(taskId: string): Promise<TaskStatusResponse> {
-    return await this.request<TaskStatusResponse>(`/v1/tasks/${encodeURIComponent(taskId)}`, {
+  async getTask(taskId: string, options?: GetTaskOptions): Promise<TaskStatusResponse> {
+    const query = new URLSearchParams();
+    if (options?.afterSeq !== undefined) {
+      query.set("afterSeq", String(options.afterSeq));
+    }
+
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+
+    return await this.request<TaskStatusResponse>(`/v1/tasks/${encodeURIComponent(taskId)}${suffix}`, {
       method: "GET",
     });
   }

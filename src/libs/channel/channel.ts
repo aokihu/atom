@@ -9,10 +9,13 @@ import type {
 } from "../../types/http";
 
 export type MaybePromise<T> = T | Promise<T>;
+export type GetTaskOptions = {
+  afterSeq?: number;
+};
 
 export interface RuntimeGateway {
   submitTask(request: CreateTaskRequest): MaybePromise<CreateTaskResponse>;
-  getTask(taskId: string): MaybePromise<TaskStatusResponse | undefined>;
+  getTask(taskId: string, options?: GetTaskOptions): MaybePromise<TaskStatusResponse | undefined>;
   getQueueStats(): MaybePromise<QueueStats>;
   getAgentContext(): MaybePromise<AgentContextResponse>;
   getAgentMessages(): MaybePromise<AgentMessagesResponse>;
@@ -21,7 +24,7 @@ export interface RuntimeGateway {
 export interface GatewayClient {
   getHealth(): Promise<HealthzResponse>;
   createTask(request: CreateTaskRequest): Promise<CreateTaskResponse>;
-  getTask(taskId: string): Promise<TaskStatusResponse>;
+  getTask(taskId: string, options?: GetTaskOptions): Promise<TaskStatusResponse>;
   getAgentContext(): Promise<AgentContextResponse>;
   getAgentMessages(): Promise<AgentMessagesResponse>;
 }

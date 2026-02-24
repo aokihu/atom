@@ -112,6 +112,24 @@ const parseJsonBody = async (request: Request): Promise<unknown> => {
   }
 };
 
+const parseAfterSeq = (url: URL): number => {
+  const raw = url.searchParams.get("afterSeq");
+  if (raw === null || raw === "") {
+    return 0;
+  }
+
+  if (!/^\d+$/.test(raw)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`afterSeq` must be a non-negative integer");
+  }
+
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`afterSeq` must be a non-negative integer");
+  }
+
+  return value;
+};
+
 const methodNotAllowed = (allow: string[]) =>
   fail(405, "METHOD_NOT_ALLOWED", "Method not allowed", { Allow: allow.join(", ") });
 
@@ -174,7 +192,8 @@ export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayS
             throw new HttpApiError(400, "BAD_REQUEST", "Invalid task id");
           }
 
-          const task = await runtime.getTask(taskId);
+          const afterSeq = parseAfterSeq(url);
+          const task = await runtime.getTask(taskId, { afterSeq });
           if (!task) {
             return fail(404, "NOT_FOUND", `Task not found: ${taskId}`);
           }

@@ -1,29 +1,46 @@
-import { BoxRenderable, ScrollBoxRenderable, TextRenderable } from "@opentui/core";
+import {
+  BoxRenderable,
+  MarkdownRenderable,
+  ScrollBoxRenderable,
+  SyntaxStyle,
+  TextRenderable,
+} from "@opentui/core";
 import type { CliRenderer } from "@opentui/core";
 
 import { NORD } from "../theme/nord";
 import { truncateToDisplayWidth } from "../utils/text";
 
+const ASSISTANT_MARKDOWN_SYNTAX_STYLE = SyntaxStyle.create();
+
 export type MessagePaneSubHeaderInput = {
   phase: "idle" | "submitting" | "polling";
   connection: "unknown" | "ok" | "error";
   taskId?: string;
-  focus: "input" | "answer";
   agentName: string;
   spinnerFrame: string;
   width: number;
 };
 
 export type ChatMessageCardInput = {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   text: string;
+  taskId?: string;
+} | {
+  role: "tool";
+  title: string;
+  body?: string;
+  collapsed: boolean;
+  status: "running" | "done" | "error";
   taskId?: string;
 };
 
 export type ChatMessageCardViewState = {
-  isUser: boolean;
-  bodyText: string;
+  role: ChatMessageCardInput["role"];
+  titleText?: string;
+  bodyText?: string;
   metaText: string;
+  toolCollapsed?: boolean;
+  toolStatus?: "running" | "done" | "error";
 };
 
 export type MessagePaneView = {
@@ -116,25 +133,32 @@ export const buildMessageHeaderLine = (agentName: string, count: number, width: 
 };
 
 export const buildMessageSubHeaderLine = (args: MessagePaneSubHeaderInput): string => {
-  const busy =
-    args.phase === "idle"
-      ? "idle"
-      : args.phase === "submitting"
-        ? `${args.spinnerFrame} sending`
-        : `${args.spinnerFrame} ${args.agentName} generating`;
-
-  return truncateToDisplayWidth(
-    `conn:${args.connection}  state:${args.phase}  busy:${busy}${args.taskId ? `  task:${args.taskId}` : ""}  focus:${args.focus}`,
-    args.width,
-  );
+  void args;
+  return " ";
 };
 
 export const buildChatMessageCardViewState = (item: ChatMessageCardInput): ChatMessageCardViewState => {
+  if (item.role === "tool") {
+    return {
+      role: "tool",
+      titleText: item.title.length > 0 ? item.title : "[Tool]",
+      bodyText: item.body && item.body.length > 0 ? item.body : undefined,
+      toolCollapsed: item.collapsed,
+      toolStatus: item.status,
+      metaText: `tool${item.taskId ? ` • ${item.taskId}` : ""}`,
+    };
+  }
+
   const isUser = item.role === "user";
+  const isSystem = item.role === "system";
   return {
-    isUser,
+    role: item.role,
     bodyText: item.text.length > 0 ? item.text : " ",
-    metaText: isUser ? `user${item.taskId ? ` • ${item.taskId}` : ""}` : "assistant",
+    metaText: isUser
+      ? `user${item.taskId ? ` • ${item.taskId}` : ""}`
+      : isSystem
+        ? `system${item.taskId ? ` • ${item.taskId}` : ""}`
+        : "assistant",
   };
 };
 
@@ -164,34 +188,32 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
 
   for (const item of input.items) {
     const cardState = buildChatMessageCardViewState(item);
-    const isUser = cardState.isUser;
+    const isUser = cardState.role === "user";
+    const isSystem = cardState.role === "system";
+    const isTool = cardState.role === "tool";
     const card = new BoxRenderable(input.renderer, {
       width: "100%",
       flexDirection: "row",
       marginTop: 1,
+      border: isTool,
+      borderStyle: isTool ? "single" : undefined,
+      borderColor:
+        isTool && cardState.toolStatus === "error"
+          ? NORD.nord11
+          : isTool
+            ? NORD.nord3
+            : undefined,
       backgroundColor: isUser ? NORD.nord1 : NORD.nord0,
-    });
-
-    const accent = new BoxRenderable(input.renderer, {
-      width: 1,
-      backgroundColor: isUser ? NORD.nord9 : NORD.nord3,
     });
 
     const bodyWrap = new BoxRenderable(input.renderer, {
       width: "100%",
       flexDirection: "column",
-      paddingLeft: 1,
+      paddingLeft: isTool ? 2 : 1,
       paddingRight: 1,
       paddingTop: 1,
       paddingBottom: 1,
       backgroundColor: isUser ? NORD.nord1 : NORD.nord0,
-    });
-
-    const bodyText = new TextRenderable(input.renderer, {
-      content: cardState.bodyText,
-      fg: isUser ? NORD.nord5 : NORD.nord4,
-      width: "100%",
-      wrapMode: "char",
     });
 
     const meta = new TextRenderable(input.renderer, {
@@ -201,9 +223,67 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
       truncate: true,
     });
 
-    bodyWrap.add(bodyText);
-    bodyWrap.add(meta);
-    card.add(accent);
+    if (isTool) {
+      const bodyText = new TextRenderable(input.renderer, {
+        content: cardState.bodyText ?? " ",
+        fg: NORD.nord6,
+        width: "100%",
+        wrapMode: "char",
+      });
+      const collapseMark = cardState.toolCollapsed ? "[+]" : "[-]";
+      const statusMark =
+        cardState.toolStatus === "error"
+          ? "[fail]"
+          : cardState.toolStatus === "running"
+            ? "[running]"
+            : "[success]";
+      const titleText = new TextRenderable(input.renderer, {
+        content: `${collapseMark} ${cardState.titleText ?? "[Tool]"} ${statusMark}`,
+        fg:
+          cardState.toolStatus === "error"
+            ? NORD.nord11
+            : cardState.toolStatus === "running"
+              ? NORD.nord8
+              : NORD.nord6,
+        width: "100%",
+        wrapMode: "char",
+      });
+      bodyWrap.add(titleText);
+
+      if (!cardState.toolCollapsed && cardState.bodyText) {
+        bodyWrap.add(bodyText);
+      }
+    } else {
+      if (cardState.role === "assistant") {
+        const markdown = new MarkdownRenderable(input.renderer, {
+          content: cardState.bodyText ?? " ",
+          syntaxStyle: ASSISTANT_MARKDOWN_SYNTAX_STYLE,
+          conceal: true,
+          streaming: false,
+          width: "100%",
+        });
+        bodyWrap.add(markdown);
+      } else {
+        const bodyText = new TextRenderable(input.renderer, {
+          content: cardState.bodyText ?? " ",
+          fg: isUser ? NORD.nord5 : NORD.nord8,
+          width: "100%",
+          wrapMode: "char",
+        });
+        bodyWrap.add(bodyText);
+      }
+    }
+
+    if (!isTool) {
+      bodyWrap.add(meta);
+    }
+    if (!isTool) {
+      const accent = new BoxRenderable(input.renderer, {
+        width: 1,
+        backgroundColor: isUser ? NORD.nord9 : isSystem ? NORD.nord8 : NORD.nord3,
+      });
+      card.add(accent);
+    }
     card.add(bodyWrap);
     input.listBox.add(card);
   }

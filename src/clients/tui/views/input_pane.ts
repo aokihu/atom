@@ -8,11 +8,13 @@ export type InputPaneViewInput = {
   inputFocused: boolean;
   busyIndicator?: string;
   agentName: string;
+  noticeText?: string;
 };
 
 export type InputPaneViewState = {
   placeholderText: string;
   hintText: string;
+  showHint: boolean;
   railAccentColor: "focused" | "idle";
 };
 
@@ -128,16 +130,15 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
 
 export const buildInputPaneViewState = (input: InputPaneViewInput): InputPaneViewState => {
   const placeholderText = input.isBusy
-    ? input.busyIndicator ?? "Waiting for task completion..."
-    : `Ask ${input.agentName} or type / for commands (Shift+Enter newline)`;
+    ? `${input.busyIndicator ?? "Task in progress..."} (input locked)`
+    : `Ask ${input.agentName} · Enter=submit · Shift+Enter=newline · /=commands`;
 
-  const hintText = input.isBusy
-    ? `${input.busyIndicator ?? "Task in progress..."} input locked; switch to messages to scroll.`
-    : "Enter submit · Shift+Enter newline · Tab switch focus · / command palette";
+  const hintText = input.noticeText?.trim() ?? "";
 
   return {
     placeholderText,
     hintText,
+    showHint: hintText.length > 0,
     railAccentColor: input.inputFocused ? "focused" : "idle",
   };
 };

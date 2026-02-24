@@ -5,7 +5,11 @@
 import { inspect } from "node:util";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 
-import { AgentRunner, type AgentDependencies } from "./core/agent_runner";
+import {
+  AgentRunner,
+  type AgentDependencies,
+  type AgentRunOptions,
+} from "./core/agent_runner";
 import {
   AgentSession,
   type AgentSessionSnapshot,
@@ -14,6 +18,7 @@ import type { ToolDefinitionMap, ToolExecutionContext } from "./tools";
 
 export type {
   AgentDependencies,
+  AgentRunOptions,
   AgentSessionSnapshot,
   ToolDefinitionMap,
   ToolExecutionContext,
@@ -46,15 +51,15 @@ export class Agent {
   /**
    * 执行一个任务
    */
-  async runTask(question: string) {
-    return await this.runner.runTask(this.session, question);
+  async runTask(question: string, options?: AgentRunOptions) {
+    return await this.runner.runTask(this.session, question, options);
   }
 
   /**
    * 流式输出执行任务（兼容保留，当前不对外返回流）
    */
-  async runAsyncTask(question: string) {
-    const result = this.runner.runTaskStream(this.session, question);
+  async runAsyncTask(question: string, options?: AgentRunOptions) {
+    const result = this.runner.runTaskStream(this.session, question, options);
 
     for await (const _textPart of result.textStream) {
       // 保持旧行为：消费流但不输出
@@ -93,4 +98,3 @@ export class Agent {
     );
   }
 }
-

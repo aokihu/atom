@@ -3,17 +3,20 @@ import type { CliRenderer } from "@opentui/core";
 
 import { NORD } from "../theme/nord";
 import type { LayoutMetrics, TerminalSize } from "../layout/metrics";
-import { truncateToDisplayWidth } from "../utils/text";
+import { stringDisplayWidth, truncateToDisplayWidth } from "../utils/text";
 
 export type StatusStripViewInput = {
   layout: LayoutMetrics;
   terminal: TerminalSize;
   rowWidth: number;
   mode?: "hybrid" | "tui" | "tui-client";
+  agentName: string;
+  version?: string;
   connection: "unknown" | "ok" | "error";
   phase: "idle" | "submitting" | "polling";
+  spinnerFrame?: string;
+  busyAnimationTick?: number;
   activeTaskId?: string;
-  focus: "input" | "answer";
   serverUrl?: string;
   statusNotice: string;
 };
@@ -21,6 +24,46 @@ export type StatusStripViewInput = {
 export type StatusStripView = {
   box: BoxRenderable;
   rowTexts: [TextRenderable, TextRenderable];
+};
+
+const buildSweepBar = (tick = 0, width = 12): string => {
+  const normalizedWidth = Math.max(6, width);
+  const period = normalizedWidth + 6;
+  const center = (tick % period) - 3; // start off-screen, sweep through, then off-screen
+
+  let bar = "";
+  for (let i = 0; i < normalizedWidth; i += 1) {
+    const distance = Math.abs(i - center);
+    if (distance === 0) {
+      bar += "#";
+    } else if (distance === 1) {
+      bar += "=";
+    } else if (distance === 2) {
+      bar += "-";
+    } else {
+      bar += ".";
+    }
+  }
+
+  return bar;
+};
+
+const buildBusyStatusPill = (
+  phase: "submitting" | "polling",
+  spinnerFrame?: string,
+  busyAnimationTick?: number,
+): string => {
+  const label = phase === "submitting" ? "Submitting" : "Working";
+  const tickBase = (busyAnimationTick ?? 0) * 2;
+  const frameNudge: Record<string, number> = {
+    "-": 0,
+    "\\": 1,
+    "|": 2,
+    "/": 3,
+  };
+  const tick = tickBase + (frameNudge[spinnerFrame ?? ""] ?? 0);
+  const sweep = buildSweepBar(tick, phase === "submitting" ? 10 : 12);
+  return `[${label} ${sweep}]`;
 };
 
 export const createStatusStripView = (ctx: CliRenderer): StatusStripView => {
@@ -45,12 +88,28 @@ export const createStatusStripView = (ctx: CliRenderer): StatusStripView => {
 };
 
 export const buildStatusStripRows = (input: StatusStripViewInput): string[] => {
-  const displayMode = input.mode === "hybrid" ? "tui" : (input.mode ?? "tui");
+  const connectLabel =
+    input.connection === "ok" ? "OK" : input.connection === "error" ? "ERROR" : "UNKNOWN";
+  const statusLabel =
+    input.phase === "idle"
+      ? "Idle"
+      : buildBusyStatusPill(
+          input.phase === "submitting" ? "submitting" : "polling",
+          input.spinnerFrame,
+          input.busyAnimationTick,
+        );
+  const versionLabel = (input.version?.trim() || "unknown").replace(/\s+/g, " ");
+
+  const left = `${input.agentName}  Connect: ${connectLabel}  Status: ${statusLabel}`;
+  const right = versionLabel;
+  const fillerWidth = input.rowWidth - stringDisplayWidth(left) - stringDisplayWidth(right);
+
+  const line =
+    fillerWidth >= 2
+      ? `${left}${" ".repeat(fillerWidth)}${right}`
+      : `${left}  ${right}`;
 
   return [
-    truncateToDisplayWidth(
-      `mode:${displayMode}  term:${input.terminal.columns}x${input.terminal.rows}${input.serverUrl ? `  server:${input.serverUrl}` : ""}`,
-      input.rowWidth,
-    ),
+    truncateToDisplayWidth(line, input.rowWidth),
   ].slice(0, input.layout.statusRows);
 };

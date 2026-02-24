@@ -9,11 +9,19 @@ import type {
   CreateTaskResponse,
   QueueStats,
   TaskSnapshot,
+  TaskMessagesDelta,
+  TaskOutputMessage,
+  TaskOutputMessageDraft,
   TaskStatusResponse,
 } from "../../types/http";
 import type { TaskItem } from "../../types/task";
 
 const DEFAULT_AGENT_SESSION_ID = "default";
+
+type TaskMessageBuffer = {
+  items: TaskOutputMessage[];
+  nextSeq: number;
+};
 
 const toTaskSnapshot = (task: TaskItem<string, string>): TaskSnapshot => ({
   id: task.id,
@@ -41,6 +49,7 @@ export class AgentRuntimeService implements RuntimeGateway {
 
   private taskQueue: PriorityTaskQueue;
   private taskRegistry = new Map<string, TaskItem<string, string>>();
+  private readonly taskMessages = new Map<string, TaskMessageBuffer>();
   private readonly agentSessions = new Map<string, Agent>();
   private started = false;
 
@@ -52,7 +61,17 @@ export class AgentRuntimeService implements RuntimeGateway {
     this.taskQueue = new PriorityTaskQueue(
       async (task: TaskItem<string, string>) => {
         this.logger.log("[agent] thinking...");
-        return await this.getAgent().runTask(task.input);
+        this.appendTaskMessage(task.id, {
+          category: "other",
+          type: "task.status",
+          text: "Task running",
+        });
+
+        return await this.getAgent().runTask(task.input, {
+          onOutputMessage: (message) => {
+            this.appendTaskMessage(task.id, message);
+          },
+        });
       },
     );
   }
@@ -83,6 +102,12 @@ export class AgentRuntimeService implements RuntimeGateway {
     });
 
     this.taskRegistry.set(task.id, task);
+    this.ensureTaskMessageBuffer(task.id);
+    this.appendTaskMessage(task.id, {
+      category: "other",
+      type: "task.status",
+      text: "Task queued",
+    });
     this.taskQueue.add(task);
 
     return {
@@ -91,12 +116,18 @@ export class AgentRuntimeService implements RuntimeGateway {
     };
   }
 
-  getTask(taskId: string): TaskStatusResponse | undefined {
+  getTask(
+    taskId: string,
+    options?: {
+      afterSeq?: number;
+    },
+  ): TaskStatusResponse | undefined {
     const task = this.taskRegistry.get(taskId);
     if (!task) return undefined;
 
     return {
       task: toTaskSnapshot(task),
+      messages: this.getTaskMessagesDelta(taskId, options?.afterSeq ?? 0),
     };
   }
 
@@ -115,6 +146,45 @@ export class AgentRuntimeService implements RuntimeGateway {
   getAgentMessages(): AgentMessagesResponse {
     return {
       messages: this.getAgent().getMessagesSnapshot(),
+    };
+  }
+
+  private ensureTaskMessageBuffer(taskId: string): TaskMessageBuffer {
+    const existing = this.taskMessages.get(taskId);
+    if (existing) {
+      return existing;
+    }
+
+    const created: TaskMessageBuffer = {
+      items: [],
+      nextSeq: 1,
+    };
+    this.taskMessages.set(taskId, created);
+    return created;
+  }
+
+  private appendTaskMessage(taskId: string, message: TaskOutputMessageDraft): void {
+    const buffer = this.ensureTaskMessageBuffer(taskId);
+    const nextMessage: TaskOutputMessage = {
+      ...(message as Omit<TaskOutputMessage, "seq" | "createdAt">),
+      seq: buffer.nextSeq,
+      createdAt: message.createdAt ?? Date.now(),
+    } as TaskOutputMessage;
+
+    buffer.items.push(nextMessage);
+    buffer.nextSeq += 1;
+  }
+
+  private getTaskMessagesDelta(taskId: string, afterSeq: number): TaskMessagesDelta {
+    const buffer = this.ensureTaskMessageBuffer(taskId);
+    const normalizedAfterSeq = Number.isInteger(afterSeq) && afterSeq >= 0 ? afterSeq : 0;
+    const items = buffer.items.filter((item) => item.seq > normalizedAfterSeq);
+    const latestSeq = buffer.nextSeq - 1;
+
+    return {
+      items,
+      latestSeq,
+      nextSeq: latestSeq + 1,
     };
   }
 }

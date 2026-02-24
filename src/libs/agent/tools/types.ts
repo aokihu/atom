@@ -1,5 +1,6 @@
 import type { ToolSet } from "ai";
 import type { AgentToolsPermission } from "../../../types/agent";
+import type { AgentOutputMessageSink } from "../core/output_messages";
 
 export const BUILTIN_TOOL_NAMES = [
   "ls",
@@ -21,6 +22,7 @@ export type ToolPermissionSource = {
 
 export type ToolExecutionContext = {
   permissions?: ToolPermissionSource;
+  onOutputMessage?: AgentOutputMessageSink;
 };
 
 export type ToolDefinition = ToolSet[string];

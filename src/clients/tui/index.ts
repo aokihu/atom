@@ -10,6 +10,7 @@ import {
 import type { CliRenderer, KeyEvent } from "@opentui/core";
 
 import type { GatewayClient } from "../../libs/channel/channel";
+import type { TaskOutputMessage } from "../../types/http";
 import { TaskStatus } from "../../types/task";
 import { resolveSlashCommandAction } from "./controllers/commands";
 import { executeContextCommand } from "./controllers/context_command";
@@ -64,6 +65,7 @@ const INPUT_EDITOR_ROWS = 5;
 const DEFAULT_AGENT_NAME = "Atom";
 const WAITING_SPINNER_FRAMES = ["-", "\\", "|", "/"] as const;
 const WAITING_SPINNER_INTERVAL_MS = 120;
+const CTRL_C_EXIT_CONFIRM_MS = 1500;
 const TEXTAREA_SUBMIT_KEY_BINDINGS = [
   { name: "return", action: "submit" as const },
   { name: "linefeed", action: "submit" as const },
@@ -74,6 +76,21 @@ const TEXTAREA_SUBMIT_KEY_BINDINGS = [
 ];
 const formatErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const formatToolResultBody = (
+  message: Extract<TaskOutputMessage, { category: "tool"; type: "tool.result" }>,
+): string => {
+  const detail = (message.ok ? message.outputSummary : message.errorMessage ?? message.outputSummary)?.trim();
+
+  if (!detail) {
+    return "(no output)";
+  }
+
+  return detail;
+};
+
+const getToolMessageKey = (taskId: string, message: { toolName: string; toolCallId?: string }): string =>
+  `${taskId}::${message.toolCallId ?? `${message.toolName}:no-id`}`;
 
 const formatJson = (value: unknown): string => {
   try {
@@ -95,6 +112,9 @@ class CoreTuiClientApp {
 
   private spinnerTimer: ReturnType<typeof setInterval> | undefined;
   private deferredUiSyncTimer: ReturnType<typeof setTimeout> | undefined;
+  private ctrlCExitConfirmTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastCtrlCPressAt = 0;
+  private inputNoticeText = "";
 
   private readonly appRoot: BoxRenderable;
 
@@ -142,6 +162,13 @@ class CoreTuiClientApp {
   private readonly onGlobalKeyPress = (key: KeyEvent) => {
     if (this.destroyed || key.eventType !== "press") return;
 
+    if (key.ctrl && !key.meta && key.name === "c") {
+      key.preventDefault();
+      key.stopPropagation();
+      this.handleCtrlCExitAttempt();
+      return;
+    }
+
     if (this.handleContextModalKeyPress(key)) {
       return;
     }
@@ -153,12 +180,7 @@ class CoreTuiClientApp {
     if (key.name === "tab") {
       key.preventDefault();
       key.stopPropagation();
-
-      if (this.isBusy()) {
-        this.state.focusTarget = "answer";
-      } else {
-        this.state.focusTarget = this.state.focusTarget === "input" ? "answer" : "input";
-      }
+      this.state.focusTarget = "input";
 
       this.syncFocus();
       this.syncStatusStrip();
@@ -241,6 +263,10 @@ class CoreTuiClientApp {
     if (this.deferredUiSyncTimer) {
       clearTimeout(this.deferredUiSyncTimer);
       this.deferredUiSyncTimer = undefined;
+    }
+    if (this.ctrlCExitConfirmTimer) {
+      clearTimeout(this.ctrlCExitConfirmTimer);
+      this.ctrlCExitConfirmTimer = undefined;
     }
 
     this.unbindRendererEvents();
@@ -325,13 +351,13 @@ class CoreTuiClientApp {
 
     this.messageBox.height = layout.messageHeight;
     this.messageBox.borderColor = effectiveFocus === "answer" ? NORD.nord8 : NORD.nord3;
+    this.messageSubHeaderText.visible = false;
 
     this.messageHeaderText.content = buildMessageHeaderLine(this.state.agentName, this.state.chatStream.length, headerWidth);
     this.messageSubHeaderText.content = buildMessageSubHeaderLine({
       phase: this.state.phase,
       connection: this.state.connection,
       taskId: this.state.activeTaskId,
-      focus: effectiveFocus,
       agentName: this.state.agentName,
       spinnerFrame: WAITING_SPINNER_FRAMES[this.state.busySpinnerIndex] ?? WAITING_SPINNER_FRAMES[0],
       width: headerWidth,
@@ -365,10 +391,13 @@ class CoreTuiClientApp {
       terminal: this.state.terminal,
       rowWidth,
       mode: this.mode,
+      agentName: this.state.agentName,
+      version: this.state.serverVersion,
       connection: this.state.connection,
       phase: this.state.phase,
+      spinnerFrame: WAITING_SPINNER_FRAMES[this.state.busySpinnerIndex] ?? WAITING_SPINNER_FRAMES[0],
+      busyAnimationTick: this.state.busyAnimationTick,
       activeTaskId: this.state.activeTaskId,
-      focus: effectiveFocus,
       serverUrl: this.serverUrl,
       statusNotice: this.state.statusNotice,
     });
@@ -382,7 +411,7 @@ class CoreTuiClientApp {
 
   private syncInputPane(layout: LayoutMetrics): void {
     const effectiveFocus = this.getEffectiveFocus();
-    const inputFocused = !this.isBusy() && effectiveFocus === "input";
+    const inputFocused = effectiveFocus === "input";
     const busyIndicator = this.getBusyIndicator();
     const editorHeight = INPUT_EDITOR_ROWS;
     const viewState = buildInputPaneViewState({
@@ -390,6 +419,7 @@ class CoreTuiClientApp {
       inputFocused,
       busyIndicator,
       agentName: this.state.agentName,
+      noticeText: this.inputNoticeText,
     });
 
     this.inputBox.height = layout.inputHeight;
@@ -399,6 +429,7 @@ class CoreTuiClientApp {
     this.inputRailBox.width = layout.railWidth;
     this.inputRailBox.backgroundColor = inputFocused ? NORD.nord1 : NORD.nord1;
     this.inputRailAccent.backgroundColor = viewState.railAccentColor === "focused" ? NORD.nord8 : NORD.nord9;
+    this.inputHintText.visible = viewState.showHint;
     this.inputHintText.content = viewState.hintText;
 
     this.inputEditorHost.height = editorHeight;
@@ -467,7 +498,7 @@ class CoreTuiClientApp {
     }
 
     const effectiveFocus = this.getEffectiveFocus();
-    const inputFocused = !this.isBusy() && effectiveFocus === "input";
+    const inputFocused = effectiveFocus === "input";
 
     if (inputFocused) {
       this.inputTextarea.focus();
@@ -491,7 +522,7 @@ class CoreTuiClientApp {
     if (this.state.contextModalOpen) return false;
     if (!this.state.slashModalState.open || this.isBusy()) return false;
 
-    const inputFocused = !this.isBusy() && this.getEffectiveFocus() === "input";
+    const inputFocused = this.getEffectiveFocus() === "input";
     if (!inputFocused) return false;
 
     if (key.name === "escape") {
@@ -633,9 +664,28 @@ class CoreTuiClientApp {
     this.state.appendLog(kind, text);
   }
 
-  private appendChatMessage(role: ChatMessageRole, text: string, taskId?: string): void {
+  private appendChatMessage(role: Exclude<ChatMessageRole, "tool">, text: string, taskId?: string): void {
     if (this.destroyed) return;
     this.state.appendChatMessage(role, text, taskId);
+  }
+
+  private appendToolChatMessage(args: {
+    title: string;
+    body?: string;
+    collapsed: boolean;
+    status: "running" | "done" | "error";
+    taskId?: string;
+  }): number {
+    if (this.destroyed) return -1;
+    return this.state.appendToolMessage(args);
+  }
+
+  private updateToolChatMessage(
+    id: number,
+    patch: Partial<{ title: string; body?: string; collapsed: boolean; status: "running" | "done" | "error" }>,
+  ): boolean {
+    if (this.destroyed) return false;
+    return this.state.updateToolMessage(id, patch);
   }
 
   private setStatusNotice(text: string): void {
@@ -645,16 +695,24 @@ class CoreTuiClientApp {
     this.renderer.requestRender();
   }
 
+  private setInputNotice(text: string): void {
+    if (this.destroyed) return;
+    const nextText = text.trim();
+    if (this.inputNoticeText === nextText) return;
+    this.inputNoticeText = nextText;
+    this.syncInputPane(this.getLayout());
+    this.renderer.requestRender();
+  }
+
   private setClientPhase(nextPhase: ClientPhase): void {
     if (this.destroyed) return;
 
     this.state.phase = nextPhase;
-    if (this.isBusy() && this.state.focusTarget !== "answer") {
-      this.state.focusTarget = "answer";
-    }
+    this.state.focusTarget = "input";
 
     if (nextPhase === "idle") {
       this.state.busySpinnerIndex = 0;
+      this.state.busyAnimationTick = 0;
       this.stopSpinner();
     } else {
       this.closeSlashModal();
@@ -674,6 +732,7 @@ class CoreTuiClientApp {
       }
 
       this.state.busySpinnerIndex = (this.state.busySpinnerIndex + 1) % WAITING_SPINNER_FRAMES.length;
+      this.state.busyAnimationTick += 1;
       this.refreshAll();
     }, WAITING_SPINNER_INTERVAL_MS);
   }
@@ -682,6 +741,41 @@ class CoreTuiClientApp {
     if (!this.spinnerTimer) return;
     clearInterval(this.spinnerTimer);
     this.spinnerTimer = undefined;
+  }
+
+  private handleCtrlCExitAttempt(): void {
+    const now = Date.now();
+    const withinConfirmWindow = now - this.lastCtrlCPressAt <= CTRL_C_EXIT_CONFIRM_MS;
+
+    if (withinConfirmWindow) {
+      this.lastCtrlCPressAt = 0;
+      if (this.ctrlCExitConfirmTimer) {
+        clearTimeout(this.ctrlCExitConfirmTimer);
+        this.ctrlCExitConfirmTimer = undefined;
+      }
+      this.setInputNotice("");
+      this.appendLog("system", "Ctrl+C confirmed. Exiting TUI...");
+      this.setStatusNotice("Exiting TUI...");
+      this.renderer.destroy();
+      return;
+    }
+
+    this.lastCtrlCPressAt = now;
+    if (this.ctrlCExitConfirmTimer) {
+      clearTimeout(this.ctrlCExitConfirmTimer);
+    }
+    this.ctrlCExitConfirmTimer = setTimeout(() => {
+      this.ctrlCExitConfirmTimer = undefined;
+      this.lastCtrlCPressAt = 0;
+      this.setInputNotice("");
+      if (!this.destroyed && this.state.phase === "idle") {
+        this.setStatusNotice("Ready");
+      }
+    }, CTRL_C_EXIT_CONFIRM_MS);
+
+    this.appendLog("system", "Press Ctrl+C again to exit");
+    this.setStatusNotice("Press Ctrl+C again to exit");
+    this.setInputNotice("Press Ctrl+C again to exit");
   }
 
   private markConnected(): void {
@@ -719,6 +813,9 @@ class CoreTuiClientApp {
   private async bootstrapHealthCheck(): Promise<void> {
     try {
       const health = await this.withConnectionTracking(() => this.client.getHealth());
+      if (!this.destroyed) {
+        this.state.serverVersion = health.version?.trim() || this.state.serverVersion;
+      }
       const remoteAgentName = health.name?.trim();
       if (!remoteAgentName || this.destroyed) return;
       this.state.agentName = remoteAgentName;
@@ -793,6 +890,8 @@ class CoreTuiClientApp {
 
     this.appendLog("user", question);
     this.appendChatMessage("user", question);
+    let hasStructuredFinalAssistant = false;
+    const activeToolMessageIds = new Map<string, number>();
     await executePromptTaskFlow({
       question,
       client: this.client,
@@ -813,8 +912,88 @@ class CoreTuiClientApp {
           this.setStatusNotice(`Task created: ${taskId}`);
           this.setClientPhase("polling");
         },
+        onTaskMessages: (taskId, messages) => {
+          let hasUiUpdate = false;
+
+          for (const message of messages) {
+            if (message.category === "assistant" && message.type === "assistant.text") {
+              if (message.final) {
+                hasStructuredFinalAssistant = true;
+                this.appendChatMessage("assistant", message.text, taskId);
+                hasUiUpdate = true;
+              }
+              continue;
+            }
+
+            if (message.category !== "tool") {
+              continue;
+            }
+
+            if (message.type === "tool.call") {
+              const key = getToolMessageKey(taskId, message);
+              const title = `[Tool] ${message.toolName}`;
+              const existingId = activeToolMessageIds.get(key);
+
+              if (existingId !== undefined) {
+                this.updateToolChatMessage(existingId, {
+                  title,
+                  body: "Running...",
+                  collapsed: false,
+                  status: "running",
+                });
+              } else {
+                const id = this.appendToolChatMessage({
+                  title,
+                  body: "Running...",
+                  collapsed: false,
+                  status: "running",
+                  taskId,
+                });
+                if (id >= 0) {
+                  activeToolMessageIds.set(key, id);
+                }
+              }
+
+              hasUiUpdate = true;
+              continue;
+            }
+
+            if (message.type !== "tool.result") {
+              continue;
+            }
+
+            const key = getToolMessageKey(taskId, message);
+            const title = `[Tool] ${message.toolName}`;
+            const body = formatToolResultBody(message);
+            const status = message.ok ? "done" : "error";
+            const existingId = activeToolMessageIds.get(key);
+
+            if (existingId !== undefined) {
+              this.updateToolChatMessage(existingId, {
+                title,
+                body,
+                collapsed: true,
+                status,
+              });
+              activeToolMessageIds.delete(key);
+            } else {
+              this.appendToolChatMessage({
+                title,
+                body,
+                collapsed: true,
+                status,
+                taskId,
+              });
+            }
+            hasUiUpdate = true;
+          }
+
+          if (hasUiUpdate) {
+            this.refreshAll();
+          }
+        },
         onTaskCompleted: (taskId, summary) => {
-          if (summary.kind === "assistant_reply") {
+          if (summary.kind === "assistant_reply" && !hasStructuredFinalAssistant) {
             this.appendChatMessage("assistant", summary.replyText, taskId);
           }
           this.appendLog(summary.logKind, summary.statusNotice);
@@ -863,7 +1042,7 @@ export const startTuiClient = async (options: StartTuiClientOptions): Promise<vo
   });
 
   const renderer = await createCliRenderer({
-    exitOnCtrlC: true,
+    exitOnCtrlC: false,
     onDestroy: () => {
       resolveExit?.();
     },

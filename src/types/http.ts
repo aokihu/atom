@@ -43,6 +43,94 @@ export type TaskSnapshot = Pick<
   | "cancellable"
 >;
 
+export type TaskOutputMessageCategory = "assistant" | "tool" | "other";
+
+export type TaskOutputMessage =
+  | {
+      seq: number;
+      createdAt: number;
+      category: "assistant";
+      type: "assistant.text";
+      text: string;
+      final: boolean;
+      step?: number;
+    }
+  | {
+      seq: number;
+      createdAt: number;
+      category: "tool";
+      type: "tool.call";
+      step?: number;
+      toolCallId?: string;
+      toolName: string;
+      inputSummary?: string;
+    }
+  | {
+      seq: number;
+      createdAt: number;
+      category: "tool";
+      type: "tool.result";
+      step?: number;
+      toolCallId?: string;
+      toolName: string;
+      ok: boolean;
+      outputSummary?: string;
+      errorMessage?: string;
+    }
+  | {
+      seq: number;
+      createdAt: number;
+      category: "other";
+      type: "task.status" | "step.finish" | "task.finish" | "task.error";
+      text: string;
+      step?: number;
+      finishReason?: string;
+    };
+
+export type TaskOutputMessageDraft =
+  | {
+      createdAt?: number;
+      category: "assistant";
+      type: "assistant.text";
+      text: string;
+      final: boolean;
+      step?: number;
+    }
+  | {
+      createdAt?: number;
+      category: "tool";
+      type: "tool.call";
+      step?: number;
+      toolCallId?: string;
+      toolName: string;
+      inputSummary?: string;
+    }
+  | {
+      createdAt?: number;
+      category: "tool";
+      type: "tool.result";
+      step?: number;
+      toolCallId?: string;
+      toolName: string;
+      ok: boolean;
+      outputSummary?: string;
+      errorMessage?: string;
+    }
+  | {
+      createdAt?: number;
+      category: "other";
+      type: "task.status" | "step.finish" | "task.finish" | "task.error";
+      text: string;
+      step?: number;
+      finishReason?: string;
+    };
+
+export type TaskMessagesDelta = {
+  items: TaskOutputMessage[];
+  nextSeq: number;
+  latestSeq: number;
+};
+
 export type CreateTaskRequest = {
   input: string;
   priority?: TaskPriority;
@@ -56,6 +144,7 @@ export type CreateTaskResponse = {
 
 export type TaskStatusResponse = {
   task: TaskSnapshot;
+  messages?: TaskMessagesDelta;
 };
 
 export type QueueStats = {

@@ -1,5 +1,5 @@
 import type { GatewayClient } from "../../../libs/channel/channel";
-import type { TaskStatusResponse } from "../../../types/http";
+import type { TaskOutputMessage, TaskStatusResponse } from "../../../types/http";
 import { summarizeCompletedTask, isTaskStillRunning, type CompletedTaskSummary } from "./task_flow";
 
 type WithConnectionTracking = <T>(operation: () => Promise<T>) => Promise<T>;
@@ -7,6 +7,7 @@ type WithConnectionTracking = <T>(operation: () => Promise<T>) => Promise<T>;
 export type PromptTaskFlowCallbacks = {
   onBeforeSubmit: () => void;
   onTaskCreated: (taskId: string) => void;
+  onTaskMessages?: (taskId: string, messages: TaskOutputMessage[]) => void;
   onTaskCompleted: (taskId: string, summary: CompletedTaskSummary) => void;
   onRequestError: (message: string) => void;
   onFinally: () => void;
@@ -48,10 +49,22 @@ export const executePromptTaskFlow = async (input: ExecutePromptTaskFlowInput): 
     if (isDestroyed()) return;
 
     callbacks.onTaskCreated(created.taskId);
+    let afterSeq = 0;
 
     while (!isDestroyed()) {
-      const status: TaskStatusResponse = await withConnectionTracking(() => client.getTask(created.taskId));
+      const status: TaskStatusResponse = await withConnectionTracking(() =>
+        client.getTask(created.taskId, { afterSeq }),
+      );
       const task = status.task;
+      const delta = status.messages;
+
+      if (delta) {
+        afterSeq = delta.latestSeq;
+
+        if (delta.items.length > 0) {
+          callbacks.onTaskMessages?.(created.taskId, delta.items);
+        }
+      }
 
       if (isTaskStillRunning(task.status)) {
         await sleepFn(pollIntervalMs);

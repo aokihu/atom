@@ -96,6 +96,7 @@ export const createSlashModalView = (
     fg: NORD.nord4,
     width: "100%",
     truncate: true,
+    visible: false,
   });
   const emptyText = new TextRenderable(ctx, {
     content: "No commands",
@@ -122,7 +123,6 @@ export const createSlashModalView = (
   select.on(SelectRenderableEvents.ITEM_SELECTED, onSelectCommand);
 
   modalBox.add(titleText);
-  modalBox.add(queryText);
   modalBox.add(emptyText);
   modalBox.add(select);
   overlay.add(backdrop);
@@ -142,7 +142,7 @@ export const createSlashModalView = (
 export const buildSlashModalLayoutState = (input: SlashModalLayoutInput): SlashModalLayoutState => {
   const width = Math.max(28, Math.min(64, input.terminal.columns - 6));
   const listHeight = Math.min(6, Math.max(3, input.commands.length || 3));
-  const height = 2 + 2 + listHeight;
+  const height = 1 + 2 + listHeight;
   const inputTop = input.terminal.rows - input.layout.inputHeight;
   const anchorLeft = 2;
   const desiredTop = inputTop - height - 1;

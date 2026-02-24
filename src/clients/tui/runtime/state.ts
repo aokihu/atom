@@ -5,7 +5,7 @@ export type ClientPhase = "idle" | "submitting" | "polling";
 export type ConnectionState = "unknown" | "ok" | "error";
 export type LogKind = "system" | "user" | "assistant" | "error" | "command";
 export type FocusTarget = "input" | "answer";
-export type ChatMessageRole = "user" | "assistant";
+export type ChatMessageRole = "user" | "assistant" | "system" | "tool";
 
 export type LogEntry = {
   id: number;
@@ -14,13 +14,26 @@ export type LogEntry = {
   createdAt: number;
 };
 
-export type ChatStreamItem = {
+export type TextChatStreamItem = {
   id: number;
-  role: ChatMessageRole;
+  role: Exclude<ChatMessageRole, "tool">;
   text: string;
   createdAt: number;
   taskId?: string;
 };
+
+export type ToolChatStreamItem = {
+  id: number;
+  role: "tool";
+  title: string;
+  body?: string;
+  collapsed: boolean;
+  status: "running" | "done" | "error";
+  createdAt: number;
+  taskId?: string;
+};
+
+export type ChatStreamItem = TextChatStreamItem | ToolChatStreamItem;
 
 export type SlashModalState = {
   open: boolean;
@@ -48,11 +61,13 @@ export class TuiClientState {
   chatStream: ChatStreamItem[] = [];
   nextChatId = 1;
   agentName: string;
+  serverVersion = "unknown";
   phase: ClientPhase = "idle";
   connection: ConnectionState = "unknown";
   activeTaskId?: string;
   focusTarget: FocusTarget = "input";
   busySpinnerIndex = 0;
+  busyAnimationTick = 0;
   statusNotice = "Ready";
   contextModalOpen = false;
   contextModalText = "";
@@ -74,7 +89,7 @@ export class TuiClientState {
   }
 
   getEffectiveFocus(): FocusTarget {
-    return this.isBusy() ? "answer" : this.focusTarget;
+    return "input";
   }
 
   getBusyIndicator(spinnerFrames: readonly string[]): string | undefined {
@@ -97,8 +112,8 @@ export class TuiClientState {
     this.entries = next.length > MAX_RENDER_ENTRIES ? next.slice(-MAX_RENDER_ENTRIES) : next;
   }
 
-  appendChatMessage(role: ChatMessageRole, text: string, taskId?: string): void {
-    const next: ChatStreamItem = {
+  appendChatMessage(role: Exclude<ChatMessageRole, "tool">, text: string, taskId?: string): number {
+    const next: TextChatStreamItem = {
       id: this.nextChatId++,
       role,
       text,
@@ -107,6 +122,51 @@ export class TuiClientState {
     };
     const merged = [...this.chatStream, next];
     this.chatStream = merged.length > MAX_CHAT_STREAM_ITEMS ? merged.slice(-MAX_CHAT_STREAM_ITEMS) : merged;
+    return next.id;
+  }
+
+  appendToolMessage(args: {
+    title: string;
+    body?: string;
+    collapsed: boolean;
+    status: "running" | "done" | "error";
+    taskId?: string;
+  }): number {
+    const next: ToolChatStreamItem = {
+      id: this.nextChatId++,
+      role: "tool",
+      title: args.title,
+      body: args.body,
+      collapsed: args.collapsed,
+      status: args.status,
+      taskId: args.taskId,
+      createdAt: Date.now(),
+    };
+
+    const merged = [...this.chatStream, next];
+    this.chatStream = merged.length > MAX_CHAT_STREAM_ITEMS ? merged.slice(-MAX_CHAT_STREAM_ITEMS) : merged;
+    return next.id;
+  }
+
+  updateToolMessage(
+    id: number,
+    patch: Partial<Pick<ToolChatStreamItem, "title" | "body" | "collapsed" | "status">>,
+  ): boolean {
+    let updated = false;
+
+    this.chatStream = this.chatStream.map((item) => {
+      if (item.id !== id || item.role !== "tool") {
+        return item;
+      }
+
+      updated = true;
+      return {
+        ...item,
+        ...patch,
+      };
+    });
+
+    return updated;
   }
 
   setStatusNotice(text: string, summarizeFn: (text: string, maxWidth?: number) => string): void {
