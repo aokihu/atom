@@ -134,7 +134,7 @@ export const buildChatMessageCardViewState = (item: ChatMessageCardInput): ChatM
   return {
     isUser,
     bodyText: item.text.length > 0 ? item.text : " ",
-    metaText: `${isUser ? "user" : "assistant"}${item.taskId ? ` • ${item.taskId}` : ""}`,
+    metaText: isUser ? `user${item.taskId ? ` • ${item.taskId}` : ""}` : "assistant",
   };
 };
 
@@ -182,8 +182,8 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
       flexDirection: "column",
       paddingLeft: 1,
       paddingRight: 1,
-      paddingTop: 0,
-      paddingBottom: 0,
+      paddingTop: 1,
+      paddingBottom: 1,
       backgroundColor: isUser ? NORD.nord1 : NORD.nord0,
     });
 

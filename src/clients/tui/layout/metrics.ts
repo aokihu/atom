@@ -36,13 +36,13 @@ export const getTerminalSize = (renderer: CliRenderer): TerminalSize => ({
 export const getLayoutMetrics = (terminal: TerminalSize): LayoutMetrics => {
   const mode: LayoutMode = terminal.rows < 16 ? "tiny" : terminal.rows < 24 ? "compact" : "full";
   const showStatusStrip = mode !== "tiny";
-  const statusRows = mode === "full" ? 2 : 1;
+  const statusRows = 1;
   const statusHeight = showStatusStrip ? STATUS_PANEL_VERTICAL_OVERHEAD + statusRows : 0;
   const inputHintHeight = 1;
   const inputHeight = INPUT_PANEL_VERTICAL_OVERHEAD + inputHintHeight + INPUT_EDITOR_ROWS;
   const reserved = statusHeight + inputHeight;
   const messageHeight = Math.max(5, terminal.rows - reserved);
-  const railWidth = 2;
+  const railWidth = 1;
 
   return {
     mode,

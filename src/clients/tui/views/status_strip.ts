@@ -49,11 +49,7 @@ export const buildStatusStripRows = (input: StatusStripViewInput): string[] => {
 
   return [
     truncateToDisplayWidth(
-      `mode:${displayMode} conn:${input.connection} state:${input.phase}${input.activeTaskId ? ` task:${input.activeTaskId}` : ""} focus:${input.focus}`,
-      input.rowWidth,
-    ),
-    truncateToDisplayWidth(
-      `${input.statusNotice}  term:${input.terminal.columns}x${input.terminal.rows}${input.serverUrl ? `  server:${input.serverUrl}` : ""}`,
+      `mode:${displayMode}  term:${input.terminal.columns}x${input.terminal.rows}${input.serverUrl ? `  server:${input.serverUrl}` : ""}`,
       input.rowWidth,
     ),
   ].slice(0, input.layout.statusRows);
