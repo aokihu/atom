@@ -1,5 +1,50 @@
 {
-  "agentName": "MyAgent",
+  "agent": {
+    "name": "MyAgent",
+    "model": "deepseek/deepseek-chat",
+    "params": {
+      "temperature": 0.2,
+      "maxOutputTokens": 4096
+    }
+  },
+  "providers": [
+    {
+      "provider_id": "deepseek",
+      "model": "deepseek-chat",
+      "api_key": "YOUR_DEEPSEEK_API_KEY",
+      "enabled": true
+    },
+    {
+      "provider_id": "openrouter",
+      "model": "openai/gpt-4o-mini",
+      "api_key": "YOUR_OPENROUTER_API_KEY",
+      "enabled": false
+    },
+    {
+      "provider_id": "openai",
+      "model": "gpt-4o-mini",
+      "api_key": "YOUR_OPENAI_API_KEY",
+      "enabled": false
+    },
+    {
+      "provider_id": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V3",
+      "api_key": "YOUR_SILICONFLOW_API_KEY",
+      "enabled": false
+    },
+    {
+      "provider_id": "dashscope",
+      "model": "qwen-plus",
+      "api_key": "YOUR_DASHSCOPE_API_KEY",
+      "enabled": false
+    },
+    {
+      "provider_id": "ollama",
+      "model": "qwen2.5:7b",
+      "api_key": "OLLAMA_DUMMY_KEY",
+      "enabled": false
+    }
+  ],
   "permissions": {
     "read": {
       "allow": ["^{workspace}/.*"],

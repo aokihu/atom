@@ -1,11 +1,17 @@
 # atom
 
-## What's New (v0.5.3)
+## What's New (v0.6.0)
 
+- AI 供应商配置迁移到 `agent.config.json`：不再使用 `.env` 的 `AI_PROVIDER / AI_MODEL / AI_API_KEY`。
+- `agent.config.json` 新增 `providers` 数组，支持多供应商配置与切换（当前已内置 `deepseek`、`openrouter` 及多种 OpenAI-compatible 供应商别名）。
+- 顶层 `agentName` 升级为 `agent: { name, model, params }`，其中 `agent.params` 支持 `temperature`、`topP`、`maxOutputTokens` 等常用推理参数。
+- 启动日志新增模型信息展示：显示当前 `provider`、`model`，OpenAI-compatible 模型额外显示 `base_url`。
+- TUI 任务失败时会在聊天区显示错误信息，避免界面看起来“没有 assistant 输出”。
+- `temperature` 配置增加基础校验范围（`0 <= temperature <= 2`）。
 - 重构 OpenTUI 客户端代码：按 `runtime / views / controllers / flows / layout / state / theme / utils` 分层，便于维护和扩展。
 - 保持输入输出解耦：默认 `tui` 模式仍然是「本地 TUI + 同进程 HTTP 服务端」组合，通过 HTTP 通讯。
 - 新增内置工具权限配置项：`cp` / `mv` / `git`（可在 `agent.config.json` 中独立配置 `allow` / `deny`）。
-- `agentName` 配置生效范围扩展：影响 TUI 展示与 `/healthz` 返回的 `name` 字段。
+- `agent.name` 配置生效范围扩展：影响 TUI 展示与 `/healthz` 返回的 `name` 字段。
 - `agent.config.json` 顶层权限配置字段由 `tools` 更名为 `permissions`。
 
 ## Documentation
@@ -25,6 +31,14 @@ bun run src/index.ts --workspace=./Playground
 ```
 
 默认是 `tui` 模式：同进程启动 HTTP 服务端，并启动本地 OpenTUI TUI 客户端通过 HTTP 通讯（兼容旧名 `hybrid`）。
+
+## 0.6.0 Upgrade Notes
+
+- 配置迁移（Breaking）：AI 配置从 `.env` 迁移到 `agent.config.json`。
+- 配置迁移（Breaking）：顶层 `agentName` 已废弃，改为 `agent.name`。
+- 配置迁移（Breaking）：模型引用改为 `agent.model = "{provider_id}/{model}"`，并通过 `providers[]` 提供对应 `api_key` / `base_url` 等信息。
+- 启动时会打印 `[model] ...` 和（若存在）`[model.params] ...` 以便确认实际生效配置。
+- 若 TUI 对话区没有 assistant 文本，请查看聊天区新增的 `Task failed: ...` 系统消息（现在会显示运行错误详情）。
 
 ## 0.2.0 Breaking Changes
 
@@ -139,7 +153,34 @@ curl -s http://127.0.0.1:8787/v1/tasks/<taskId>
 
 ## Tool permission config
 
-Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/agent.config.json`），用于限制内置工具的读写路径和网络访问地址。顶层 `agentName` 可用于设置 Agent 的显示名称（影响 TUI 和 `/healthz.name`）。
+Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/agent.config.json`），用于配置 Agent 显示信息、AI 供应商以及内置工具权限。`agent.name` 会影响 TUI 和 `/healthz.name`。AI 配置已从 `.env` 的 `AI_PROVIDER / AI_MODEL / AI_API_KEY` 迁移到 `agent.config.json` 的 `agent` 与 `providers` 字段。
+
+### AI provider 配置
+
+- `agent.model` 使用 `"{provider_id}/{model}"` 格式，例如 `deepseek/deepseek-chat`。
+- `agent.params` 可配置常用推理参数（如 `temperature`、`topP`、`topK`、`maxOutputTokens`、`presencePenalty`、`frequencyPenalty`、`stopSequences`、`seed`）。
+  - 当前内置校验：`temperature` 范围为 `0 ~ 2`，`topP` 范围为 `(0, 1]`。
+- `providers` 为供应商数组，配置结构按多供应商扩展设计。
+- 当前运行时支持的 `provider_id`：
+  - 原生：`deepseek`、`openrouter`
+  - OpenAI-compatible（内置默认 `base_url`）：`openai`、`siliconflow`、`moonshot`、`dashscope`、`groq`、`together`、`xai`、`ollama`
+  - 通用：`openai-compatible`（需要显式配置 `providers[].base_url`）
+- `providers[].api_key` 为明文配置，请避免提交真实密钥到仓库。
+
+常用模型示例（以供应商控制台最新可用列表为准）：
+
+- `deepseek/deepseek-chat`
+- `deepseek/deepseek-reasoner`
+- `openrouter/openai/gpt-4o-mini`
+- `openrouter/anthropic/claude-3.7-sonnet`
+- `openai/gpt-4o-mini`
+- `openai/gpt-4.1-mini`
+- `siliconflow/Qwen/Qwen2.5-72B-Instruct`
+- `siliconflow/deepseek-ai/DeepSeek-V3`
+- `moonshot/moonshot-v1-8k`
+- `dashscope/qwen-plus`
+- `groq/llama-3.1-70b-versatile`
+- `ollama/qwen2.5:7b`
 
 ### 规则说明
 
@@ -154,7 +195,22 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
 
 ```json
 {
-  "agentName": "MyAgent",
+  "agent": {
+    "name": "MyAgent",
+    "model": "deepseek/deepseek-chat",
+    "params": {
+      "temperature": 0.2,
+      "maxOutputTokens": 4096
+    }
+  },
+  "providers": [
+    {
+      "provider_id": "deepseek",
+      "model": "deepseek-chat",
+      "api_key": "YOUR_DEEPSEEK_API_KEY",
+      "enabled": true
+    }
+  ],
   "permissions": {
     "read": {
       "allow": ["^{workspace}/src/.*", "^{workspace}/.*\\.md$"],

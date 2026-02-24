@@ -2,14 +2,17 @@
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 
-/* AI SDK */
-import { createDeepSeek } from "@ai-sdk/deepseek";
-
 /* Framework */
 import { bootstrap } from "./libs/agent/boot";
 import { workspace_check } from "./libs/utils/workspace_check";
 import { Agent } from "./libs/agent/agent";
 import { loadAgentConfig } from "./libs/agent/config";
+import {
+  createLanguageModelFromAgentConfig,
+  isOpenAICompatibleProvider,
+  resolveSelectedProvider,
+  resolveOpenAICompatibleProviderBaseURL,
+} from "./libs/agent/providers/factory";
 import { parseCliOptions, type CliOptions } from "./libs/utils/cli";
 import { initMCPTools } from "./libs/mcp";
 import { AgentRuntimeService } from "./libs/runtime";
@@ -52,10 +55,28 @@ const printTuiCommands = () => {
   console.log("Commands: `/help`, `/messages`, `/context`, `/exit`");
 };
 
-const createModel = () =>
-  createDeepSeek({
-    apiKey: process.env.AI_API_KEY,
-  })("deepseek-chat");
+const printModelSelection = (
+  agentConfig: Awaited<ReturnType<typeof loadAgentConfig>>,
+) => {
+  const selection = resolveSelectedProvider(agentConfig);
+  const baseUrl = isOpenAICompatibleProvider(selection.providerId)
+    ? resolveOpenAICompatibleProviderBaseURL(
+        selection.providerId,
+        selection.provider,
+      )
+    : undefined;
+
+  console.log(
+    baseUrl
+      ? `[model] provider=${selection.providerId} | model=${selection.modelId} | base_url=${baseUrl}`
+      : `[model] provider=${selection.providerId} | model=${selection.modelId}`,
+  );
+
+  const params = agentConfig.agent?.params;
+  if (params && Object.keys(params).length > 0) {
+    console.log(`[model.params] ${JSON.stringify(params)}`);
+  }
+};
 
 type ShutdownController = {
   run: (reason?: string) => Promise<void>;
@@ -116,10 +137,6 @@ const initializeRuntimeService = async (
     logStage(`config = ${cliOptions.configPath}`);
   }
 
-  logStage("checking workspace...");
-  await workspace_check(cliOptions.workspace);
-  logStage("workspace ready");
-
   logStage("initializing MCP servers...");
   const { tools: mcpTools, status: mcpStatus } = await initMCPTools(agentConfig.mcp);
   for (const serverStatus of mcpStatus) {
@@ -141,7 +158,7 @@ const initializeRuntimeService = async (
   const mcpAvailableCount = mcpStatus.filter((status) => status.available).length;
   logStage(`MCP ready (${mcpAvailableCount}/${mcpStatus.length})`);
 
-  const model = createModel();
+  const model = createLanguageModelFromAgentConfig(agentConfig);
 
   logStage("compiling agent prompt...");
   const { systemPrompt } = await bootstrap(model)({
@@ -154,6 +171,7 @@ const initializeRuntimeService = async (
   const taskAgent = new Agent({
     systemPrompt,
     model,
+    modelParams: agentConfig.agent?.params,
     workspace: cliOptions.workspace,
     toolContext: { permissions: agentConfig },
     mcpTools,
@@ -190,15 +208,20 @@ const main = async () => {
     return;
   }
 
+  logStage("checking workspace...");
+  await workspace_check(cliOptions.workspace);
+  logStage("workspace ready");
+
   logStage("loading agent config...");
   const agentConfig = await loadAgentConfig({
     workspace: cliOptions.workspace,
     configPath: cliOptions.configPath,
   });
   logStage("agent config loaded");
-  const agentName = resolveAgentName(agentConfig.agentName);
+  const agentName = resolveAgentName(agentConfig.agent?.name);
 
   printStartupBanner(agentName, version, cliOptions.mode);
+  printModelSelection(agentConfig);
 
   const runtimeService = await initializeRuntimeService(cliOptions, agentConfig);
   const gateway = startHttpGateway({

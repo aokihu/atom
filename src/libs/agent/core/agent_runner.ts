@@ -6,6 +6,7 @@ import type { LanguageModelV3, LanguageModelV3Middleware } from "@ai-sdk/provide
 
 import { extractContextMiddleware } from "../../utils/ai-sdk/middlewares/extractContextMiddleware";
 import type { AgentContext } from "../../../types/agent";
+import type { AgentModelParams } from "../../../types/agent";
 import {
   createToolRegistry,
   type ToolDefinitionMap,
@@ -48,11 +49,13 @@ export class AgentRunner {
 
   constructor(args: {
     model: LanguageModelV3;
+    modelParams?: AgentModelParams;
     toolContext?: ToolExecutionContext;
     mcpTools?: ToolDefinitionMap;
     dependencies?: AgentDependencies;
   }) {
     this.model = args.model;
+    this.modelParams = args.modelParams;
     const deps = args.dependencies ?? {};
 
     this.abortController = (deps.createAbortController ?? (() => new AbortController()))();
@@ -66,6 +69,7 @@ export class AgentRunner {
   }
 
   private readonly model: LanguageModelV3;
+  private readonly modelParams?: AgentModelParams;
 
   async runTask(session: AgentSession, question: string, options?: AgentRunOptions) {
     session.prepareUserTurn(question);
@@ -77,6 +81,7 @@ export class AgentRunner {
     return await this.modelExecutor.generate({
       model,
       messages: session.getMessages(),
+      modelParams: this.modelParams,
       abortSignal: this.abortController.signal,
       tools: this.createToolRegistryForRun(options),
       stopWhen: stepCountIs(this.maxSteps),
@@ -94,6 +99,7 @@ export class AgentRunner {
     return this.modelExecutor.stream({
       model,
       messages: session.getMessages(),
+      modelParams: this.modelParams,
       abortSignal: this.abortController.signal,
       tools: this.createToolRegistryForRun(options),
       stopWhen: stepCountIs(this.maxSteps),

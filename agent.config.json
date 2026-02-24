@@ -1,54 +1,99 @@
 {
-  "agentName": "Atom",
-  "permissions": {
-    "read": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "ls": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "tree": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "ripgrep": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "write": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "cp": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "mv": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "git": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "webfetch": {
-      "allow": ["^https://(docs\\.|developer\\.)?example\\.com/.*"],
-      "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
-    }
-  },
-  "mcp": {
-    "servers": [
-      {
-        "id": "memory",
-        "enabled": true,
-        "transport": {
-          "type": "http",
-          "url": "http://localhost:8787/mcp",
-          "headers": {}
+    "agent": {
+        "name": "Atom",
+        "model": "deepseek/deepseek-chat",
+        "params": {
+            "temperature": 0.2,
+            "maxOutputTokens": 4096
         }
-      }
-    ]
-  }
+    },
+    "providers": [
+        {
+            "provider_id": "deepseek",
+            "model": "deepseek-chat",
+            "api_key": "sk-8f7925b89f32431a91eefdbe5beeb0cd",
+            "enabled": true
+        },
+        {
+            "provider_id": "openrouter",
+            "model": "openai/gpt-4o-mini",
+            "api_key": "YOUR_OPENROUTER_API_KEY",
+            "enabled": false
+        },
+        {
+            "provider_id": "openai",
+            "model": "gpt-4o-mini",
+            "api_key": "YOUR_OPENAI_API_KEY",
+            "enabled": false
+        },
+        {
+            "provider_id": "siliconflow",
+            "model": "deepseek-ai/DeepSeek-V3",
+            "api_key": "YOUR_SILICONFLOW_API_KEY",
+            "enabled": false
+        },
+        {
+            "provider_id": "dashscope",
+            "model": "qwen-plus",
+            "api_key": "YOUR_DASHSCOPE_API_KEY",
+            "enabled": false
+        },
+        {
+            "provider_id": "ollama",
+            "model": "qwen2.5:7b",
+            "api_key": "OLLAMA_DUMMY_KEY",
+            "enabled": false
+        }
+    ],
+    "permissions": {
+        "read": {
+            "allow": ["^{workspace}/.*"],
+            "deny": []
+        },
+        "ls": {
+            "allow": ["^{workspace}/.*"],
+            "deny": []
+        },
+        "tree": {
+            "allow": ["^{workspace}/.*"],
+            "deny": []
+        },
+        "ripgrep": {
+            "allow": ["^{workspace}/.*"],
+            "deny": []
+        },
+        "write": {
+            "allow": ["^{workspace}/.*"],
+            "deny": []
+        },
+        "cp": {
+            "allow": ["^{workspace}/.*"],
+            "deny": []
+        },
+        "mv": {
+            "allow": ["^{workspace}/.*"],
+            "deny": []
+        },
+        "git": {
+            "allow": ["^{workspace}/.*"],
+            "deny": []
+        },
+        "webfetch": {
+            "allow": ["^https://(docs\\.|developer\\.)?example\\.com/.*"],
+            "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
+        }
+    },
+    "mcp": {
+        "servers": [
+            {
+                "id": "memory",
+                "enabled": true,
+                "transport": {
+                    "type": "http",
+                    "url": "http://localhost:8787/mcp",
+                    "headers": {}
+                }
+            }
+        ]
+    }
 }

@@ -4,6 +4,7 @@
 
 import { inspect } from "node:util";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { AgentModelParams } from "../../types/agent";
 
 import {
   AgentRunner,
@@ -30,6 +31,7 @@ export class Agent {
 
   constructor(arg: {
     model: LanguageModelV3;
+    modelParams?: AgentModelParams;
     systemPrompt: string;
     workspace: string;
     toolContext?: ToolExecutionContext;
@@ -42,6 +44,7 @@ export class Agent {
     });
     this.runner = new AgentRunner({
       model: arg.model,
+      modelParams: arg.modelParams,
       toolContext: arg.toolContext,
       mcpTools: arg.mcpTools,
       dependencies: arg.dependencies,

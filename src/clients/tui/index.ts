@@ -891,6 +891,7 @@ class CoreTuiClientApp {
     this.appendLog("user", question);
     this.appendChatMessage("user", question);
     let hasStructuredFinalAssistant = false;
+    let hasVisibleTaskError = false;
     const activeToolMessageIds = new Map<string, number>();
     await executePromptTaskFlow({
       question,
@@ -922,6 +923,13 @@ class CoreTuiClientApp {
                 this.appendChatMessage("assistant", message.text, taskId);
                 hasUiUpdate = true;
               }
+              continue;
+            }
+
+            if (message.category === "other" && message.type === "task.error") {
+              hasVisibleTaskError = true;
+              this.appendChatMessage("system", `Task failed: ${message.text}`, taskId);
+              hasUiUpdate = true;
               continue;
             }
 
@@ -996,8 +1004,12 @@ class CoreTuiClientApp {
           if (summary.kind === "assistant_reply" && !hasStructuredFinalAssistant) {
             this.appendChatMessage("assistant", summary.replyText, taskId);
           }
+          if (summary.kind === "error" && !hasVisibleTaskError) {
+            this.appendChatMessage("system", summary.statusNotice, taskId);
+          }
           this.appendLog(summary.logKind, summary.statusNotice);
           this.setStatusNotice(summary.statusNotice);
+          this.refreshAll();
         },
         onRequestError: (message) => {
           this.appendLog("error", `Request failed: ${message}`);

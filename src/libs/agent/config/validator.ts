@@ -1,4 +1,4 @@
-import type { AgentConfig } from "../../../types/agent";
+import type { AgentConfig, AgentProviderConfig } from "../../../types/agent";
 import { BUILTIN_TOOL_CONFIG_SECTIONS } from "./constants";
 
 const ensureStringArray = (value: unknown, keyPath: string) => {
@@ -36,6 +36,185 @@ const ensureNonEmptyString = (value: unknown, keyPath: string) => {
   }
   if (value.trim() === "") {
     throw new Error(`${keyPath} must be a non-empty string`);
+  }
+};
+
+const ensureRequiredNonEmptyString = (value: unknown, keyPath: string) => {
+  if (value === undefined) {
+    throw new Error(`${keyPath} must be a non-empty string`);
+  }
+
+  ensureNonEmptyString(value, keyPath);
+};
+
+const ensureNumber = (value: unknown, keyPath: string) => {
+  if (value === undefined) return;
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    throw new Error(`${keyPath} must be a number`);
+  }
+};
+
+const ensureInteger = (value: unknown, keyPath: string) => {
+  if (value === undefined) return;
+  ensureNumber(value, keyPath);
+  if (typeof value === "number" && !Number.isInteger(value)) {
+    throw new Error(`${keyPath} must be an integer`);
+  }
+};
+
+const ensurePositiveInteger = (value: unknown, keyPath: string) => {
+  if (value === undefined) return;
+  ensureInteger(value, keyPath);
+  if (typeof value === "number" && value <= 0) {
+    throw new Error(`${keyPath} must be a positive integer`);
+  }
+};
+
+const ensureNumberInRange = (
+  value: unknown,
+  keyPath: string,
+  range: { min?: number; max?: number; minExclusive?: boolean; maxExclusive?: boolean },
+) => {
+  if (value === undefined) return;
+  ensureNumber(value, keyPath);
+  if (typeof value !== "number") return;
+
+  if (range.min !== undefined) {
+    const invalid = range.minExclusive ? value <= range.min : value < range.min;
+    if (invalid) {
+      const relation = range.minExclusive ? ">" : ">=";
+      throw new Error(`${keyPath} must be ${relation} ${range.min}`);
+    }
+  }
+
+  if (range.max !== undefined) {
+    const invalid = range.maxExclusive ? value >= range.max : value > range.max;
+    if (invalid) {
+      const relation = range.maxExclusive ? "<" : "<=";
+      throw new Error(`${keyPath} must be ${relation} ${range.max}`);
+    }
+  }
+};
+
+const validateAgentModelParams = (value: unknown, keyPath: string) => {
+  if (value === undefined) return;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${keyPath} must be a JSON object`);
+  }
+
+  const params = value as Record<string, unknown>;
+  ensurePositiveInteger(params.maxOutputTokens, `${keyPath}.maxOutputTokens`);
+  ensureNumberInRange(params.temperature, `${keyPath}.temperature`, { min: 0, max: 2 });
+  ensureNumberInRange(params.topP, `${keyPath}.topP`, { min: 0, max: 1, minExclusive: true });
+  ensurePositiveInteger(params.topK, `${keyPath}.topK`);
+  ensureNumber(params.presencePenalty, `${keyPath}.presencePenalty`);
+  ensureNumber(params.frequencyPenalty, `${keyPath}.frequencyPenalty`);
+  ensureStringArray(params.stopSequences, `${keyPath}.stopSequences`);
+  ensureInteger(params.seed, `${keyPath}.seed`);
+};
+
+const parseAgentModelRef = (value: string) => {
+  const separatorIndex = value.indexOf("/");
+  if (separatorIndex <= 0 || separatorIndex >= value.length - 1) {
+    throw new Error("agent.model must be in '<provider_id>/<model>' format");
+  }
+
+  return {
+    providerId: value.slice(0, separatorIndex),
+    model: value.slice(separatorIndex + 1),
+  };
+};
+
+const validateAgentAndProvidersConfig = (config: AgentConfig) => {
+  const rawConfig = config as AgentConfig & Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(rawConfig, "agentName")) {
+    throw new Error("agentName is deprecated; use agent.name");
+  }
+
+  const agent = config.agent;
+  if (agent === undefined) {
+    throw new Error("agent must be a JSON object");
+  }
+  if (typeof agent !== "object" || agent === null || Array.isArray(agent)) {
+    throw new Error("agent must be a JSON object");
+  }
+
+  ensureNonEmptyString(agent.name, "agent.name");
+  ensureRequiredNonEmptyString(agent.model, "agent.model");
+  validateAgentModelParams(agent.params, "agent.params");
+  if (typeof agent.model !== "string") {
+    return;
+  }
+
+  const agentModelRef = parseAgentModelRef(agent.model);
+
+  const providers = config.providers;
+  if (providers === undefined) {
+    throw new Error("providers must be a non-empty array");
+  }
+  if (!Array.isArray(providers) || providers.length === 0) {
+    throw new Error("providers must be a non-empty array");
+  }
+
+  const seenProviderIds = new Set<string>();
+  let selectedProvider: AgentProviderConfig | undefined;
+
+  providers.forEach((provider, index) => {
+    const keyPath = `providers[${index}]`;
+    if (typeof provider !== "object" || provider === null || Array.isArray(provider)) {
+      throw new Error(`${keyPath} must be an object`);
+    }
+
+    ensureRequiredNonEmptyString(provider.provider_id, `${keyPath}.provider_id`);
+    ensureRequiredNonEmptyString(provider.model, `${keyPath}.model`);
+    ensureRequiredNonEmptyString(provider.api_key, `${keyPath}.api_key`);
+    ensureBoolean(provider.enabled, `${keyPath}.enabled`);
+    ensureNonEmptyString(provider.base_url, `${keyPath}.base_url`);
+    ensureStringRecord(provider.headers, `${keyPath}.headers`);
+
+    if (typeof provider.base_url === "string") {
+      try {
+        new URL(provider.base_url);
+      } catch {
+        throw new Error(`${keyPath}.base_url is invalid URL`);
+      }
+    }
+
+    if (
+      typeof provider.provider_id === "string" &&
+      !/^[a-zA-Z0-9_-]+$/.test(provider.provider_id)
+    ) {
+      throw new Error(`${keyPath}.provider_id must match /^[a-zA-Z0-9_-]+$/`);
+    }
+
+    if (typeof provider.provider_id !== "string") {
+      return;
+    }
+
+    if (seenProviderIds.has(provider.provider_id)) {
+      throw new Error(`Duplicate provider_id: ${provider.provider_id}`);
+    }
+    seenProviderIds.add(provider.provider_id);
+
+    if (provider.provider_id === agentModelRef.providerId) {
+      selectedProvider = provider;
+    }
+  });
+
+  if (!selectedProvider) {
+    throw new Error(
+      `agent.model references unknown provider_id: ${agentModelRef.providerId}`,
+    );
+  }
+
+  if (selectedProvider.enabled === false) {
+    throw new Error(
+      `agent.model references disabled provider_id: ${agentModelRef.providerId}`,
+    );
+  }
+
+  if (selectedProvider.model !== agentModelRef.model) {
+    throw new Error("agent.model model part does not match providers[i].model");
   }
 };
 
@@ -128,7 +307,7 @@ export const validateMcpConfig = (config: AgentConfig) => {
 };
 
 export const validateAgentConfig = (config: AgentConfig) => {
-  ensureNonEmptyString(config.agentName, "agentName");
+  validateAgentAndProvidersConfig(config);
   validateToolsConfig(config);
   validateMcpConfig(config);
 };

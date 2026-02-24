@@ -4,6 +4,7 @@ import {
   type ModelMessage,
 } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { AgentModelParams } from "../../../types/agent";
 import type { ToolDefinitionMap } from "../tools";
 import {
   emitOutputMessage,
@@ -14,6 +15,7 @@ import {
 export type ModelExecutionInput = {
   model: LanguageModelV3;
   messages: ModelMessage[];
+  modelParams?: AgentModelParams;
   abortSignal?: AbortSignal;
   tools: ToolDefinitionMap;
   stopWhen: any;
@@ -28,6 +30,7 @@ export class AISDKModelExecutor {
       const result = await generateText({
         model: input.model,
         messages: input.messages,
+        ...input.modelParams,
         abortSignal: input.abortSignal,
         tools: input.tools,
         stopWhen: input.stopWhen,
@@ -75,6 +78,7 @@ export class AISDKModelExecutor {
     return streamText({
       model: input.model,
       messages: input.messages,
+      ...input.modelParams,
       abortSignal: input.abortSignal,
       tools: input.tools,
       stopWhen: input.stopWhen,
