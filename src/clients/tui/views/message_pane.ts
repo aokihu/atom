@@ -218,6 +218,13 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
     flexDirection: "column",
     flexGrow: 1,
   });
+  const headerBar = new BoxRenderable(ctx, {
+    width: "100%",
+    height: 1,
+    flexDirection: "row",
+    backgroundColor: NORD.nord2,
+    paddingX: 1,
+  });
   const headerText = new TextRenderable(ctx, {
     content: "Conversation",
     fg: NORD.nord4,
@@ -265,8 +272,8 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
   });
 
   scroll.add(listBox);
-  box.add(headerText);
-  box.add(subHeaderText);
+  headerBar.add(headerText);
+  box.add(headerBar);
   box.add(scroll);
 
   return {
