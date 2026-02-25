@@ -6,6 +6,7 @@ import {
   AgentContextState,
   type AgentContextClock,
 } from "./context_state";
+import { sanitizeIncomingContextPatch } from "./context_sanitizer";
 
 export type AgentSessionSnapshot = {
   messages: ModelMessage[];
@@ -36,7 +37,11 @@ export class AgentSession {
   }
 
   mergeExtractedContext(context: Partial<AgentContext>) {
-    this.contextState.merge(context);
+    const sanitizedPatch = sanitizeIncomingContextPatch(
+      context,
+      this.contextState.getCurrentContext(),
+    );
+    this.contextState.merge(sanitizedPatch);
   }
 
   prepareUserTurn(question: string) {
@@ -90,4 +95,3 @@ export class AgentSession {
     }
   }
 }
-

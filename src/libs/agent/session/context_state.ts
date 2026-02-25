@@ -1,6 +1,11 @@
-import { construct, crush } from "radashi";
 import type { AgentContext } from "../../../types/agent";
 import { formatedDatetimeNow } from "../../utils/date";
+import { CONTEXT_POLICY } from "./context_policy";
+import {
+  compactContextMemory,
+  mergeContextWithMemoryPolicy,
+  type SanitizedContextPatch,
+} from "./context_sanitizer";
 
 export type AgentContextClock = {
   nowDatetime: () => string;
@@ -16,12 +21,17 @@ const createInitialContext = (
   workspace: string,
   clock: AgentContextClock,
 ): AgentContext => ({
-  version: 2.2,
+  version: CONTEXT_POLICY.version,
   runtime: {
     round: 1,
     workspace,
     datetime: clock.nowDatetime(),
     startup_at: clock.nowTimestamp(),
+  },
+  memory: {
+    core: [],
+    working: [],
+    ephemeral: [],
   },
 });
 
@@ -34,11 +44,9 @@ export class AgentContextState {
     this.context = createInitialContext(args.workspace, this.clock);
   }
 
-  merge(context: Partial<AgentContext>) {
-    const originalContext = crush(this.context);
-    const targetContext = crush(context);
-    const mergedContext = { ...originalContext, ...targetContext };
-    this.context = construct(mergedContext) as AgentContext;
+  merge(context: SanitizedContextPatch) {
+    const mergedContext = mergeContextWithMemoryPolicy(this.context, context);
+    this.context = compactContextMemory(mergedContext);
   }
 
   updateRuntime() {
@@ -54,4 +62,3 @@ export class AgentContextState {
     return this.context;
   }
 }
-

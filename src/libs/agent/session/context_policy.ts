@@ -1,0 +1,42 @@
+import type { ContextMemoryBlock, ContextMemoryTier } from "../../../types/agent";
+
+export const CONTEXT_MEMORY_TIERS: readonly ContextMemoryTier[] = [
+  "core",
+  "working",
+  "ephemeral",
+];
+
+export type ContextTierPolicy = {
+  maxDecay: number;
+  minConfidence: number;
+  maxItems: number;
+};
+
+export const CONTEXT_POLICY = {
+  version: 2.3,
+  defaultConfidence: 0.5,
+  contentMaxLength: 512,
+  tagsMaxItems: 8,
+  tagMaxLength: 32,
+  tiers: {
+    core: {
+      maxDecay: 0.35,
+      minConfidence: 0.7,
+      maxItems: 24,
+    },
+    working: {
+      maxDecay: 0.65,
+      minConfidence: 0.55,
+      maxItems: 48,
+    },
+    ephemeral: {
+      maxDecay: 0.8,
+      minConfidence: 0.4,
+      maxItems: 24,
+    },
+  } satisfies Record<ContextMemoryTier, ContextTierPolicy>,
+} as const;
+
+export const getMemoryBlockQuality = (block: Pick<ContextMemoryBlock, "decay" | "confidence">) =>
+  0.5 * (1 - block.decay) + 0.5 * block.confidence;
+

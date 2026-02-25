@@ -23,7 +23,7 @@ export function extractContext(rawText: string) {
       divide_start + CONTEXT_DIVIDE_TAG.length,
     );
     try {
-      const context = JSON.parse(contextRawText);
+      const context: unknown = JSON.parse(contextRawText);
       cleanedText = cleanedText.slice(0, divide_start).trimEnd().trimStart();
       return { context, cleanedText };
     } catch {

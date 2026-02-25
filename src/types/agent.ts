@@ -70,12 +70,35 @@ export type AgentConfig = {
   mcp?: MCPConfig;
 };
 
+export type ContextMemoryTier = "core" | "working" | "ephemeral";
+
+export type ContextMemoryBlock = {
+  id: string;
+  type: string;
+  decay: number;
+  confidence: number;
+  round: number;
+  tags: string[];
+  content: string;
+  [key: string]: unknown;
+};
+
+export type AgentContextMemory = {
+  core: ContextMemoryBlock[];
+  working: ContextMemoryBlock[];
+  ephemeral: ContextMemoryBlock[];
+};
+
+export type AgentContextRuntime = {
+  round: number;
+  workspace: string;
+  datetime: string;
+  startup_at: number;
+};
+
 export type AgentContext = {
-  [key: string]: any;
-  runtime: {
-    round: number;
-    workspace: string;
-    datetime: string;
-    startup_at: number;
-  };
+  [key: string]: unknown;
+  version: number;
+  runtime: AgentContextRuntime;
+  memory: AgentContextMemory;
 };
