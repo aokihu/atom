@@ -37,6 +37,7 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
   const box = new BoxRenderable(ctx, {
     border: false,
     backgroundColor: NORD.nord1,
+    paddingX: 1,
     width: "100%",
     flexDirection: "row",
   });
@@ -48,9 +49,13 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
     backgroundColor: NORD.nord1,
   });
   const railAccent = new BoxRenderable(ctx, {
-    width: "100%",
+    width: 1,
     height: "100%",
-    backgroundColor: NORD.nord9,
+    border: ["left"],
+    borderStyle: "double",
+    borderColor: NORD.nord9,
+    shouldFill: false,
+    backgroundColor: NORD.nord1,
   });
   const railTextBox = new BoxRenderable(ctx, {
     width: "100%",
@@ -82,7 +87,7 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
     width: "100%",
     height: "100%",
     flexDirection: "column",
-    paddingLeft: 1,
+    paddingLeft: 0,
     paddingRight: 1,
     backgroundColor: NORD.nord1,
   });
