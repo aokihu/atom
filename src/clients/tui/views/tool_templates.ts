@@ -251,6 +251,103 @@ const getSummaryTone = (status: ToolCardTemplateInput["status"]): ToolCardLineTo
   return "summary";
 };
 
+const collapseInlineText = (text: string, maxChars = 96): string => {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return normalized;
+  if (maxChars <= 3) return normalized.slice(0, maxChars);
+  return `${normalized.slice(0, maxChars - 3)}...`;
+};
+
+const parseDisplayFields = (display?: ToolDisplayEnvelope): DisplayField[] => {
+  if (!isDisplayEnvelope(display)) return [];
+  const parsed = parseDisplayData(display);
+  return parsed?.fields ?? [];
+};
+
+const getFieldValue = (fields: DisplayField[], label: string): string | undefined =>
+  fields.find((field) => field.label === label)?.value;
+
+const buildLsCollapsedSummary = (input: ToolCardTemplateInput): string | undefined => {
+  const callFields = parseDisplayFields(input.callDisplay);
+  const resultFields = parseDisplayFields(input.resultDisplay);
+  const dirpath = getFieldValue(callFields, "dirpath") ?? getFieldValue(resultFields, "dirpath");
+  const all = getFieldValue(callFields, "all");
+  const long = getFieldValue(callFields, "long");
+  const entryCount = getFieldValue(resultFields, "entryCount");
+
+  const parts = [
+    dirpath ? `dir=${dirpath}` : undefined,
+    all ? `all=${all}` : undefined,
+    long ? `long=${long}` : undefined,
+    entryCount ? `entries=${entryCount}` : undefined,
+  ].filter((part): part is string => Boolean(part));
+
+  if (parts.length === 0) return undefined;
+  return collapseInlineText(parts.join("  "), 120);
+};
+
+const buildGenericCollapsedSummary = (input: ToolCardTemplateInput): string | undefined => {
+  if (input.status === "error" && input.errorMessage?.trim()) {
+    return collapseInlineText(`error=${input.errorMessage.trim()}`);
+  }
+
+  const resultFields = parseDisplayFields(input.resultDisplay);
+  const callFields = parseDisplayFields(input.callDisplay);
+  const preferredLabels = [
+    "filepath",
+    "dirpath",
+    "source",
+    "destination",
+    "cwd",
+    "url",
+    "pattern",
+    "mode",
+    "action",
+    "sessionId",
+    "status",
+    "append",
+    "recursive",
+    "overwrite",
+    "all",
+    "long",
+    "entryCount",
+    "lineCount",
+    "bytes",
+    "bytesWritten",
+    "exitCode",
+  ];
+
+  const byLabel = new Map<string, string>();
+  for (const field of [...resultFields, ...callFields]) {
+    if (!byLabel.has(field.label)) {
+      byLabel.set(field.label, field.value);
+    }
+  }
+
+  const parts: string[] = [];
+  for (const label of preferredLabels) {
+    const value = byLabel.get(label);
+    if (!value) continue;
+    parts.push(`${label}=${value}`);
+    if (parts.length >= 3) break;
+  }
+
+  if (parts.length === 0) {
+    const summaryLine = buildToolCardStyledLines(input).find((line) => line.kind === "summary");
+    if (!summaryLine || summaryLine.kind !== "summary") return undefined;
+    return collapseInlineText(summaryLine.text.replace(/^Summary:\s*/, ""));
+  }
+
+  return collapseInlineText(parts.join("  "), 100);
+};
+
+export const buildToolCardCollapsedSummary = (input: ToolCardTemplateInput): string | undefined => {
+  if (input.toolName === "ls") {
+    return buildLsCollapsedSummary(input) ?? buildGenericCollapsedSummary(input);
+  }
+  return buildGenericCollapsedSummary(input);
+};
+
 const buildStyledLinesFromParsed = (
   parsed: DisplayData,
   status: ToolCardTemplateInput["status"],

@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ToolDisplayEnvelope } from "../../../types/http";
-import { buildToolCardStyledLines, renderToolCardBody } from "./tool_templates";
+import {
+  buildToolCardCollapsedSummary,
+  buildToolCardStyledLines,
+  renderToolCardBody,
+} from "./tool_templates";
 
 const makeDisplay = (args: Partial<ToolDisplayEnvelope> & Pick<ToolDisplayEnvelope, "templateKey" | "toolName" | "phase">): ToolDisplayEnvelope => ({
   version: 1,
@@ -109,5 +113,38 @@ describe("tool template rendering", () => {
     expect(errorField && errorField.kind === "field" ? errorField.tone : undefined).toBe("error");
     expect(stderrPreviewLine && stderrPreviewLine.kind === "previewLine" ? stderrPreviewLine.tone : undefined)
       .toBe("stderr");
+  });
+
+  test("includes ls params in collapsed summary", () => {
+    const collapsed = buildToolCardCollapsedSummary({
+      toolName: "ls",
+      status: "done",
+      callDisplay: {
+        version: 1,
+        toolName: "ls",
+        phase: "call",
+        templateKey: "builtin.ls.call",
+        data: {
+          fields: [
+            { label: "dirpath", value: "/tmp/demo" },
+            { label: "all", value: "yes" },
+            { label: "long", value: "no" },
+          ],
+        },
+      },
+      resultDisplay: {
+        version: 1,
+        toolName: "ls",
+        phase: "result",
+        templateKey: "builtin.ls.result",
+        data: {
+          fields: [{ label: "entryCount", value: "12" }],
+        },
+      },
+    });
+
+    expect(collapsed).toContain("dir=/tmp/demo");
+    expect(collapsed).toContain("all=yes");
+    expect(collapsed).toContain("long=no");
   });
 });
