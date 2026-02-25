@@ -10,7 +10,11 @@ import type { ToolDisplayEnvelope } from "../../../types/http";
 
 import { NORD } from "../theme/nord";
 import { truncateToDisplayWidth } from "../utils/text";
-import { buildToolCardStyledLines, type ToolCardStyledLine } from "./tool_templates";
+import {
+  buildToolCardCollapsedSummary,
+  buildToolCardStyledLines,
+  type ToolCardStyledLine,
+} from "./tool_templates";
 
 const ASSISTANT_MARKDOWN_SYNTAX_STYLE = SyntaxStyle.create();
 
@@ -338,15 +342,20 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
     });
 
     if (isTool) {
-      const collapseMark = cardState.toolCollapsed ? "[+]" : "[-]";
+      const toolItem = item as Extract<ChatMessageCardInput, { role: "tool" }>;
+      const collapseMark = cardState.toolCollapsed ? "▶" : "▼";
       const statusMark =
         cardState.toolStatus === "error"
-          ? "[fail]"
+          ? "✕"
           : cardState.toolStatus === "running"
-            ? "[running]"
-            : "[success]";
+            ? "…"
+            : "✓";
+      const collapsedSummary =
+        cardState.toolCollapsed ? buildToolCardCollapsedSummary(toolItem) : undefined;
       const titleText = new TextRenderable(input.renderer, {
-        content: `${collapseMark} ${cardState.titleText ?? "[Tool]"} ${statusMark}`,
+        content:
+          `${collapseMark} ${cardState.titleText ?? "[Tool]"} ${statusMark}` +
+          (collapsedSummary ? ` • ${collapsedSummary}` : ""),
         fg:
           cardState.toolStatus === "error"
             ? NORD.nord11
@@ -362,7 +371,7 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
         appendToolStyledBody(
           input.renderer,
           bodyWrap,
-          item as Extract<ChatMessageCardInput, { role: "tool" }>,
+          toolItem,
         );
       }
     } else {
