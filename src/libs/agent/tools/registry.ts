@@ -16,6 +16,7 @@ import {
   type ToolFactory,
 } from "./types";
 import { emitOutputMessage, summarizeOutputValue, toOutputErrorMessage } from "../core/output_messages";
+import { buildToolCallDisplay, buildToolResultDisplay } from "./tool_display";
 
 const BUILTIN_TOOL_FACTORIES: Record<BuiltinToolName, ToolFactory> = {
   ls: lsTool,
@@ -79,12 +80,14 @@ const wrapToolDefinition = (
     ...(definition as Record<string, unknown>),
     execute: async (...args: unknown[]) => {
       const toolCallId = getToolCallId(args);
+      const input = args[0];
       emitOutputMessage(context.onOutputMessage, {
         category: "tool",
         type: "tool.call",
         toolName,
         toolCallId,
-        inputSummary: summarizeOutputValue(args[0]),
+        inputSummary: summarizeOutputValue(input),
+        inputDisplay: buildToolCallDisplay(toolName, input),
       });
 
       try {
@@ -99,6 +102,7 @@ const wrapToolDefinition = (
           ok: errorMessage === undefined,
           outputSummary: summarizeOutputValue(result),
           errorMessage,
+          outputDisplay: buildToolResultDisplay(toolName, input, result, errorMessage),
         });
 
         return result;
@@ -110,6 +114,9 @@ const wrapToolDefinition = (
           toolCallId,
           ok: false,
           errorMessage: toOutputErrorMessage(error),
+          outputDisplay: buildToolResultDisplay(toolName, input, {
+            error: toOutputErrorMessage(error),
+          }, toOutputErrorMessage(error)),
         });
 
         throw error;

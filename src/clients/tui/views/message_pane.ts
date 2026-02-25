@@ -6,9 +6,11 @@ import {
   TextRenderable,
 } from "@opentui/core";
 import type { CliRenderer } from "@opentui/core";
+import type { ToolDisplayEnvelope } from "../../../types/http";
 
 import { NORD } from "../theme/nord";
 import { truncateToDisplayWidth } from "../utils/text";
+import { buildToolCardStyledLines, type ToolCardStyledLine } from "./tool_templates";
 
 const ASSISTANT_MARKDOWN_SYNTAX_STYLE = SyntaxStyle.create();
 
@@ -27,8 +29,12 @@ export type ChatMessageCardInput = {
   taskId?: string;
 } | {
   role: "tool";
-  title: string;
-  body?: string;
+  toolName: string;
+  callSummary?: string;
+  resultSummary?: string;
+  errorMessage?: string;
+  callDisplay?: ToolDisplayEnvelope;
+  resultDisplay?: ToolDisplayEnvelope;
   collapsed: boolean;
   status: "running" | "done" | "error";
   taskId?: string;
@@ -56,6 +62,115 @@ export type RenderMessageStreamInput = {
   listBox: BoxRenderable;
   agentName: string;
   items: ChatMessageCardInput[];
+};
+
+const getToolLineTextColor = (line: ToolCardStyledLine): string => {
+  if (line.kind === "summary") {
+    switch (line.tone) {
+      case "running":
+        return NORD.nord8;
+      case "success":
+        return NORD.nord14;
+      case "error":
+        return NORD.nord11;
+      case "muted":
+        return NORD.nord3;
+      default:
+        return NORD.nord6;
+    }
+  }
+
+  if (line.kind === "previewHeader") {
+    return NORD.nord9;
+  }
+
+  if (line.kind === "previewLine") {
+    switch (line.tone) {
+      case "stderr":
+      case "error":
+        return NORD.nord11;
+      case "stdout":
+        return NORD.nord14;
+      case "meta":
+        return NORD.nord9;
+      case "muted":
+        return NORD.nord3;
+      default:
+        return NORD.nord4;
+    }
+  }
+
+  return NORD.nord6;
+};
+
+const getToolFieldColorsByTone = (
+  tone: Extract<ToolCardStyledLine, { kind: "field" }>["tone"],
+): { label: string; value: string } => {
+  switch (tone) {
+    case "error":
+      return { label: NORD.nord11, value: NORD.nord11 };
+    case "warning":
+      return { label: NORD.nord8, value: NORD.nord6 };
+    case "accent":
+      return { label: NORD.nord9, value: NORD.nord8 };
+    case "muted":
+      return { label: NORD.nord3, value: NORD.nord4 };
+    default:
+      return { label: NORD.nord9, value: NORD.nord6 };
+  }
+};
+
+const appendToolStyledBody = (
+  renderer: CliRenderer,
+  bodyWrap: BoxRenderable,
+  item: Extract<ChatMessageCardInput, { role: "tool" }>,
+) => {
+  const lines = buildToolCardStyledLines(item);
+
+  for (const line of lines) {
+    if (line.kind === "spacer") {
+      bodyWrap.add(
+        new TextRenderable(renderer, {
+          content: " ",
+          fg: NORD.nord3,
+          width: "100%",
+        }),
+      );
+      continue;
+    }
+
+    if (line.kind === "field") {
+      const colors = getToolFieldColorsByTone(line.tone);
+      const row = new BoxRenderable(renderer, {
+        width: "100%",
+        flexDirection: "row",
+        backgroundColor: NORD.nord0,
+      });
+      const labelText = new TextRenderable(renderer, {
+        content: `${line.label}: `,
+        fg: colors.label,
+      });
+      const valueText = new TextRenderable(renderer, {
+        content: line.value,
+        fg: colors.value,
+        width: "100%",
+        wrapMode: "char",
+      });
+      row.add(labelText);
+      row.add(valueText);
+      bodyWrap.add(row);
+      continue;
+    }
+
+    bodyWrap.add(
+      new TextRenderable(renderer, {
+        content: line.text,
+        fg: getToolLineTextColor(line),
+        width: "100%",
+        wrapMode: "char",
+      }),
+    );
+  }
 };
 
 export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
@@ -141,8 +256,7 @@ export const buildChatMessageCardViewState = (item: ChatMessageCardInput): ChatM
   if (item.role === "tool") {
     return {
       role: "tool",
-      titleText: item.title.length > 0 ? item.title : "[Tool]",
-      bodyText: item.body && item.body.length > 0 ? item.body : undefined,
+      titleText: item.toolName.length > 0 ? `[Tool] ${item.toolName}` : "[Tool]",
       toolCollapsed: item.collapsed,
       toolStatus: item.status,
       metaText: `tool${item.taskId ? ` • ${item.taskId}` : ""}`,
@@ -224,12 +338,6 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
     });
 
     if (isTool) {
-      const bodyText = new TextRenderable(input.renderer, {
-        content: cardState.bodyText ?? " ",
-        fg: NORD.nord6,
-        width: "100%",
-        wrapMode: "char",
-      });
       const collapseMark = cardState.toolCollapsed ? "[+]" : "[-]";
       const statusMark =
         cardState.toolStatus === "error"
@@ -250,8 +358,12 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
       });
       bodyWrap.add(titleText);
 
-      if (!cardState.toolCollapsed && cardState.bodyText) {
-        bodyWrap.add(bodyText);
+      if (!cardState.toolCollapsed) {
+        appendToolStyledBody(
+          input.renderer,
+          bodyWrap,
+          item as Extract<ChatMessageCardInput, { role: "tool" }>,
+        );
       }
     } else {
       if (cardState.role === "assistant") {
