@@ -211,7 +211,7 @@ const appendToolStyledBody = (
 
 export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
   const box = new BoxRenderable(ctx, {
-    border: ["left", "right", "bottom"],
+    border: true,
     borderStyle: "single",
     backgroundColor: NORD.nord0,
     paddingX: 1,
