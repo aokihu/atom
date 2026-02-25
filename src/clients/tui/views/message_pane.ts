@@ -27,24 +27,26 @@ export type MessagePaneSubHeaderInput = {
   width: number;
 };
 
-export type ChatMessageCardInput = {
-  role: "user" | "assistant" | "system";
-  text: string;
-  createdAt?: number;
-  taskId?: string;
-} | {
-  role: "tool";
-  toolName: string;
-  callSummary?: string;
-  resultSummary?: string;
-  errorMessage?: string;
-  callDisplay?: ToolDisplayEnvelope;
-  resultDisplay?: ToolDisplayEnvelope;
-  createdAt?: number;
-  collapsed: boolean;
-  status: "running" | "done" | "error";
-  taskId?: string;
-};
+export type ChatMessageCardInput =
+  | {
+      role: "user" | "assistant" | "system";
+      text: string;
+      createdAt?: number;
+      taskId?: string;
+    }
+  | {
+      role: "tool";
+      toolName: string;
+      callSummary?: string;
+      resultSummary?: string;
+      errorMessage?: string;
+      callDisplay?: ToolDisplayEnvelope;
+      resultDisplay?: ToolDisplayEnvelope;
+      createdAt?: number;
+      collapsed: boolean;
+      status: "running" | "done" | "error";
+      taskId?: string;
+    };
 
 export type ChatMessageCardViewState = {
   role: ChatMessageCardInput["role"];
@@ -76,13 +78,17 @@ const getToolStatusColor = (status: "running" | "done" | "error"): string => {
   return NORD.nord14;
 };
 
-const getToolHeaderTextColor = (status: "running" | "done" | "error"): string => {
+const getToolHeaderTextColor = (
+  status: "running" | "done" | "error",
+): string => {
   if (status === "error") return NORD.nord11;
   if (status === "running") return NORD.nord8;
   return NORD.nord6;
 };
 
-const getToolCollapsedSummaryColor = (status: "running" | "done" | "error"): string => {
+const getToolCollapsedSummaryColor = (
+  status: "running" | "done" | "error",
+): string => {
   if (status === "error") return NORD.nord11;
   if (status === "running") return NORD.nord4;
   return NORD.nord4;
@@ -300,24 +306,32 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
   };
 };
 
-export const buildMessageHeaderLine = (agentName: string, count: number, width: number): string => {
+export const buildMessageHeaderLine = (
+  agentName: string,
+  count: number,
+  width: number,
+): string => {
   const label = count === 1 ? "message" : "messages";
-  return truncateToDisplayWidth(`${agentName} • ${count} ${label}`, width);
+  return truncateToDisplayWidth(`${agentName} : ${count} ${label}`, width);
 };
 
-export const buildMessageSubHeaderLine = (args: MessagePaneSubHeaderInput): string => {
+export const buildMessageSubHeaderLine = (
+  args: MessagePaneSubHeaderInput,
+): string => {
   void args;
   return " ";
 };
 
-export const buildChatMessageCardViewState = (item: ChatMessageCardInput): ChatMessageCardViewState => {
+export const buildChatMessageCardViewState = (
+  item: ChatMessageCardInput,
+): ChatMessageCardViewState => {
   if (item.role === "tool") {
     return {
       role: "tool",
       titleText: item.toolName.length > 0 ? item.toolName : "tool",
       toolCollapsed: item.collapsed,
       toolStatus: item.status,
-      metaText: `tool${item.taskId ? ` • ${item.taskId}` : ""}`,
+      metaText: `tool${item.taskId ? ` : ${item.taskId}` : ""}`,
     };
   }
 
@@ -327,14 +341,17 @@ export const buildChatMessageCardViewState = (item: ChatMessageCardInput): ChatM
     role: item.role,
     bodyText: item.text.length > 0 ? item.text : " ",
     metaText: isUser
-      ? formatMessageTime(item.createdAt) ?? (item.taskId ? `user • ${item.taskId}` : undefined)
+      ? (formatMessageTime(item.createdAt) ??
+        (item.taskId ? `user | ${item.taskId}` : undefined))
       : isSystem
-        ? `system${item.taskId ? ` • ${item.taskId}` : ""}`
+        ? `system${item.taskId ? ` | ${item.taskId}` : ""}`
         : undefined,
   };
 };
 
-export const renderMessageStreamContent = (input: RenderMessageStreamInput): void => {
+export const renderMessageStreamContent = (
+  input: RenderMessageStreamInput,
+): void => {
   const children = [...input.listBox.getChildren()];
   for (const child of children) {
     input.listBox.remove(child.id);
@@ -366,22 +383,22 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
     const isTool = cardState.role === "tool";
     const previousItem = index > 0 ? input.items[index - 1] : undefined;
     const previousRole = previousItem?.role;
-    const groupedPlainText = (isAssistant || isSystem) && previousRole === cardState.role;
-    const toolMarginTop = isTool && previousItem ? (previousRole === "tool" ? 0 : 1) : 0;
+    const groupedPlainText =
+      (isAssistant || isSystem) && previousRole === cardState.role;
+    const toolMarginTop =
+      isTool && previousItem ? (previousRole === "tool" ? 0 : 1) : 0;
     const isCompactTool = isTool;
     const toolBorderEnabled = false;
-    const cardBackgroundColor = isCompactTool ? NORD.nord0 : isUser ? NORD.nord1 : NORD.nord0;
+    const cardBackgroundColor = isCompactTool
+      ? NORD.nord0
+      : isUser
+        ? NORD.nord1
+        : NORD.nord0;
     const card = new BoxRenderable(input.renderer, {
       width: "100%",
       flexDirection: "row",
       marginTop:
-        index === 0
-          ? 1
-          : isTool
-            ? toolMarginTop
-            : groupedPlainText
-              ? 0
-              : 1,
+        index === 0 ? 1 : isTool ? toolMarginTop : groupedPlainText ? 0 : 1,
       border: toolBorderEnabled,
       borderStyle: toolBorderEnabled ? "single" : undefined,
       borderColor:
@@ -418,7 +435,8 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
       // Compact tool row format contract:
       // "<status> [<toolName>] | <collapsed summary>"
       // Keep the trailing space after the status glyph so the symbol and tool name never touch.
-      const statusMark = toolStatus === "error" ? "✕" : toolStatus === "running" ? "…" : "✓";
+      const statusMark =
+        toolStatus === "error" ? "✕ " : toolStatus === "running" ? "… " : "✓ ";
       const collapsedSummary = buildToolCardCollapsedSummary(toolItem);
 
       const titleRow = new BoxRenderable(input.renderer, {
@@ -440,7 +458,7 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
 
       if (collapsedSummary) {
         const titleSummaryText = new TextRenderable(input.renderer, {
-          content: ` | ${collapsedSummary}`,
+          content: ` ${collapsedSummary}`,
           fg: getToolCollapsedSummaryColor(toolStatus),
           width: "100%",
           truncate: true,
