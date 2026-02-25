@@ -52,7 +52,11 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
   const railAccent = new BoxRenderable(ctx, {
     width: 1,
     height: "100%",
-    backgroundColor: NORD.nord9,
+    border: ["left"],
+    borderStyle: "single",
+    borderColor: NORD.nord9,
+    shouldFill: false,
+    backgroundColor: NORD.nord1,
   });
   const railTextBox = new BoxRenderable(ctx, {
     width: "100%",

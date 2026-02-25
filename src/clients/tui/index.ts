@@ -439,7 +439,8 @@ class CoreTuiClientApp {
 
     this.inputRailBox.width = layout.railWidth;
     this.inputRailBox.backgroundColor = inputFocused ? NORD.nord1 : NORD.nord1;
-    this.inputRailAccent.backgroundColor = viewState.railAccentColor === "focused" ? NORD.nord8 : NORD.nord9;
+    this.inputRailAccent.borderColor = viewState.railAccentColor === "focused" ? NORD.nord8 : NORD.nord9;
+    this.inputRailAccent.backgroundColor = NORD.nord1;
     this.inputHintText.visible = viewState.showHint;
     this.inputHintText.content = viewState.hintText;
 

@@ -304,18 +304,20 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
     return;
   }
 
-  for (const item of input.items) {
+  for (const [index, item] of input.items.entries()) {
     const cardState = buildChatMessageCardViewState(item);
     const isUser = cardState.role === "user";
     const isSystem = cardState.role === "system";
     const isTool = cardState.role === "tool";
     const isCollapsedTool = isTool && item.role === "tool" && item.collapsed;
+    const previousItem = index > 0 ? input.items[index - 1] : undefined;
+    const toolMarginTop = isTool && previousItem?.role === "tool" ? 1 : 0;
     const toolBorderEnabled = isTool && !isCollapsedTool;
     const cardBackgroundColor = isCollapsedTool ? NORD.nord1 : isUser ? NORD.nord1 : NORD.nord0;
     const card = new BoxRenderable(input.renderer, {
       width: "100%",
       flexDirection: "row",
-      marginTop: isTool ? 0 : 1,
+      marginTop: isTool ? toolMarginTop : 1,
       border: toolBorderEnabled,
       borderStyle: toolBorderEnabled ? "single" : undefined,
       borderColor:
