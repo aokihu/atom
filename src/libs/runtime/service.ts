@@ -19,6 +19,8 @@ import type { TaskItem } from "../../types/task";
 import { TaskStatus } from "../../types/task";
 
 const DEFAULT_AGENT_SESSION_ID = "default";
+const CONTEXT_OVERFLOW_CANCEL_REASON = "contextoverflow";
+const CONTEXT_OVERFLOW_CANCELLED_BY = "system.contextoverflow";
 
 type TaskMessageBuffer = {
   items: TaskOutputMessage[];
@@ -69,11 +71,16 @@ export class AgentRuntimeService implements RuntimeGateway {
           text: "Task running",
         });
 
-        return await this.getAgent().runTask(task.input, {
-          onOutputMessage: (message) => {
-            this.appendTaskMessage(task.id, message);
-          },
-        });
+        try {
+          return await this.getAgent().runTask(task.input, {
+            onOutputMessage: (message) => {
+              this.appendTaskMessage(task.id, message);
+            },
+          });
+        } catch (error) {
+          this.handleFatalQueueErrorIfNeeded(task, error);
+          throw error;
+        }
       },
     );
   }
@@ -163,21 +170,13 @@ export class AgentRuntimeService implements RuntimeGateway {
     }
     const abortedCurrent = this.getAgent().abortCurrentRun("forceabort");
     const pending = this.taskQueue.drainPending();
-
-    for (const task of pending) {
-      task.status = TaskStatus.Cancelled;
-      task.finishedAt = now;
-      task.metadata = {
-        ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
-        cancelReason: "forceabort",
-        cancelledBy: "system.forceabort",
-      };
-      this.appendTaskMessage(task.id, {
-        category: "other",
-        type: "task.status",
-        text: "Task cancelled by force abort",
-      });
-    }
+    this.cancelPendingTasks(
+      pending,
+      now,
+      "forceabort",
+      "system.forceabort",
+      "Task cancelled by force abort",
+    );
 
     return {
       abortedCurrent,
@@ -223,5 +222,65 @@ export class AgentRuntimeService implements RuntimeGateway {
       latestSeq,
       nextSeq: latestSeq + 1,
     };
+  }
+
+  private handleFatalQueueErrorIfNeeded(task: TaskItem<string, string>, error: unknown): void {
+    const message = this.toErrorMessage(error);
+    if (!this.isContextLengthOverflowMessage(message)) {
+      return;
+    }
+
+    // Prevent queue-level retry for this task after a context overflow.
+    task.retries = task.maxRetries;
+    task.metadata = {
+      ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
+      fatalErrorType: "context_overflow",
+      retrySuppressed: true,
+    };
+
+    const now = Date.now();
+    const pending = this.taskQueue.drainPending();
+    this.cancelPendingTasks(
+      pending,
+      now,
+      CONTEXT_OVERFLOW_CANCEL_REASON,
+      CONTEXT_OVERFLOW_CANCELLED_BY,
+      "Task cancelled: queue cleared after context length overflow",
+    );
+
+    this.logger.log(
+      `[runtime] context length overflow detected on task ${task.id}; cleared ${pending.length} pending task(s)`,
+    );
+  }
+
+  private cancelPendingTasks(
+    tasks: TaskItem<string, string>[],
+    now: number,
+    cancelReason: string,
+    cancelledBy: string,
+    statusText: string,
+  ): void {
+    for (const task of tasks) {
+      task.status = TaskStatus.Cancelled;
+      task.finishedAt = now;
+      task.metadata = {
+        ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
+        cancelReason,
+        cancelledBy,
+      };
+      this.appendTaskMessage(task.id, {
+        category: "other",
+        type: "task.status",
+        text: statusText,
+      });
+    }
+  }
+
+  private isContextLengthOverflowMessage(message: string): boolean {
+    return /\bmaximum context length\b/i.test(message);
+  }
+
+  private toErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 }
