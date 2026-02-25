@@ -74,6 +74,12 @@ const TEXTAREA_SUBMIT_KEY_BINDINGS = [
   { name: "return", meta: true, action: "newline" as const },
   { name: "linefeed", meta: true, action: "newline" as const },
 ];
+const INPUT_RAIL_GLYPH_CHAR = "▎";
+const INPUT_RAIL_INNER_VERTICAL_PADDING = 2;
+const buildInputRailGlyphContent = (height: number): string => {
+  const lines = Math.max(1, Math.floor(height));
+  return Array.from({ length: lines }, () => INPUT_RAIL_GLYPH_CHAR).join("\n");
+};
 const formatErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 const isEscapeKey = (key: KeyEvent): boolean => {
@@ -127,6 +133,7 @@ class CoreTuiClientApp {
   private readonly inputBox: BoxRenderable;
   private readonly inputRailBox: BoxRenderable;
   private readonly inputRailAccent: BoxRenderable;
+  private readonly inputRailAccentGlyph: TextRenderable;
   private readonly inputRailTextUser: TextRenderable;
   private readonly inputRailTextInput: TextRenderable;
   private readonly inputMainBox: BoxRenderable;
@@ -233,6 +240,7 @@ class CoreTuiClientApp {
     this.inputBox = this.ui.inputBox;
     this.inputRailBox = this.ui.inputRailBox;
     this.inputRailAccent = this.ui.inputRailAccent;
+    this.inputRailAccentGlyph = this.ui.inputRailAccentGlyph;
     this.inputRailTextUser = this.ui.inputRailTextUser;
     this.inputRailTextInput = this.ui.inputRailTextInput;
     this.inputMainBox = this.ui.inputMainBox;
@@ -439,7 +447,9 @@ class CoreTuiClientApp {
 
     this.inputRailBox.width = layout.railWidth;
     this.inputRailBox.backgroundColor = NORD.nord2;
-    this.inputRailAccent.backgroundColor = viewState.railAccentColor === "focused" ? NORD.nord8 : NORD.nord9;
+    this.inputRailAccent.backgroundColor = NORD.nord2;
+    this.inputRailAccentGlyph.fg = viewState.railAccentColor === "focused" ? NORD.nord8 : NORD.nord9;
+    this.inputRailAccentGlyph.content = buildInputRailGlyphContent(layout.inputHeight - INPUT_RAIL_INNER_VERTICAL_PADDING);
     this.inputHintText.visible = viewState.showHint;
     this.inputHintText.content = viewState.hintText;
 
