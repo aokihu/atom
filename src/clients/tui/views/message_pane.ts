@@ -415,6 +415,9 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
     if (isTool) {
       const toolItem = item as Extract<ChatMessageCardInput, { role: "tool" }>;
       const toolStatus = cardState.toolStatus ?? "done";
+      // Compact tool row format contract:
+      // "<status> [<toolName>] | <collapsed summary>"
+      // Keep the trailing space after the status glyph so the symbol and tool name never touch.
       const statusMark = toolStatus === "error" ? "✕" : toolStatus === "running" ? "…" : "✓";
       const collapsedSummary = buildToolCardCollapsedSummary(toolItem);
 
@@ -429,7 +432,7 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
         fg: getToolStatusColor(toolStatus),
       });
       const titlePrefixText = new TextRenderable(input.renderer, {
-        content: `${cardState.titleText ?? "tool"}`,
+        content: `[${cardState.titleText ?? "tool"}]`,
         fg: NORD.nord4,
       });
       titleRow.add(titleStatusText);
@@ -437,7 +440,7 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
 
       if (collapsedSummary) {
         const titleSummaryText = new TextRenderable(input.renderer, {
-          content: ` • ${collapsedSummary}`,
+          content: ` | ${collapsedSummary}`,
           fg: getToolCollapsedSummaryColor(toolStatus),
           width: "100%",
           truncate: true,
