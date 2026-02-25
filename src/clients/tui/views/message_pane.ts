@@ -68,6 +68,24 @@ export type RenderMessageStreamInput = {
   items: ChatMessageCardInput[];
 };
 
+const getToolStatusColor = (status: "running" | "done" | "error"): string => {
+  if (status === "error") return NORD.nord11;
+  if (status === "running") return NORD.nord8;
+  return NORD.nord14;
+};
+
+const getToolHeaderTextColor = (status: "running" | "done" | "error"): string => {
+  if (status === "error") return NORD.nord11;
+  if (status === "running") return NORD.nord8;
+  return NORD.nord6;
+};
+
+const getToolCollapsedSummaryColor = (status: "running" | "done" | "error"): string => {
+  if (status === "error") return NORD.nord11;
+  if (status === "running") return NORD.nord4;
+  return NORD.nord4;
+};
+
 const getToolLineTextColor = (line: ToolCardStyledLine): string => {
   if (line.kind === "summary") {
     switch (line.tone) {
@@ -311,7 +329,7 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
     const isTool = cardState.role === "tool";
     const isCollapsedTool = isTool && item.role === "tool" && item.collapsed;
     const previousItem = index > 0 ? input.items[index - 1] : undefined;
-    const toolMarginTop = isTool && previousItem?.role === "tool" ? 1 : 0;
+    const toolMarginTop = isTool && previousItem ? 1 : 0;
     const toolBorderEnabled = isTool && !isCollapsedTool;
     const cardBackgroundColor = isCollapsedTool ? NORD.nord1 : isUser ? NORD.nord1 : NORD.nord0;
     const card = new BoxRenderable(input.renderer, {
@@ -348,31 +366,61 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
 
     if (isTool) {
       const toolItem = item as Extract<ChatMessageCardInput, { role: "tool" }>;
+      const toolStatus = cardState.toolStatus ?? "done";
       const collapseMark = cardState.toolCollapsed ? "▶" : "▼";
-      const statusMark =
-        cardState.toolStatus === "error"
-          ? "✕"
-          : cardState.toolStatus === "running"
-            ? "…"
-            : "✓";
+      const statusMark = toolStatus === "error" ? "✕" : toolStatus === "running" ? "…" : "✓";
       const collapsedSummary =
         cardState.toolCollapsed ? buildToolCardCollapsedSummary(toolItem) : undefined;
-      const titleText = new TextRenderable(input.renderer, {
-        content:
-          `${collapseMark} ${cardState.titleText ?? "[Tool]"} ${statusMark}` +
-          (collapsedSummary ? ` • ${collapsedSummary}` : ""),
-        fg:
-          cardState.toolStatus === "error"
-            ? NORD.nord11
-            : cardState.toolStatus === "running"
-              ? NORD.nord8
-              : NORD.nord6,
+      if (isCollapsedTool) {
+        const toolAccent = new BoxRenderable(input.renderer, {
+          width: 1,
+          border: ["left"],
+          borderStyle: "single",
+          borderColor: getToolStatusColor(toolStatus),
+          shouldFill: false,
+          backgroundColor: cardBackgroundColor,
+        });
+        card.add(toolAccent);
+      }
+
+      const titleRow = new BoxRenderable(input.renderer, {
         width: "100%",
-        wrapMode: "char",
+        flexDirection: "row",
+        backgroundColor: cardBackgroundColor,
       });
-      bodyWrap.add(titleText);
+      const titlePrefixText = new TextRenderable(input.renderer, {
+        content: `${collapseMark} ${cardState.titleText ?? "[Tool]"} ${statusMark}`,
+        fg: getToolHeaderTextColor(toolStatus),
+      });
+      titleRow.add(titlePrefixText);
+
+      if (collapsedSummary) {
+        const titleSummaryText = new TextRenderable(input.renderer, {
+          content: ` • ${collapsedSummary}`,
+          fg: getToolCollapsedSummaryColor(toolStatus),
+          width: "100%",
+          wrapMode: "char",
+        });
+        titleRow.add(titleSummaryText);
+      } else {
+        const titleSpacer = new TextRenderable(input.renderer, {
+          content: " ",
+          fg: NORD.nord3,
+          width: "100%",
+        });
+        titleRow.add(titleSpacer);
+      }
+      bodyWrap.add(titleRow);
 
       if (!cardState.toolCollapsed) {
+        bodyWrap.add(
+          new TextRenderable(input.renderer, {
+            content: cardState.metaText,
+            fg: NORD.nord3,
+            width: "100%",
+            truncate: true,
+          }),
+        );
         appendToolStyledBody(
           input.renderer,
           bodyWrap,
