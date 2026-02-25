@@ -45,6 +45,16 @@ export type TaskSnapshot = Pick<
 
 export type TaskOutputMessageCategory = "assistant" | "tool" | "other";
 
+export type ToolDisplayPhase = "call" | "result";
+
+export type ToolDisplayEnvelope = {
+  version: 1;
+  toolName: string;
+  phase: ToolDisplayPhase;
+  templateKey: string;
+  data: Record<string, unknown>;
+};
+
 export type TaskOutputMessage =
   | {
       seq: number;
@@ -64,6 +74,7 @@ export type TaskOutputMessage =
       toolCallId?: string;
       toolName: string;
       inputSummary?: string;
+      inputDisplay?: ToolDisplayEnvelope;
     }
   | {
       seq: number;
@@ -76,6 +87,7 @@ export type TaskOutputMessage =
       ok: boolean;
       outputSummary?: string;
       errorMessage?: string;
+      outputDisplay?: ToolDisplayEnvelope;
     }
   | {
       seq: number;
@@ -104,6 +116,7 @@ export type TaskOutputMessageDraft =
       toolCallId?: string;
       toolName: string;
       inputSummary?: string;
+      inputDisplay?: ToolDisplayEnvelope;
     }
   | {
       createdAt?: number;
@@ -115,6 +128,7 @@ export type TaskOutputMessageDraft =
       ok: boolean;
       outputSummary?: string;
       errorMessage?: string;
+      outputDisplay?: ToolDisplayEnvelope;
     }
   | {
       createdAt?: number;

@@ -84,18 +84,6 @@ const isEscapeKey = (key: KeyEvent): boolean => {
   return false;
 };
 
-const formatToolResultBody = (
-  message: Extract<TaskOutputMessage, { category: "tool"; type: "tool.result" }>,
-): string => {
-  const detail = (message.ok ? message.outputSummary : message.errorMessage ?? message.outputSummary)?.trim();
-
-  if (!detail) {
-    return "(no output)";
-  }
-
-  return detail;
-};
-
 const getToolMessageKey = (taskId: string, message: { toolName: string; toolCallId?: string }): string =>
   `${taskId}::${message.toolCallId ?? `${message.toolName}:no-id`}`;
 
@@ -710,8 +698,12 @@ class CoreTuiClientApp {
   }
 
   private appendToolChatMessage(args: {
-    title: string;
-    body?: string;
+    toolName: string;
+    callSummary?: string;
+    resultSummary?: string;
+    errorMessage?: string;
+    callDisplay?: Extract<TaskOutputMessage, { category: "tool"; type: "tool.call" }>["inputDisplay"];
+    resultDisplay?: Extract<TaskOutputMessage, { category: "tool"; type: "tool.result" }>["outputDisplay"];
     collapsed: boolean;
     status: "running" | "done" | "error";
     taskId?: string;
@@ -722,7 +714,16 @@ class CoreTuiClientApp {
 
   private updateToolChatMessage(
     id: number,
-    patch: Partial<{ title: string; body?: string; collapsed: boolean; status: "running" | "done" | "error" }>,
+    patch: Partial<{
+      toolName: string;
+      callSummary?: string;
+      resultSummary?: string;
+      errorMessage?: string;
+      callDisplay?: Extract<TaskOutputMessage, { category: "tool"; type: "tool.call" }>["inputDisplay"];
+      resultDisplay?: Extract<TaskOutputMessage, { category: "tool"; type: "tool.result" }>["outputDisplay"];
+      collapsed: boolean;
+      status: "running" | "done" | "error";
+    }>,
   ): boolean {
     if (this.destroyed) return false;
     return this.state.updateToolMessage(id, patch);
@@ -1045,20 +1046,21 @@ class CoreTuiClientApp {
 
             if (message.type === "tool.call") {
               const key = getToolMessageKey(taskId, message);
-              const title = `[Tool] ${message.toolName}`;
               const existingId = activeToolMessageIds.get(key);
 
               if (existingId !== undefined) {
                 this.updateToolChatMessage(existingId, {
-                  title,
-                  body: "Running...",
+                  toolName: message.toolName,
+                  callSummary: message.inputSummary,
+                  callDisplay: message.inputDisplay,
                   collapsed: false,
                   status: "running",
                 });
               } else {
                 const id = this.appendToolChatMessage({
-                  title,
-                  body: "Running...",
+                  toolName: message.toolName,
+                  callSummary: message.inputSummary,
+                  callDisplay: message.inputDisplay,
                   collapsed: false,
                   status: "running",
                   taskId,
@@ -1077,23 +1079,25 @@ class CoreTuiClientApp {
             }
 
             const key = getToolMessageKey(taskId, message);
-            const title = `[Tool] ${message.toolName}`;
-            const body = formatToolResultBody(message);
             const status = message.ok ? "done" : "error";
             const existingId = activeToolMessageIds.get(key);
 
             if (existingId !== undefined) {
               this.updateToolChatMessage(existingId, {
-                title,
-                body,
+                toolName: message.toolName,
+                resultSummary: message.outputSummary,
+                errorMessage: message.errorMessage,
+                resultDisplay: message.outputDisplay,
                 collapsed: true,
                 status,
               });
               activeToolMessageIds.delete(key);
             } else {
               this.appendToolChatMessage({
-                title,
-                body,
+                toolName: message.toolName,
+                resultSummary: message.outputSummary,
+                errorMessage: message.errorMessage,
+                resultDisplay: message.outputDisplay,
                 collapsed: true,
                 status,
                 taskId,

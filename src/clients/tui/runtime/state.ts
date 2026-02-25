@@ -1,5 +1,6 @@
 import type { TerminalSize } from "../layout/metrics";
 import type { SlashCommandOption } from "../state/slash_commands";
+import type { ToolDisplayEnvelope } from "../../../types/http";
 
 export type ClientPhase = "idle" | "submitting" | "polling";
 export type ConnectionState = "unknown" | "ok" | "error";
@@ -25,8 +26,12 @@ export type TextChatStreamItem = {
 export type ToolChatStreamItem = {
   id: number;
   role: "tool";
-  title: string;
-  body?: string;
+  toolName: string;
+  callSummary?: string;
+  resultSummary?: string;
+  errorMessage?: string;
+  callDisplay?: ToolDisplayEnvelope;
+  resultDisplay?: ToolDisplayEnvelope;
   collapsed: boolean;
   status: "running" | "done" | "error";
   createdAt: number;
@@ -126,8 +131,12 @@ export class TuiClientState {
   }
 
   appendToolMessage(args: {
-    title: string;
-    body?: string;
+    toolName: string;
+    callSummary?: string;
+    resultSummary?: string;
+    errorMessage?: string;
+    callDisplay?: ToolDisplayEnvelope;
+    resultDisplay?: ToolDisplayEnvelope;
     collapsed: boolean;
     status: "running" | "done" | "error";
     taskId?: string;
@@ -135,8 +144,12 @@ export class TuiClientState {
     const next: ToolChatStreamItem = {
       id: this.nextChatId++,
       role: "tool",
-      title: args.title,
-      body: args.body,
+      toolName: args.toolName,
+      callSummary: args.callSummary,
+      resultSummary: args.resultSummary,
+      errorMessage: args.errorMessage,
+      callDisplay: args.callDisplay,
+      resultDisplay: args.resultDisplay,
       collapsed: args.collapsed,
       status: args.status,
       taskId: args.taskId,
@@ -150,7 +163,19 @@ export class TuiClientState {
 
   updateToolMessage(
     id: number,
-    patch: Partial<Pick<ToolChatStreamItem, "title" | "body" | "collapsed" | "status">>,
+    patch: Partial<
+      Pick<
+        ToolChatStreamItem,
+        | "toolName"
+        | "callSummary"
+        | "resultSummary"
+        | "errorMessage"
+        | "callDisplay"
+        | "resultDisplay"
+        | "collapsed"
+        | "status"
+      >
+    >,
   ): boolean {
     let updated = false;
 
