@@ -309,29 +309,32 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
     const isUser = cardState.role === "user";
     const isSystem = cardState.role === "system";
     const isTool = cardState.role === "tool";
+    const isCollapsedTool = isTool && item.role === "tool" && item.collapsed;
+    const toolBorderEnabled = isTool && !isCollapsedTool;
+    const cardBackgroundColor = isCollapsedTool ? NORD.nord1 : isUser ? NORD.nord1 : NORD.nord0;
     const card = new BoxRenderable(input.renderer, {
       width: "100%",
       flexDirection: "row",
-      marginTop: 1,
-      border: isTool,
-      borderStyle: isTool ? "single" : undefined,
+      marginTop: isTool ? 0 : 1,
+      border: toolBorderEnabled,
+      borderStyle: toolBorderEnabled ? "single" : undefined,
       borderColor:
-        isTool && cardState.toolStatus === "error"
+        toolBorderEnabled && cardState.toolStatus === "error"
           ? NORD.nord11
-          : isTool
-            ? NORD.nord3
+          : toolBorderEnabled
+            ? NORD.nord2
             : undefined,
-      backgroundColor: isUser ? NORD.nord1 : NORD.nord0,
+      backgroundColor: cardBackgroundColor,
     });
 
     const bodyWrap = new BoxRenderable(input.renderer, {
       width: "100%",
       flexDirection: "column",
-      paddingLeft: isTool ? 2 : 1,
+      paddingLeft: isTool ? (isCollapsedTool ? 1 : 2) : 1,
       paddingRight: 1,
-      paddingTop: 1,
-      paddingBottom: 1,
-      backgroundColor: isUser ? NORD.nord1 : NORD.nord0,
+      paddingTop: isTool ? 0 : 1,
+      paddingBottom: isCollapsedTool ? 0 : isTool ? 0 : 1,
+      backgroundColor: cardBackgroundColor,
     });
 
     const meta = new TextRenderable(input.renderer, {
@@ -401,7 +404,11 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
     if (!isTool) {
       const accent = new BoxRenderable(input.renderer, {
         width: 1,
-        backgroundColor: isUser ? NORD.nord9 : isSystem ? NORD.nord8 : NORD.nord3,
+        border: ["left"],
+        borderStyle: "single",
+        borderColor: isUser ? NORD.nord9 : isSystem ? NORD.nord8 : NORD.nord3,
+        shouldFill: false,
+        backgroundColor: cardBackgroundColor,
       });
       card.add(accent);
     }
