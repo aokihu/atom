@@ -60,7 +60,7 @@ type CoreTuiClientOptions = {
 };
 
 const PANEL_INNER_HORIZONTAL_OVERHEAD = 4; // border(2) + paddingX(2)
-const MESSAGE_PANEL_VERTICAL_OVERHEAD = 2; // header row + divider row
+const MESSAGE_PANEL_VERTICAL_OVERHEAD = 3; // top inset + header row + divider row
 const INPUT_EDITOR_ROWS = 5;
 const DEFAULT_AGENT_NAME = "Atom";
 const WAITING_SPINNER_FRAMES = ["-", "\\", "|", "/"] as const;
@@ -446,8 +446,8 @@ class CoreTuiClientApp {
     this.inputBox.backgroundColor = inputFocused ? NORD.nord1 : NORD.nord1;
 
     this.inputRailBox.width = layout.railWidth;
-    this.inputRailBox.backgroundColor = NORD.nord2;
-    this.inputRailAccent.backgroundColor = NORD.nord2;
+    this.inputRailBox.backgroundColor = NORD.nord1;
+    this.inputRailAccent.backgroundColor = NORD.nord1;
     this.inputRailAccentGlyph.fg = viewState.railAccentColor === "focused" ? NORD.nord8 : NORD.nord9;
     this.inputRailAccentGlyph.content = buildInputRailGlyphContent(layout.inputHeight - INPUT_RAIL_INNER_VERTICAL_PADDING);
     this.inputHintText.visible = viewState.showHint;

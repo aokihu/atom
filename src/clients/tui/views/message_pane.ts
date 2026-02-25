@@ -214,10 +214,16 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
     border: ["left", "right", "bottom"],
     borderStyle: "single",
     backgroundColor: NORD.nord0,
-    paddingX: 0,
+    paddingX: 1,
     width: "100%",
     flexDirection: "column",
     flexGrow: 1,
+  });
+  const topInsetText = new TextRenderable(ctx, {
+    content: " ",
+    fg: NORD.nord0,
+    width: "100%",
+    truncate: true,
   });
   const headerBar = new BoxRenderable(ctx, {
     width: "100%",
@@ -279,6 +285,7 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
   });
 
   scroll.add(listBox);
+  box.add(topInsetText);
   headerBar.add(headerText);
   box.add(headerBar);
   box.add(headerDividerText);

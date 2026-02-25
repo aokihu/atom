@@ -48,13 +48,13 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
     width: 12,
     height: "100%",
     flexDirection: "row",
-    backgroundColor: NORD.nord2,
+    backgroundColor: NORD.nord1,
   });
   const railAccent = new BoxRenderable(ctx, {
     width: 1,
     height: "100%",
     flexDirection: "column",
-    backgroundColor: NORD.nord2,
+    backgroundColor: NORD.nord1,
   });
   const railAccentGlyph = new TextRenderable(ctx, {
     content: "▎",
@@ -92,7 +92,7 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
     width: "100%",
     height: "100%",
     flexDirection: "column",
-    paddingLeft: 0,
+    paddingLeft: 1,
     paddingRight: 1,
     backgroundColor: NORD.nord1,
   });
