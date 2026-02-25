@@ -138,11 +138,12 @@ const initializeRuntimeService = async (
   }
 
   logStage("initializing MCP servers...");
-  const { tools: mcpTools, status: mcpStatus } = await initMCPTools(agentConfig.mcp);
+  const mcp = await initMCPTools(agentConfig.mcp);
+  const { tools: mcpTools, status: mcpStatus } = mcp;
   for (const serverStatus of mcpStatus) {
     if (serverStatus.available) {
       console.log(
-        `[mcp] ${serverStatus.id}: OK | url=${serverStatus.url ?? "unknown"} | tools=${serverStatus.toolCount ?? 0}`,
+        `[mcp] ${serverStatus.id}: OK | transport=${serverStatus.transportType} | target=${serverStatus.target ?? "unknown"} | tools=${serverStatus.toolCount ?? 0}`,
       );
       if ((serverStatus.toolNames?.length ?? 0) > 0) {
         console.log(`[mcp] ${serverStatus.id}: ${serverStatus.toolNames!.join(", ")}`);
@@ -151,40 +152,48 @@ const initializeRuntimeService = async (
     }
 
     console.warn(
-      `[mcp] ${serverStatus.id}: unavailable | url=${serverStatus.url ?? "unknown"} | ${serverStatus.message ?? "Unknown error"}`,
+      `[mcp] ${serverStatus.id}: unavailable | transport=${serverStatus.transportType} | target=${serverStatus.target ?? "unknown"} | ${serverStatus.message ?? "Unknown error"}`,
     );
   }
 
   const mcpAvailableCount = mcpStatus.filter((status) => status.available).length;
   logStage(`MCP ready (${mcpAvailableCount}/${mcpStatus.length})`);
 
-  const model = createLanguageModelFromAgentConfig(agentConfig);
+  try {
+    const model = createLanguageModelFromAgentConfig(agentConfig);
 
-  logStage("compiling agent prompt...");
-  const { systemPrompt } = await bootstrap(model)({
-    userPromptFilePath: join(cliOptions.workspace, "AGENT.md"),
-    enableOptimization: true,
-  });
-  logStage("prompt compiled");
+    logStage("compiling agent prompt...");
+    const { systemPrompt } = await bootstrap(model)({
+      userPromptFilePath: join(cliOptions.workspace, "AGENT.md"),
+      enableOptimization: true,
+    });
+    logStage("prompt compiled");
 
-  logStage("creating agent...");
-  const taskAgent = new Agent({
-    systemPrompt,
-    model,
-    modelParams: agentConfig.agent?.params,
-    workspace: cliOptions.workspace,
-    toolContext: { permissions: agentConfig, workspace: cliOptions.workspace },
-    mcpTools,
-  });
+    logStage("creating agent...");
+    const taskAgent = new Agent({
+      systemPrompt,
+      model,
+      modelParams: agentConfig.agent?.params,
+      workspace: cliOptions.workspace,
+      toolContext: { permissions: agentConfig, workspace: cliOptions.workspace },
+      mcpTools,
+    });
 
-  logStage("starting task runtime...");
-  const runtimeService = new AgentRuntimeService(
-    taskAgent,
-    cliOptions.mode === "tui" ? { log: () => {} } : console,
-  );
-  runtimeService.start();
+    logStage("starting task runtime...");
+    const runtimeService = new AgentRuntimeService(
+      taskAgent,
+      cliOptions.mode === "tui" ? { log: () => {} } : console,
+    );
+    runtimeService.start();
 
-  return runtimeService;
+    return {
+      runtimeService,
+      disposeMCP: mcp.dispose,
+    };
+  } catch (error) {
+    await mcp.dispose();
+    throw error;
+  }
 };
 
 const main = async () => {
@@ -223,7 +232,10 @@ const main = async () => {
   printStartupBanner(agentName, version, cliOptions.mode);
   printModelSelection(agentConfig);
 
-  const runtimeService = await initializeRuntimeService(cliOptions, agentConfig);
+  const { runtimeService, disposeMCP } = await initializeRuntimeService(
+    cliOptions,
+    agentConfig,
+  );
   const gateway = startHttpGateway({
     runtime: runtimeService,
     host: cliOptions.httpHost,
@@ -238,6 +250,7 @@ const main = async () => {
   const shutdown = createShutdownController(async () => {
     gateway.stop();
     runtimeService.stop();
+    await disposeMCP();
   });
 
   logStage(`ready in ${formatDuration(startupStartTime)}`);

@@ -10,6 +10,7 @@ export type ContextTierPolicy = {
   maxDecay: number;
   minConfidence: number;
   maxItems: number;
+  maxAgeRounds?: number;
 };
 
 export const CONTEXT_POLICY = {
@@ -23,20 +24,22 @@ export const CONTEXT_POLICY = {
       maxDecay: 0.35,
       minConfidence: 0.7,
       maxItems: 24,
+      maxAgeRounds: undefined,
     },
     working: {
       maxDecay: 0.65,
       minConfidence: 0.55,
       maxItems: 48,
+      maxAgeRounds: 12,
     },
     ephemeral: {
       maxDecay: 0.8,
       minConfidence: 0.4,
       maxItems: 24,
+      maxAgeRounds: 3,
     },
   } satisfies Record<ContextMemoryTier, ContextTierPolicy>,
 } as const;
 
 export const getMemoryBlockQuality = (block: Pick<ContextMemoryBlock, "decay" | "confidence">) =>
   0.5 * (1 - block.decay) + 0.5 * block.confidence;
-

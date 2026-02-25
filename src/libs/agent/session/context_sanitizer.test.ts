@@ -218,6 +218,96 @@ describe("context_sanitizer", () => {
     expect(compacted.memory.ephemeral[0]?.confidence).toBe(0.5);
   });
 
+  test("automatically deletes expired blocks by round for working/ephemeral and keeps core", () => {
+    const context = createBaseContext();
+    context.runtime.round = 20;
+    context.memory = {
+      core: [
+        {
+          id: "core-old",
+          type: "identity",
+          decay: 0.1,
+          confidence: 0.95,
+          round: 1,
+          tags: ["core"],
+          content: "keep-core",
+        },
+      ],
+      working: [
+        {
+          id: "working-expired",
+          type: "task",
+          decay: 0.2,
+          confidence: 0.9,
+          round: 1,
+          tags: ["task"],
+          content: "drop-working",
+        },
+        {
+          id: "working-fresh",
+          type: "task",
+          decay: 0.2,
+          confidence: 0.9,
+          round: 10,
+          tags: ["task"],
+          content: "keep-working",
+        },
+      ],
+      ephemeral: [
+        {
+          id: "temp-expired",
+          type: "hint",
+          decay: 0.2,
+          confidence: 0.9,
+          round: 10,
+          tags: ["temp"],
+          content: "drop-ephemeral",
+        },
+        {
+          id: "temp-fresh",
+          type: "hint",
+          decay: 0.2,
+          confidence: 0.9,
+          round: 17,
+          tags: ["temp"],
+          content: "keep-ephemeral",
+        },
+      ],
+    };
+
+    const compacted = compactContextMemory(context);
+
+    expect(compacted.memory.core.map((x) => x.id)).toEqual(["core-old"]);
+    expect(compacted.memory.working.map((x) => x.id)).toEqual(["working-fresh"]);
+    expect(compacted.memory.ephemeral.map((x) => x.id)).toEqual(["temp-fresh"]);
+  });
+
+  test("clamps future block round to current runtime round", () => {
+    const context = createBaseContext();
+    context.runtime.round = 4;
+
+    const patch = sanitizeIncomingContextPatch(
+      {
+        memory: {
+          working: [
+            {
+              id: "future",
+              type: "task",
+              decay: 0.2,
+              confidence: 0.9,
+              round: 999,
+              tags: ["task"],
+              content: "future block",
+            },
+          ],
+        },
+      },
+      context,
+    );
+
+    expect(patch.memory?.working?.[0]?.round).toBe(4);
+  });
+
   test("mergeContextWithMemoryPolicy merges memory tiers by id instead of array index", () => {
     const current = createBaseContext();
     current.memory.working = [
@@ -262,4 +352,3 @@ describe("context_sanitizer", () => {
     expect(merged.memory.working.find((item) => item.id === "b")?.content).toBe("B2");
   });
 });
-

@@ -288,21 +288,30 @@ export const validateMcpConfig = (config: AgentConfig) => {
       throw new Error(`${keyPath}.transport must be an object`);
     }
 
-    if (transport.type !== "http") {
-      throw new Error(`${keyPath}.transport.type must be "http"`);
+    if (transport.type === "http") {
+      if (typeof transport.url !== "string" || transport.url.trim() === "") {
+        throw new Error(`${keyPath}.transport.url must be a non-empty string`);
+      }
+
+      try {
+        new URL(transport.url);
+      } catch {
+        throw new Error(`${keyPath}.transport.url is invalid URL`);
+      }
+
+      ensureStringRecord(transport.headers, `${keyPath}.transport.headers`);
+      return;
     }
 
-    if (typeof transport.url !== "string" || transport.url.trim() === "") {
-      throw new Error(`${keyPath}.transport.url must be a non-empty string`);
+    if (transport.type === "stdio") {
+      ensureRequiredNonEmptyString(transport.command, `${keyPath}.transport.command`);
+      ensureStringArray(transport.args, `${keyPath}.transport.args`);
+      ensureStringRecord(transport.env, `${keyPath}.transport.env`);
+      ensureNonEmptyString(transport.cwd, `${keyPath}.transport.cwd`);
+      return;
     }
 
-    try {
-      new URL(transport.url);
-    } catch {
-      throw new Error(`${keyPath}.transport.url is invalid URL`);
-    }
-
-    ensureStringRecord(transport.headers, `${keyPath}.transport.headers`);
+    throw new Error(`${keyPath}.transport.type must be "http" or "stdio"`);
   });
 };
 

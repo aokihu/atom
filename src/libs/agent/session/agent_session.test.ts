@@ -129,6 +129,6 @@ describe("AgentSession", () => {
     expect(context.memory.working).toHaveLength(1);
     expect(context.memory.working[0]?.id).toBe("task-1");
     expect(context.memory.working[0]?.content).toBe("second");
-    expect(context.memory.working[0]?.round).toBe(2);
+    expect(context.memory.working[0]?.round).toBe(1);
   });
 });

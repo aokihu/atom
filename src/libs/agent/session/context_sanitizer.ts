@@ -102,6 +102,20 @@ const passesTierThreshold = (tier: ContextMemoryTier, block: ContextMemoryBlock)
   return block.decay <= policy.maxDecay && block.confidence >= policy.minConfidence;
 };
 
+const isExpiredByRound = (
+  tier: ContextMemoryTier,
+  block: ContextMemoryBlock,
+  currentRound: number,
+) => {
+  const maxAgeRounds = CONTEXT_POLICY.tiers[tier].maxAgeRounds;
+  if (maxAgeRounds === undefined) {
+    return false;
+  }
+
+  const age = currentRound - block.round;
+  return age > maxAgeRounds;
+};
+
 const compareMemoryBlocks = (a: ContextMemoryBlock, b: ContextMemoryBlock) => {
   const qualityDiff = getMemoryBlockQuality(b) - getMemoryBlockQuality(a);
   if (qualityDiff !== 0) return qualityDiff;
@@ -144,7 +158,8 @@ const normalizeMemoryBlock = (
     return null;
   }
 
-  const round = toPositiveInteger(value.round) ?? currentRound;
+  const parsedRound = toPositiveInteger(value.round) ?? currentRound;
+  const round = Math.min(parsedRound, currentRound);
   const normalizedContent = trimToMax(contentRaw, CONTEXT_POLICY.contentMaxLength);
 
   const normalized: PlainRecord = { ...value };
@@ -163,6 +178,9 @@ const normalizeMemoryBlock = (
 
   const block = parsed.data as ContextMemoryBlock;
   if (!passesTierThreshold(tier, block)) {
+    return null;
+  }
+  if (isExpiredByRound(tier, block, currentRound)) {
     return null;
   }
 
@@ -367,4 +385,3 @@ export const __contextSanitizerInternals = {
   normalizeMemoryBlock,
   isPlainObject,
 };
-

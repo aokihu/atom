@@ -53,10 +53,20 @@ export type MCPHttpTransportConfig = {
   headers?: Record<string, string>;
 };
 
+export type MCPStdioTransportConfig = {
+  type: "stdio";
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+};
+
+export type MCPServerTransportConfig = MCPHttpTransportConfig | MCPStdioTransportConfig;
+
 export type MCPServerConfig = {
   id: string;
   enabled?: boolean;
-  transport: MCPHttpTransportConfig;
+  transport: MCPServerTransportConfig;
 };
 
 export type MCPConfig = {

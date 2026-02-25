@@ -291,6 +291,110 @@ describe("agent config", () => {
     ).toThrow("transport.url is invalid URL");
   });
 
+  test("validateAgentConfig accepts stdio MCP transport with full fields", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        mcp: {
+          servers: [
+            {
+              id: "fs",
+              transport: {
+                type: "stdio",
+                command: "npx",
+                args: ["-y", "@modelcontextprotocol/server-filesystem", "."],
+                env: {
+                  NODE_ENV: "test",
+                },
+                cwd: "/tmp",
+              },
+            },
+          ],
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  test("validateAgentConfig rejects stdio transport without command", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        mcp: {
+          servers: [
+            {
+              id: "fs",
+              transport: {
+                type: "stdio",
+              } as any,
+            },
+          ],
+        },
+      }),
+    ).toThrow("mcp.servers[0].transport.command must be a non-empty string");
+  });
+
+  test("validateAgentConfig rejects stdio args when not string[]", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        mcp: {
+          servers: [
+            {
+              id: "fs",
+              transport: {
+                type: "stdio",
+                command: "npx",
+                args: [123] as any,
+              },
+            },
+          ],
+        },
+      }),
+    ).toThrow("mcp.servers[0].transport.args must be an array of string");
+  });
+
+  test("validateAgentConfig rejects stdio env when values are not strings", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        mcp: {
+          servers: [
+            {
+              id: "fs",
+              transport: {
+                type: "stdio",
+                command: "npx",
+                env: {
+                  PORT: 3000 as any,
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ).toThrow("mcp.servers[0].transport.env.PORT must be a string");
+  });
+
+  test("validateAgentConfig rejects stdio cwd when empty string", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        mcp: {
+          servers: [
+            {
+              id: "fs",
+              transport: {
+                type: "stdio",
+                command: "npx",
+                cwd: "",
+              },
+            },
+          ],
+        },
+      }),
+    ).toThrow("mcp.servers[0].transport.cwd must be a non-empty string");
+  });
+
   test("loadAgentConfig returns empty object when file does not exist", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "atom-config-missing-"));
     await expect(loadAgentConfig({ workspace })).resolves.toEqual({});
