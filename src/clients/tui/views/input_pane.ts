@@ -35,9 +35,7 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
   onSubmit: () => void;
 }): InputPaneView => {
   const box = new BoxRenderable(ctx, {
-    border: true,
-    borderStyle: "single",
-    borderColor: NORD.nord3,
+    border: false,
     backgroundColor: NORD.nord1,
     width: "100%",
     flexDirection: "row",
@@ -50,13 +48,9 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
     backgroundColor: NORD.nord1,
   });
   const railAccent = new BoxRenderable(ctx, {
-    width: 1,
+    width: "100%",
     height: "100%",
-    border: ["left"],
-    borderStyle: "single",
-    borderColor: NORD.nord9,
-    shouldFill: false,
-    backgroundColor: NORD.nord1,
+    backgroundColor: NORD.nord9,
   });
   const railTextBox = new BoxRenderable(ctx, {
     width: "100%",
@@ -83,7 +77,6 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
   railTextBox.add(railTextUser);
   railTextBox.add(railTextInput);
   railBox.add(railAccent);
-  railBox.add(railTextBox);
 
   const mainBox = new BoxRenderable(ctx, {
     width: "100%",

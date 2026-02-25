@@ -211,7 +211,8 @@ const appendToolStyledBody = (
 
 export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
   const box = new BoxRenderable(ctx, {
-    border: false,
+    border: ["left", "right", "bottom"],
+    borderStyle: "single",
     backgroundColor: NORD.nord0,
     paddingX: 0,
     width: "100%",
@@ -223,7 +224,7 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
     height: 1,
     flexDirection: "row",
     backgroundColor: NORD.nord2,
-    paddingX: 1,
+    paddingX: 0,
   });
   const headerText = new TextRenderable(ctx, {
     content: "Conversation",
@@ -368,7 +369,7 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
       flexDirection: "row",
       marginTop:
         index === 0
-          ? 0
+          ? 1
           : isTool
             ? toolMarginTop
             : groupedPlainText
