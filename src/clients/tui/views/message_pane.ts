@@ -361,7 +361,7 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
       flexDirection: "row",
       marginTop:
         index === 0
-          ? 0
+          ? 1
           : isTool
             ? toolMarginTop
             : groupedPlainText
