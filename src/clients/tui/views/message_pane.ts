@@ -231,6 +231,12 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
     width: "100%",
     truncate: true,
   });
+  const headerDividerText = new TextRenderable(ctx, {
+    content: "─".repeat(512),
+    fg: NORD.nord1,
+    width: "100%",
+    truncate: true,
+  });
   const subHeaderText = new TextRenderable(ctx, {
     content: "Ready",
     fg: NORD.nord3,
@@ -274,6 +280,7 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
   scroll.add(listBox);
   headerBar.add(headerText);
   box.add(headerBar);
+  box.add(headerDividerText);
   box.add(scroll);
 
   return {
@@ -361,7 +368,7 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
       flexDirection: "row",
       marginTop:
         index === 0
-          ? 1
+          ? 0
           : isTool
             ? toolMarginTop
             : groupedPlainText

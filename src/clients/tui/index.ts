@@ -60,7 +60,7 @@ type CoreTuiClientOptions = {
 };
 
 const PANEL_INNER_HORIZONTAL_OVERHEAD = 4; // border(2) + paddingX(2)
-const MESSAGE_PANEL_VERTICAL_OVERHEAD = 1; // header row
+const MESSAGE_PANEL_VERTICAL_OVERHEAD = 2; // header row + divider row
 const INPUT_EDITOR_ROWS = 5;
 const DEFAULT_AGENT_NAME = "Atom";
 const WAITING_SPINNER_FRAMES = ["-", "\\", "|", "/"] as const;
