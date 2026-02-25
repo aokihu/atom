@@ -60,7 +60,7 @@ type CoreTuiClientOptions = {
 };
 
 const PANEL_INNER_HORIZONTAL_OVERHEAD = 4; // border(2) + paddingX(2)
-const MESSAGE_PANEL_VERTICAL_OVERHEAD = 3; // border(2) + header(1)
+const MESSAGE_PANEL_VERTICAL_OVERHEAD = 0; // conversation pane renders as flat canvas
 const INPUT_EDITOR_ROWS = 5;
 const DEFAULT_AGENT_NAME = "Atom";
 const WAITING_SPINNER_FRAMES = ["-", "\\", "|", "/"] as const;
@@ -1054,7 +1054,7 @@ class CoreTuiClientApp {
                   toolName: message.toolName,
                   callSummary: message.inputSummary,
                   callDisplay: message.inputDisplay,
-                  collapsed: false,
+                  collapsed: true,
                   status: "running",
                 });
               } else {
@@ -1062,7 +1062,7 @@ class CoreTuiClientApp {
                   toolName: message.toolName,
                   callSummary: message.inputSummary,
                   callDisplay: message.inputDisplay,
-                  collapsed: false,
+                  collapsed: true,
                   status: "running",
                   taskId,
                 });
