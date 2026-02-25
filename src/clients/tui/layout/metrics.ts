@@ -42,7 +42,7 @@ export const getLayoutMetrics = (terminal: TerminalSize): LayoutMetrics => {
   const inputHeight = INPUT_PANEL_VERTICAL_OVERHEAD + inputHintHeight + INPUT_EDITOR_ROWS;
   const reserved = statusHeight + inputHeight;
   const messageHeight = Math.max(5, terminal.rows - reserved);
-  const railWidth = 2;
+  const railWidth = 1;
 
   return {
     mode,
