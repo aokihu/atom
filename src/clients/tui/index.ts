@@ -60,7 +60,7 @@ type CoreTuiClientOptions = {
 };
 
 const PANEL_INNER_HORIZONTAL_OVERHEAD = 4; // border(2) + paddingX(2)
-const MESSAGE_PANEL_VERTICAL_OVERHEAD = 0; // conversation pane renders as flat canvas
+const MESSAGE_PANEL_VERTICAL_OVERHEAD = 1; // header row
 const INPUT_EDITOR_ROWS = 5;
 const DEFAULT_AGENT_NAME = "Atom";
 const WAITING_SPINNER_FRAMES = ["-", "\\", "|", "/"] as const;
@@ -362,6 +362,7 @@ class CoreTuiClientApp {
 
     this.messageBox.height = layout.messageHeight;
     this.messageBox.borderColor = effectiveFocus === "answer" ? NORD.nord8 : NORD.nord3;
+    this.messageHeaderText.visible = true;
     this.messageSubHeaderText.visible = false;
 
     this.messageHeaderText.content = buildMessageHeaderLine(this.state.agentName, this.state.chatStream.length, headerWidth);

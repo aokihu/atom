@@ -220,10 +220,9 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
   });
   const headerText = new TextRenderable(ctx, {
     content: "Conversation",
-    fg: NORD.nord8,
+    fg: NORD.nord4,
     width: "100%",
     truncate: true,
-    visible: false,
   });
   const subHeaderText = new TextRenderable(ctx, {
     content: "Ready",
@@ -280,7 +279,8 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
 };
 
 export const buildMessageHeaderLine = (agentName: string, count: number, width: number): string => {
-  return truncateToDisplayWidth(`${agentName} Conversation • ${count} messages`, width);
+  const label = count === 1 ? "message" : "messages";
+  return truncateToDisplayWidth(`${agentName} • ${count} ${label}`, width);
 };
 
 export const buildMessageSubHeaderLine = (args: MessagePaneSubHeaderInput): string => {
@@ -345,7 +345,7 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
     const previousItem = index > 0 ? input.items[index - 1] : undefined;
     const previousRole = previousItem?.role;
     const groupedPlainText = (isAssistant || isSystem) && previousRole === cardState.role;
-    const toolMarginTop = isTool && previousItem ? 1 : 0;
+    const toolMarginTop = isTool && previousItem ? (previousRole === "tool" ? 0 : 1) : 0;
     const isCompactTool = isTool;
     const toolBorderEnabled = false;
     const cardBackgroundColor = isCompactTool ? NORD.nord0 : isUser ? NORD.nord1 : NORD.nord0;
@@ -403,11 +403,11 @@ export const renderMessageStreamContent = (input: RenderMessageStreamInput): voi
         paddingLeft: 1,
       });
       const titleStatusText = new TextRenderable(input.renderer, {
-        content: `${statusMark}`,
+        content: `${statusMark} `,
         fg: getToolStatusColor(toolStatus),
       });
       const titlePrefixText = new TextRenderable(input.renderer, {
-        content: ` ${cardState.titleText ?? "tool"}`,
+        content: `${cardState.titleText ?? "tool"}`,
         fg: NORD.nord4,
       });
       titleRow.add(titleStatusText);
