@@ -173,7 +173,7 @@ const initializeRuntimeService = async (
     model,
     modelParams: agentConfig.agent?.params,
     workspace: cliOptions.workspace,
-    toolContext: { permissions: agentConfig },
+    toolContext: { permissions: agentConfig, workspace: cliOptions.workspace },
     mcpTools,
   });
 

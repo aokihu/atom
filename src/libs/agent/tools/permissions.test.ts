@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   canCopyFrom,
+  canUseBash,
   canMoveTo,
   canReadFile,
   canUseGit,
@@ -75,6 +76,19 @@ describe("agent tool permissions", () => {
     expect(
       canUseGit("/Users/example/secret/repo", {
         git: { deny: ["^/Users/example/secret/.*"] },
+      }),
+    ).toBe(false);
+  });
+
+  test("bash permission checks cwd path", () => {
+    expect(
+      canUseBash("/Users/example/work/repo", {
+        bash: { allow: ["^/Users/example/work/.*"] },
+      }),
+    ).toBe(true);
+    expect(
+      canUseBash("/Users/example/secret/repo", {
+        bash: { deny: ["^/Users/example/secret/.*"] },
       }),
     ).toBe(false);
   });

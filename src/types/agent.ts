@@ -43,6 +43,7 @@ export type AgentToolsPermission = {
   cp?: AgentPermissionRules;
   mv?: AgentPermissionRules;
   git?: AgentPermissionRules;
+  bash?: AgentPermissionRules;
   webfetch?: AgentPermissionRules;
 };
 

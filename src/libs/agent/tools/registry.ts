@@ -1,3 +1,4 @@
+import { bashTool } from "./bash";
 import { cpTool } from "./cp";
 import { gitTool } from "./git";
 import { lsTool } from "./ls";
@@ -25,6 +26,7 @@ const BUILTIN_TOOL_FACTORIES: Record<BuiltinToolName, ToolFactory> = {
   cp: cpTool,
   mv: mvTool,
   git: gitTool,
+  bash: bashTool,
   webfetch: webfetchTool,
 };
 

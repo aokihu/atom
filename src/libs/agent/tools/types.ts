@@ -11,6 +11,7 @@ export const BUILTIN_TOOL_NAMES = [
   "cp",
   "mv",
   "git",
+  "bash",
   "webfetch",
 ] as const;
 
@@ -22,6 +23,7 @@ export type ToolPermissionSource = {
 
 export type ToolExecutionContext = {
   permissions?: ToolPermissionSource;
+  workspace?: string;
   onOutputMessage?: AgentOutputMessageSink;
 };
 

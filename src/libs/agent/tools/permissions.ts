@@ -242,6 +242,12 @@ export const canUseGit = (dirpath: string, tools?: AgentToolsPermission) =>
   matchByRules(dirpath, tools?.git);
 
 /**
+ * 检查是否允许在指定目录执行 bash
+ */
+export const canUseBash = (dirpath: string, tools?: AgentToolsPermission) =>
+  matchByRules(dirpath, tools?.bash);
+
+/**
  * 检查是否允许访问URL
  *
  * @param {string} url - URL地址
