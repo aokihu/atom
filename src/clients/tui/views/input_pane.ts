@@ -46,16 +46,12 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
     width: 12,
     height: "100%",
     flexDirection: "row",
-    backgroundColor: NORD.nord1,
+    backgroundColor: NORD.nord2,
   });
   const railAccent = new BoxRenderable(ctx, {
     width: 1,
     height: "100%",
-    border: ["left"],
-    borderStyle: "double",
-    borderColor: NORD.nord9,
-    shouldFill: false,
-    backgroundColor: NORD.nord1,
+    backgroundColor: NORD.nord9,
   });
   const railTextBox = new BoxRenderable(ctx, {
     width: "100%",
