@@ -8,6 +8,7 @@ export const BUILTIN_TOOL_NAMES = [
   "tree",
   "ripgrep",
   "write",
+  "todo",
   "cp",
   "mv",
   "git",

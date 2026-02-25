@@ -40,6 +40,7 @@ export type AgentToolsPermission = {
   tree?: AgentPermissionRules;
   ripgrep?: AgentPermissionRules;
   write?: AgentPermissionRules;
+  todo?: AgentPermissionRules;
   cp?: AgentPermissionRules;
   mv?: AgentPermissionRules;
   git?: AgentPermissionRules;

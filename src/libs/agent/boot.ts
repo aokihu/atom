@@ -17,6 +17,7 @@ import { generateText, type LanguageModel } from "ai";
 import BootstrapPrompt from "../../prompts/bootstrap.md" with { type: "text" };
 import ContextRulesDisabledPrompt from "../../prompts/context_disable_output_context.md" with { type: "text" };
 import ContextRulesEnablePrompt from "../../prompts/context.md" with { type: "text" };
+import TodoToolUsagePrompt from "../../prompts/todo_tool_usage.md" with { type: "text" };
 
 type LifecycleBootParams = {
     userPromptFilePath: string;
@@ -73,7 +74,9 @@ export const bootstrap =
         // console.log("Total token:", result.totalUsage);
 
         return {
-            systemPrompt: [ContextRulesEnablePrompt, result.text].join("\n"),
+            systemPrompt: [ContextRulesEnablePrompt, TodoToolUsagePrompt, result.text].join(
+                "\n",
+            ),
             totalUsage: result.totalUsage,
         };
     };

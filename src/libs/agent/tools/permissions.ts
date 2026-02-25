@@ -212,6 +212,12 @@ export const canWriteFile = (filepath: string, tools?: AgentToolsPermission) =>
   matchByRules(filepath, tools?.write);
 
 /**
+ * 检查是否允许使用 TODO 数据库文件
+ */
+export const canUseTodo = (filepath: string, tools?: AgentToolsPermission) =>
+  matchByRules(filepath, tools?.todo);
+
+/**
  * 检查是否允许从源路径复制
  */
 export const canCopyFrom = (filepath: string, tools?: AgentToolsPermission) =>

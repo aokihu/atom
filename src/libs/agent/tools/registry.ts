@@ -6,6 +6,7 @@ import { mvTool } from "./mv";
 import { readTool } from "./read";
 import { ripgrepTool } from "./ripgrep";
 import { treeTool } from "./tree";
+import { todoTool } from "./todo";
 import { webfetchTool } from "./webfetch";
 import { writeTool } from "./write";
 import {
@@ -23,6 +24,7 @@ const BUILTIN_TOOL_FACTORIES: Record<BuiltinToolName, ToolFactory> = {
   tree: treeTool,
   ripgrep: ripgrepTool,
   write: writeTool,
+  todo: todoTool,
   cp: cpTool,
   mv: mvTool,
   git: gitTool,

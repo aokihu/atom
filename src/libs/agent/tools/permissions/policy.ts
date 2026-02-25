@@ -7,6 +7,7 @@ import {
   canReadFile,
   canReadTree,
   canRipgrep,
+  canUseTodo,
   canUseBash,
   canUseGit,
   canVisitUrl,
@@ -38,6 +39,10 @@ export class PermissionPolicy {
 
   canWriteFile(filepath: string) {
     return canWriteFile(filepath, getToolsPermissions(this.context));
+  }
+
+  canUseTodo(filepath: string) {
+    return canUseTodo(filepath, getToolsPermissions(this.context));
   }
 
   canCopyFrom(filepath: string) {
