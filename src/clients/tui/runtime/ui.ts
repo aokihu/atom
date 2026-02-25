@@ -29,6 +29,7 @@ export type TuiClientUiBundle = {
   inputBox: BoxRenderable;
   inputRailBox: BoxRenderable;
   inputRailAccent: BoxRenderable;
+  inputRailAccentGlyph: TextRenderable;
   inputRailTextUser: TextRenderable;
   inputRailTextInput: TextRenderable;
   inputMainBox: BoxRenderable;
@@ -130,6 +131,7 @@ export const createTuiClientUiBundle = (
     inputBox: inputPaneView.box,
     inputRailBox: inputPaneView.railBox,
     inputRailAccent: inputPaneView.railAccent,
+    inputRailAccentGlyph: inputPaneView.railAccentGlyph,
     inputRailTextUser: inputPaneView.railTextUser,
     inputRailTextInput: inputPaneView.railTextInput,
     inputMainBox: inputPaneView.mainBox,

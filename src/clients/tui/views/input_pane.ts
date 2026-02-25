@@ -22,6 +22,7 @@ export type InputPaneView = {
   box: BoxRenderable;
   railBox: BoxRenderable;
   railAccent: BoxRenderable;
+  railAccentGlyph: TextRenderable;
   railTextUser: TextRenderable;
   railTextInput: TextRenderable;
   mainBox: BoxRenderable;
@@ -38,6 +39,7 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
     border: false,
     backgroundColor: NORD.nord1,
     paddingX: 1,
+    paddingY: 1,
     width: "100%",
     flexDirection: "row",
   });
@@ -51,7 +53,13 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
   const railAccent = new BoxRenderable(ctx, {
     width: 1,
     height: "100%",
-    backgroundColor: NORD.nord9,
+    flexDirection: "column",
+    backgroundColor: NORD.nord2,
+  });
+  const railAccentGlyph = new TextRenderable(ctx, {
+    content: "▎",
+    fg: NORD.nord9,
+    width: 1,
   });
   const railTextBox = new BoxRenderable(ctx, {
     width: "100%",
@@ -77,6 +85,7 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
   });
   railTextBox.add(railTextUser);
   railTextBox.add(railTextInput);
+  railAccent.add(railAccentGlyph);
   railBox.add(railAccent);
 
   const mainBox = new BoxRenderable(ctx, {
@@ -117,6 +126,7 @@ export const createInputPaneView = (ctx: CliRenderer, args: {
     box,
     railBox,
     railAccent,
+    railAccentGlyph,
     railTextUser,
     railTextInput,
     mainBox,
