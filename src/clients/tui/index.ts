@@ -31,7 +31,7 @@ import {
 } from "./runtime/state";
 import { createTuiClientUiBundle, type TuiClientUiBundle } from "./runtime/ui";
 import { filterEnabledSlashCommands, type SlashCommandOption } from "./state/slash_commands";
-import { NORD } from "./theme/nord";
+import { resolveTuiTheme, type TuiTheme } from "./theme";
 import { summarizeEventText, truncateToDisplayWidth } from "./utils/text";
 import { buildContextModalLayoutState } from "./views/context_modal";
 import { buildInputPaneViewState } from "./views/input_pane";
@@ -49,6 +49,7 @@ type StartTuiClientOptions = {
   serverUrl?: string;
   mode?: "hybrid" | "tui" | "tui-client";
   agentName?: string;
+  themeName?: string;
 };
 
 type CoreTuiClientOptions = {
@@ -57,6 +58,7 @@ type CoreTuiClientOptions = {
   serverUrl?: string;
   mode?: "hybrid" | "tui" | "tui-client";
   agentName?: string;
+  themeName?: string;
 };
 
 const PANEL_INNER_HORIZONTAL_OVERHEAD = 4; // border(2) + paddingX(2)
@@ -106,6 +108,7 @@ class CoreTuiClientApp {
   private readonly pollIntervalMs: number;
   private readonly serverUrl?: string;
   private readonly mode?: "hybrid" | "tui" | "tui-client";
+  private readonly theme: TuiTheme;
   private readonly ui: TuiClientUiBundle;
 
   private destroyed = false;
@@ -210,6 +213,7 @@ class CoreTuiClientApp {
     this.pollIntervalMs = options.pollIntervalMs;
     this.serverUrl = options.serverUrl;
     this.mode = options.mode;
+    this.theme = resolveTuiTheme(options.themeName);
     const initialAgentName = options.agentName?.trim() || DEFAULT_AGENT_NAME;
     this.state = new TuiClientState({
       terminal: getTerminalSize(renderer),
@@ -217,6 +221,7 @@ class CoreTuiClientApp {
     });
 
     this.ui = createTuiClientUiBundle(renderer, {
+      theme: this.theme,
       textareaKeyBindings: TEXTAREA_SUBMIT_KEY_BINDINGS,
       onInputSubmit: () => {
         if (this.handleSubmit(this.inputTextarea.plainText)) {
@@ -369,7 +374,9 @@ class CoreTuiClientApp {
     const headerWidth = Math.max(1, this.state.terminal.columns - PANEL_INNER_HORIZONTAL_OVERHEAD);
 
     this.messageBox.height = layout.messageHeight;
-    this.messageBox.borderColor = effectiveFocus === "answer" ? NORD.nord8 : NORD.nord3;
+    this.messageBox.borderColor = effectiveFocus === "answer"
+      ? this.theme.colors.borderAccentSecondary
+      : this.theme.colors.borderDefault;
     this.messageHeaderText.visible = true;
     this.messageSubHeaderText.visible = false;
 
@@ -391,6 +398,7 @@ class CoreTuiClientApp {
   private renderChatStream(): void {
     renderMessageStreamContent({
       renderer: this.renderer,
+      theme: this.theme,
       listBox: this.messageListBox,
       agentName: this.state.agentName,
       items: this.state.chatStream,
@@ -411,7 +419,9 @@ class CoreTuiClientApp {
 
     this.statusBox.visible = activeLayout.showStatusStrip;
     this.statusBox.height = activeLayout.showStatusStrip ? activeLayout.statusHeight : 0;
-    this.statusBox.borderColor = effectiveFocus === "answer" ? NORD.nord3 : NORD.nord3;
+    this.statusBox.borderColor = effectiveFocus === "answer"
+      ? this.theme.colors.borderDefault
+      : this.theme.colors.borderDefault;
 
     const rows = buildStatusStripRows({
       layout: activeLayout,
@@ -450,12 +460,16 @@ class CoreTuiClientApp {
     });
 
     this.inputBox.height = layout.inputHeight;
-    this.inputBox.backgroundColor = inputFocused ? NORD.nord1 : NORD.nord1;
+    this.inputBox.backgroundColor = inputFocused
+      ? this.theme.colors.panelBackgroundAlt
+      : this.theme.colors.panelBackgroundAlt;
 
     this.inputRailBox.width = layout.railWidth;
-    this.inputRailBox.backgroundColor = NORD.nord1;
-    this.inputRailAccent.backgroundColor = NORD.nord1;
-    this.inputRailAccentGlyph.fg = viewState.railAccentColor === "focused" ? NORD.nord8 : NORD.nord9;
+    this.inputRailBox.backgroundColor = this.theme.colors.panelBackgroundAlt;
+    this.inputRailAccent.backgroundColor = this.theme.colors.panelBackgroundAlt;
+    this.inputRailAccentGlyph.fg = viewState.railAccentColor === "focused"
+      ? this.theme.colors.accentPrimary
+      : this.theme.colors.accentSecondary;
     this.inputRailAccentGlyph.content = buildInputRailGlyphContent(layout.inputHeight - INPUT_RAIL_INNER_VERTICAL_PADDING);
     this.inputHintText.visible = viewState.showHint;
     this.inputHintText.content = viewState.hintText;
@@ -464,8 +478,10 @@ class CoreTuiClientApp {
     this.inputTextarea.height = "100%";
     this.inputTextarea.width = "100%";
     this.inputTextarea.placeholder = viewState.placeholderText;
-    this.inputTextarea.backgroundColor = inputFocused ? NORD.nord2 : NORD.nord1;
-    this.inputTextarea.focusedBackgroundColor = NORD.nord2;
+    this.inputTextarea.backgroundColor = inputFocused
+      ? this.theme.colors.selectionBackground
+      : this.theme.colors.panelBackgroundAlt;
+    this.inputTextarea.focusedBackgroundColor = this.theme.colors.selectionBackground;
   }
 
   private syncSlashModalLayout(layout: LayoutMetrics): void {
@@ -485,7 +501,7 @@ class CoreTuiClientApp {
     this.slashModalBox.height = viewState.height;
     this.slashModalBox.top = viewState.top;
     this.slashModalBox.left = viewState.left;
-    this.slashModalBox.borderColor = NORD.nord9;
+    this.slashModalBox.borderColor = this.theme.colors.borderAccentPrimary;
 
     this.slashModalTitleText.content = viewState.titleText;
     this.slashModalQueryText.content = viewState.queryText;
@@ -1201,7 +1217,7 @@ class CoreTuiClientApp {
 }
 
 export const startTuiClient = async (options: StartTuiClientOptions): Promise<void> => {
-  const { client, pollIntervalMs = 500, serverUrl, mode, agentName } = options;
+  const { client, pollIntervalMs = 500, serverUrl, mode, agentName, themeName } = options;
 
   let resolveExit: (() => void) | undefined;
   const waitForExit = new Promise<void>((resolve) => {
@@ -1224,6 +1240,7 @@ export const startTuiClient = async (options: StartTuiClientOptions): Promise<vo
       serverUrl,
       mode,
       agentName,
+      themeName,
     });
 
     await waitForExit;

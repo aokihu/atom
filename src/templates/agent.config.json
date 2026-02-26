@@ -102,5 +102,8 @@
       "allow": ["^https://(docs\\.|developer\\.)?example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
     }
+  },
+  "tui": {
+    "theme": "nord"
   }
 }

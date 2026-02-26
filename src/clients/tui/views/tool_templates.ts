@@ -1,3 +1,20 @@
+/**
+ * TUI 视图辅助模块：Tool Templates（工具卡片模板渲染）
+ * 用于何处：被 `src/clients/tui/views/message_pane.ts` 调用，用于生成工具调用/结果卡片的摘要文本与结构化展示行。
+ * 主要职责：解析 `ToolDisplayEnvelope`，输出统一的工具卡片摘要、正文文本和带语义 tone 的渲染行数据。
+ *
+ * ASCII Layout (data pipeline, no terminal widget tree here)
+ * ToolDisplayEnvelope
+ *        |
+ *        v
+ *   parseDisplayData
+ *        |
+ *        +--> collapsed summary text
+ *        |
+ *        +--> styled lines (summary / field / preview / spacer)
+ *        |
+ *        +--> plain body text fallback
+ */
 import type { ToolDisplayEnvelope } from "../../../types/http";
 
 type ToolCardTemplateInput = {

@@ -86,6 +86,37 @@ describe("agent config", () => {
     ).not.toThrow();
   });
 
+  test("validateAgentConfig accepts tui.theme", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        tui: {
+          theme: "nord",
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  test("validateAgentConfig rejects non-object tui config", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        tui: "nord" as any,
+      }),
+    ).toThrow("tui must be a JSON object");
+  });
+
+  test("validateAgentConfig rejects empty tui.theme", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        tui: {
+          theme: "   ",
+        },
+      }),
+    ).toThrow("tui.theme must be a non-empty string");
+  });
+
   test("validateAgentConfig accepts agent.params", () => {
     expect(() =>
       validateAgentConfig({

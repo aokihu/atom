@@ -1,4 +1,4 @@
-export const NORD = {
+export const NORD_PALETTE = {
   nord0: "#2E3440",
   nord1: "#3B4252",
   nord2: "#434C5E",
@@ -13,3 +13,4 @@ export const NORD = {
   nord11: "#BF616A",
   nord14: "#A3BE8C",
 } as const;
+

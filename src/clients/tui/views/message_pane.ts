@@ -1,14 +1,35 @@
+/**
+ * TUI 组件：Message Pane（消息流面板）
+ * 用于何处：被 `src/clients/tui/runtime/ui.ts` 装配为主界面消息区域，并由 `CoreTuiClientApp` 在每次状态刷新时重绘消息流。
+ * 主要职责：构建消息面板骨架、计算工具/TODO 卡片展示状态，并渲染消息流中的动态卡片节点与交互事件。
+ *
+ * ASCII Layout
+ * +----------------------- message pane (box) ------------------------+
+ * | topInsetText                                                            |
+ * | headerBar -> headerText                                                 |
+ * | headerDividerText                                                       |
+ * | +--------------------------- scroll ----------------------------------+ |
+ * | | listBox                                                             | |
+ * | |   card / card / card ...                                            | |
+ * | +---------------------------------------------------------------------+ |
+ * +-----------------------------------------------------------------------+
+ */
 import {
+  Box,
   BoxRenderable,
   MarkdownRenderable,
+  ScrollBox,
   ScrollBoxRenderable,
   SyntaxStyle,
+  Text,
   TextRenderable,
+  h,
+  instantiate,
 } from "@opentui/core";
 import type { CliRenderer } from "@opentui/core";
 import type { ToolDisplayEnvelope } from "../../../types/http";
 
-import { NORD } from "../theme/nord";
+import type { TuiTheme } from "../theme";
 import { truncateToDisplayWidth } from "../utils/text";
 import {
   buildToolCardCollapsedSummary,
@@ -17,6 +38,66 @@ import {
 } from "./tool_templates";
 
 const ASSISTANT_MARKDOWN_SYNTAX_STYLE = SyntaxStyle.create();
+
+// ================================
+// 主题兼容层（语义主题 -> 旧布局色位）
+// ================================
+
+type MessagePaneLegacyCompatColors = {
+  nord0: string;
+  nord1: string;
+  nord2: string;
+  nord3: string;
+  nord4: string;
+  nord5: string;
+  nord6: string;
+  nord8: string;
+  nord9: string;
+  nord11: string;
+  nord14: string;
+};
+
+const getMessagePaneCompatColors = (theme: TuiTheme): MessagePaneLegacyCompatColors => {
+  const C = theme.colors;
+  return {
+    nord0: C.panelBackground,
+    nord1: C.panelBackgroundAlt,
+    nord2: C.panelHeaderBackground,
+    nord3: C.textMuted,
+    nord4: C.textSecondary,
+    nord5: C.inputText,
+    nord6: C.textPrimary,
+    nord8: C.accentPrimary,
+    nord9: C.accentSecondary,
+    nord11: C.statusError,
+    nord14: C.statusSuccess,
+  };
+};
+
+const mountBox = (
+  renderer: CliRenderer,
+  options: ConstructorParameters<typeof BoxRenderable>[1],
+): BoxRenderable => instantiate(renderer, Box(options)) as unknown as BoxRenderable;
+
+const mountText = (
+  renderer: CliRenderer,
+  options: ConstructorParameters<typeof TextRenderable>[1],
+): TextRenderable => instantiate(renderer, Text(options)) as unknown as TextRenderable;
+
+const mountScrollBox = (
+  renderer: CliRenderer,
+  options: ConstructorParameters<typeof ScrollBoxRenderable>[1],
+): ScrollBoxRenderable => instantiate(renderer, ScrollBox(options)) as unknown as ScrollBoxRenderable;
+
+const mountMarkdown = (
+  renderer: CliRenderer,
+  options: ConstructorParameters<typeof MarkdownRenderable>[1],
+): MarkdownRenderable =>
+  instantiate(renderer, h(MarkdownRenderable, options)) as unknown as MarkdownRenderable;
+
+// ================================
+// 类型定义区
+// ================================
 
 export type MessagePaneSubHeaderInput = {
   phase: "idle" | "submitting" | "polling";
@@ -108,6 +189,7 @@ export type MessagePaneView = {
 
 export type RenderMessageStreamInput = {
   renderer: CliRenderer;
+  theme: TuiTheme;
   listBox: BoxRenderable;
   agentName: string;
   items: ChatMessageCardInput[];
@@ -249,23 +331,31 @@ export const collapseCompletedToolGroups = (
   return collapsed;
 };
 
-const getToolStatusColor = (status: "running" | "done" | "error"): string => {
+const getToolStatusColor = (
+  theme: TuiTheme,
+  status: "running" | "done" | "error",
+): string => {
+  const NORD = getMessagePaneCompatColors(theme);
   if (status === "error") return NORD.nord11;
   if (status === "running") return NORD.nord8;
   return NORD.nord14;
 };
 
 const getToolHeaderTextColor = (
+  theme: TuiTheme,
   status: "running" | "done" | "error",
 ): string => {
+  const NORD = getMessagePaneCompatColors(theme);
   if (status === "error") return NORD.nord11;
   if (status === "running") return NORD.nord8;
   return NORD.nord6;
 };
 
 const getToolCollapsedSummaryColor = (
+  theme: TuiTheme,
   status: "running" | "done" | "error",
 ): string => {
+  const NORD = getMessagePaneCompatColors(theme);
   if (status === "error") return NORD.nord11;
   if (status === "running") return NORD.nord4;
   return NORD.nord4;
@@ -511,15 +601,18 @@ const buildTodoProgressBar = (args: {
 
 const appendTodoToolCardBody = (args: {
   renderer: CliRenderer;
+  theme: TuiTheme;
   bodyWrap: BoxRenderable;
   item: Extract<ChatMessageCardInput, { role: "tool" }>;
   model: TodoToolCardModel;
   cardTitleOverride?: string;
   processMessages?: Array<Extract<ChatMessageCardInput, { role: "tool" }>>;
 }) => {
-  const { renderer, bodyWrap, item, model, cardTitleOverride, processMessages: _processMessages } = args;
+  // UI 渲染区：TODO 卡片的“内容区”构建（折叠态/展开态两种布局）
+  const { renderer, theme, bodyWrap, item, model, cardTitleOverride, processMessages: _processMessages } = args;
+  const NORD = getMessagePaneCompatColors(theme);
   const isCollapsed = item.collapsed;
-  const statusColor = getToolStatusColor(item.status);
+  const statusColor = getToolStatusColor(theme, item.status);
   const headerFg = item.status === "done" ? NORD.nord5 : item.status === "error" ? NORD.nord6 : NORD.nord5;
   const progress = model.progress;
   const progressTotal =
@@ -548,45 +641,46 @@ const appendTodoToolCardBody = (args: {
   const TODO_ITEMS_BADGE_WIDTH = 13;
   const TODO_STATUS_BADGE_WIDTH = 8;
   const makeTodoHeaderCell = (content: string, fg: string, width: number) =>
-    new TextRenderable(renderer, {
+    mountText(renderer, {
       content,
       fg,
       width,
       truncate: true,
     });
 
-  const frame = new BoxRenderable(renderer, {
+  const frame = mountBox(renderer, {
     width: "100%",
     flexDirection: "column",
     backgroundColor: NORD.nord1,
   });
 
   if (isCollapsed) {
+    // UI 渲染区：折叠态 = 单行标题 + 进度条（可选）+ 展开提示
     const collapsedMetaParts = [
       `step ${progressText}`,
       `${itemsCount} item${itemsCount === 1 ? "" : "s"}`,
       statusText,
     ];
-    const collapsedHeader = new BoxRenderable(renderer, {
+    const collapsedHeader = mountBox(renderer, {
       width: "100%",
       flexDirection: "row",
       backgroundColor: NORD.nord2,
       paddingLeft: 1,
       paddingRight: 1,
     });
-    collapsedHeader.add(new TextRenderable(renderer, { content: "▸", fg: NORD.nord8 }));
-    collapsedHeader.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
-    collapsedHeader.add(new TextRenderable(renderer, { content: "●", fg: statusColor }));
-    collapsedHeader.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+    collapsedHeader.add(mountText(renderer, { content: "▸", fg: NORD.nord8 }));
+    collapsedHeader.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
+    collapsedHeader.add(mountText(renderer, { content: "●", fg: statusColor }));
+    collapsedHeader.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
     collapsedHeader.add(makeTodoHeaderCell(titleText, headerFg, TODO_TITLE_CELL_WIDTH));
-    collapsedHeader.add(new TextRenderable(renderer, { content: " ", fg: NORD.nord3 }));
+    collapsedHeader.add(mountText(renderer, { content: " ", fg: NORD.nord3 }));
     collapsedHeader.add(makeTodoHeaderCell(`[${collapsedMetaParts[0] ?? ""}]`, NORD.nord8, TODO_STEP_BADGE_WIDTH));
-    collapsedHeader.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+    collapsedHeader.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
     collapsedHeader.add(makeTodoHeaderCell(`[${collapsedMetaParts[1] ?? ""}]`, NORD.nord4, TODO_ITEMS_BADGE_WIDTH));
-    collapsedHeader.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+    collapsedHeader.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
     collapsedHeader.add(makeTodoHeaderCell(`[${collapsedMetaParts[2] ?? ""}]`, statusColor, TODO_STATUS_BADGE_WIDTH));
     collapsedHeader.add(
-      new TextRenderable(renderer, {
+      mountText(renderer, {
         content: `  —  ${model.summary}`,
         fg: NORD.nord3,
         width: "100%",
@@ -596,7 +690,7 @@ const appendTodoToolCardBody = (args: {
     frame.add(collapsedHeader);
 
     if (progressBar) {
-      const barRow = new BoxRenderable(renderer, {
+      const barRow = mountBox(renderer, {
         width: "100%",
         flexDirection: "row",
         backgroundColor: NORD.nord1,
@@ -604,7 +698,7 @@ const appendTodoToolCardBody = (args: {
         paddingRight: 1,
       });
       barRow.add(
-        new TextRenderable(renderer, {
+        mountText(renderer, {
           content: progressBar,
           fg: NORD.nord8,
           width: "100%",
@@ -614,7 +708,7 @@ const appendTodoToolCardBody = (args: {
       frame.add(barRow);
     }
 
-    const hintRow = new BoxRenderable(renderer, {
+    const hintRow = mountBox(renderer, {
       width: "100%",
       flexDirection: "row",
       backgroundColor: NORD.nord1,
@@ -622,7 +716,7 @@ const appendTodoToolCardBody = (args: {
       paddingRight: 1,
     });
     hintRow.add(
-      new TextRenderable(renderer, {
+      mountText(renderer, {
         content:
           itemsCount > 0
             ? `点击展开查看 ${itemsCount} 个 TODO 项`
@@ -643,26 +737,26 @@ const appendTodoToolCardBody = (args: {
     { text: `${itemsCount} item${itemsCount === 1 ? "" : "s"}`, fg: NORD.nord4 },
     { text: statusText, fg: statusColor },
   ] as const;
-  const headerRow = new BoxRenderable(renderer, {
+  const headerRow = mountBox(renderer, {
     width: "100%",
     flexDirection: "row",
     backgroundColor: NORD.nord2,
     paddingLeft: 1,
     paddingRight: 1,
   });
-  headerRow.add(new TextRenderable(renderer, { content: "▾", fg: NORD.nord8 }));
-  headerRow.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
-  headerRow.add(new TextRenderable(renderer, { content: "●", fg: statusColor }));
-  headerRow.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+  headerRow.add(mountText(renderer, { content: "▾", fg: NORD.nord8 }));
+  headerRow.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
+  headerRow.add(mountText(renderer, { content: "●", fg: statusColor }));
+  headerRow.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
   headerRow.add(makeTodoHeaderCell(titleText, headerFg, TODO_TITLE_CELL_WIDTH));
-  headerRow.add(new TextRenderable(renderer, { content: " ", fg: NORD.nord3 }));
+  headerRow.add(mountText(renderer, { content: " ", fg: NORD.nord3 }));
   headerRow.add(makeTodoHeaderCell(`[${expandedMetaParts[0].text}]`, expandedMetaParts[0].fg, TODO_STEP_BADGE_WIDTH));
-  headerRow.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+  headerRow.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
   headerRow.add(makeTodoHeaderCell(`[${expandedMetaParts[1].text}]`, expandedMetaParts[1].fg, TODO_ITEMS_BADGE_WIDTH));
-  headerRow.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+  headerRow.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
   headerRow.add(makeTodoHeaderCell(`[${expandedMetaParts[2].text}]`, expandedMetaParts[2].fg, TODO_STATUS_BADGE_WIDTH));
   headerRow.add(
-    new TextRenderable(renderer, {
+    mountText(renderer, {
       content: `  —  ${model.summary}`,
       fg: item.status === "error" ? NORD.nord11 : NORD.nord4,
       width: "100%",
@@ -672,7 +766,8 @@ const appendTodoToolCardBody = (args: {
   frame.add(headerRow);
 
   if (hasNoItems) {
-    const compactWrap = new BoxRenderable(renderer, {
+    // UI 渲染区：展开态但暂无列表项时，显示简化内容块
+    const compactWrap = mountBox(renderer, {
       width: "100%",
       flexDirection: "column",
       backgroundColor: NORD.nord1,
@@ -682,14 +777,14 @@ const appendTodoToolCardBody = (args: {
       paddingBottom: 1,
     });
 
-    const metaRow = new BoxRenderable(renderer, {
+    const metaRow = mountBox(renderer, {
       width: "100%",
       flexDirection: "row",
       backgroundColor: NORD.nord1,
     });
-    metaRow.add(new TextRenderable(renderer, { content: "TODO Items", fg: NORD.nord9 }));
+    metaRow.add(mountText(renderer, { content: "TODO Items", fg: NORD.nord9 }));
     metaRow.add(
-      new TextRenderable(renderer, {
+      mountText(renderer, {
         content: "  0",
         fg: NORD.nord4,
         width: "100%",
@@ -699,7 +794,7 @@ const appendTodoToolCardBody = (args: {
     compactWrap.add(metaRow);
 
     compactWrap.add(
-      new TextRenderable(renderer, {
+      mountText(renderer, {
         content: "No TODO items yet",
         fg: NORD.nord3,
         width: "100%",
@@ -712,13 +807,13 @@ const appendTodoToolCardBody = (args: {
     return;
   }
 
-  const contentColumn = new BoxRenderable(renderer, {
+  const contentColumn = mountBox(renderer, {
     width: "100%",
     flexDirection: "column",
     backgroundColor: NORD.nord1,
   });
 
-  const itemsSection = new BoxRenderable(renderer, {
+  const itemsSection = mountBox(renderer, {
     width: "100%",
     flexDirection: "column",
     backgroundColor: NORD.nord1,
@@ -727,14 +822,14 @@ const appendTodoToolCardBody = (args: {
     paddingTop: 1,
     paddingBottom: 1,
   });
-  const itemsHeader = new BoxRenderable(renderer, {
+  const itemsHeader = mountBox(renderer, {
     width: "100%",
     flexDirection: "row",
     backgroundColor: NORD.nord1,
   });
-  itemsHeader.add(new TextRenderable(renderer, { content: "Items", fg: NORD.nord9 }));
+  itemsHeader.add(mountText(renderer, { content: "Items", fg: NORD.nord9 }));
   itemsHeader.add(
-    new TextRenderable(renderer, {
+    mountText(renderer, {
       content: itemsCount > 0 ? `  ${itemsCount}` : "  0",
       fg: NORD.nord4,
       width: "100%",
@@ -745,7 +840,7 @@ const appendTodoToolCardBody = (args: {
 
   if (visibleItems.length === 0) {
     itemsSection.add(
-      new TextRenderable(renderer, {
+      mountText(renderer, {
         content: hiddenItemCount > 0 ? `… 还有 ${hiddenItemCount} 项` : "暂无可显示的 TODO 项",
         fg: NORD.nord3,
         width: "100%",
@@ -753,28 +848,29 @@ const appendTodoToolCardBody = (args: {
       }),
     );
   } else {
+    // UI 渲染区：展开态 TODO 项列表
     for (const todoItem of visibleItems) {
-      const itemRow = new BoxRenderable(renderer, {
+      const itemRow = mountBox(renderer, {
         width: "100%",
         flexDirection: "row",
         backgroundColor: NORD.nord1,
       });
       itemRow.add(
-        new TextRenderable(renderer, {
+        mountText(renderer, {
           content: `${todoItem.mark} `,
           fg: todoItem.status === "done" ? NORD.nord14 : NORD.nord8,
         }),
       );
       if (typeof todoItem.id === "number") {
         itemRow.add(
-          new TextRenderable(renderer, {
+          mountText(renderer, {
             content: `#${todoItem.id} `,
             fg: NORD.nord3,
           }),
         );
       }
       itemRow.add(
-        new TextRenderable(renderer, {
+        mountText(renderer, {
           content: todoItem.title,
           fg: todoItem.status === "done" ? NORD.nord4 : NORD.nord6,
           width: "100%",
@@ -790,7 +886,8 @@ const appendTodoToolCardBody = (args: {
   bodyWrap.add(frame);
 };
 
-const getToolLineTextColor = (line: ToolCardStyledLine): string => {
+const getToolLineTextColor = (theme: TuiTheme, line: ToolCardStyledLine): string => {
+  const NORD = getMessagePaneCompatColors(theme);
   if (line.kind === "summary") {
     switch (line.tone) {
       case "running":
@@ -830,8 +927,10 @@ const getToolLineTextColor = (line: ToolCardStyledLine): string => {
 };
 
 const getToolFieldColorsByTone = (
+  theme: TuiTheme,
   tone: Extract<ToolCardStyledLine, { kind: "field" }>["tone"],
 ): { label: string; value: string } => {
+  const NORD = getMessagePaneCompatColors(theme);
   switch (tone) {
     case "error":
       return { label: NORD.nord11, value: NORD.nord11 };
@@ -848,15 +947,18 @@ const getToolFieldColorsByTone = (
 
 const appendToolStyledBody = (
   renderer: CliRenderer,
+  theme: TuiTheme,
   bodyWrap: BoxRenderable,
   item: Extract<ChatMessageCardInput, { role: "tool" }>,
 ) => {
+  // UI 渲染区：工具输出详情（结构化字段 + 预览 + 文本行）
+  const NORD = getMessagePaneCompatColors(theme);
   const lines = buildToolCardStyledLines(item);
 
   for (const line of lines) {
     if (line.kind === "spacer") {
       bodyWrap.add(
-        new TextRenderable(renderer, {
+        mountText(renderer, {
           content: " ",
           fg: NORD.nord3,
           width: "100%",
@@ -866,17 +968,17 @@ const appendToolStyledBody = (
     }
 
     if (line.kind === "field") {
-      const colors = getToolFieldColorsByTone(line.tone);
-      const row = new BoxRenderable(renderer, {
+      const colors = getToolFieldColorsByTone(theme, line.tone);
+      const row = mountBox(renderer, {
         width: "100%",
         flexDirection: "row",
         backgroundColor: NORD.nord0,
       });
-      const labelText = new TextRenderable(renderer, {
+      const labelText = mountText(renderer, {
         content: `${line.label}: `,
         fg: colors.label,
       });
-      const valueText = new TextRenderable(renderer, {
+      const valueText = mountText(renderer, {
         content: line.value,
         fg: colors.value,
         width: "100%",
@@ -889,9 +991,9 @@ const appendToolStyledBody = (
     }
 
     bodyWrap.add(
-      new TextRenderable(renderer, {
+      mountText(renderer, {
         content: line.text,
-        fg: getToolLineTextColor(line),
+        fg: getToolLineTextColor(theme, line),
         width: "100%",
         wrapMode: "char",
       }),
@@ -899,8 +1001,10 @@ const appendToolStyledBody = (
   }
 };
 
-export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
-  const box = new BoxRenderable(ctx, {
+export const createMessagePaneView = (ctx: CliRenderer, theme: TuiTheme): MessagePaneView => {
+  // UI 渲染区：消息面板骨架（header + divider + scroll 内容区）
+  const NORD = getMessagePaneCompatColors(theme);
+  const box = mountBox(ctx, {
     border: true,
     borderStyle: "single",
     backgroundColor: NORD.nord0,
@@ -909,39 +1013,39 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
     flexDirection: "column",
     flexGrow: 1,
   });
-  const topInsetText = new TextRenderable(ctx, {
+  const topInsetText = mountText(ctx, {
     content: " ",
     fg: NORD.nord0,
     width: "100%",
     truncate: true,
   });
-  const headerBar = new BoxRenderable(ctx, {
+  const headerBar = mountBox(ctx, {
     width: "100%",
     height: 1,
     flexDirection: "row",
     backgroundColor: NORD.nord2,
     paddingX: 0,
   });
-  const headerText = new TextRenderable(ctx, {
+  const headerText = mountText(ctx, {
     content: "Conversation",
     fg: NORD.nord4,
     width: "100%",
     truncate: true,
   });
-  const headerDividerText = new TextRenderable(ctx, {
+  const headerDividerText = mountText(ctx, {
     content: "─".repeat(512),
     fg: NORD.nord1,
     width: "100%",
     truncate: true,
   });
-  const subHeaderText = new TextRenderable(ctx, {
+  const subHeaderText = mountText(ctx, {
     content: "Ready",
     fg: NORD.nord3,
     width: "100%",
     truncate: true,
     visible: false,
   });
-  const scroll = new ScrollBoxRenderable(ctx, {
+  const scroll = mountScrollBox(ctx, {
     width: "100%",
     height: 1,
     scrollX: false,
@@ -967,7 +1071,7 @@ export const createMessagePaneView = (ctx: CliRenderer): MessagePaneView => {
       },
     },
   });
-  const listBox = new BoxRenderable(ctx, {
+  const listBox = mountBox(ctx, {
     width: "100%",
     flexDirection: "column",
     backgroundColor: NORD.nord0,
@@ -1066,6 +1170,8 @@ export const buildChatMessageCardViewState = (
 export const renderMessageStreamContent = (
   input: RenderMessageStreamInput,
 ): void => {
+  // 逻辑区：每次重渲染前先清空旧节点，避免残留和重复绑定事件
+  const NORD = getMessagePaneCompatColors(input.theme);
   const children = [...input.listBox.getChildren()];
   for (const child of children) {
     input.listBox.remove(child.id);
@@ -1081,12 +1187,14 @@ export const renderMessageStreamContent = (
   );
 
   if (renderItems.length === 0) {
-    const emptyWrap = new BoxRenderable(input.renderer, {
+    // 部件说明：空态容器（给首屏留出顶部间距，避免文本贴边）。
+    const emptyWrap = mountBox(input.renderer, {
       width: "100%",
       backgroundColor: NORD.nord0,
       paddingTop: 1,
     });
-    const emptyText = new TextRenderable(input.renderer, {
+    // 部件说明：空态文案（在没有任何消息时提示用户可开始输入）。
+    const emptyText = mountText(input.renderer, {
       content: `${input.agentName} is ready. Type a message below.`,
       fg: NORD.nord3,
       width: "100%",
@@ -1098,6 +1206,7 @@ export const renderMessageStreamContent = (
   }
 
   for (const [index, item] of renderItems.entries()) {
+    // 逻辑区：根据消息类型决定卡片布局规则（tool-like / todo-like / plain message）
     const cardState = buildChatMessageCardViewState(item);
     const isUser = cardState.role === "user";
     const isSystem = cardState.role === "system";
@@ -1138,7 +1247,8 @@ export const renderMessageStreamContent = (
       : isUser
         ? NORD.nord1
         : NORD.nord0;
-    const card = new BoxRenderable(input.renderer, {
+    // 部件说明：单条消息/工具卡片根容器，负责边框、背景和外边距。
+    const card = mountBox(input.renderer, {
       width: "100%",
       flexDirection: isTodoCardLike ? "column" : "row",
       marginTop:
@@ -1147,10 +1257,12 @@ export const renderMessageStreamContent = (
       borderStyle: toolBorderEnabled ? "single" : undefined,
       borderColor:
         toolBorderEnabled
-          ? getToolStatusColor(cardState.toolStatus ?? "done")
+          ? getToolStatusColor(input.theme, cardState.toolStatus ?? "done")
           : undefined,
       backgroundColor: cardBackgroundColor,
     });
+
+    // 事件处理区：工具组与 TODO 卡片的点击展开/折叠逻辑（只处理左键）
     if (isToolGroupSummary) {
       const summaryItem = item as ToolGroupSummaryCardInput;
       card.onMouseUp = (event) => {
@@ -1201,7 +1313,7 @@ export const renderMessageStreamContent = (
       };
     }
 
-    const bodyWrap = new BoxRenderable(input.renderer, {
+    const bodyWrap = mountBox(input.renderer, {
       width: "100%",
       flexDirection: "column",
       paddingLeft: isTodoCardLike ? 0 : isToolLike ? 0 : 1,
@@ -1211,8 +1323,9 @@ export const renderMessageStreamContent = (
       backgroundColor: cardBackgroundColor,
     });
 
+    // 部件说明：普通消息的元信息行（时间戳 / taskId 等）；tool-like 卡片通常不显示。
     const meta = cardState.metaText
-      ? new TextRenderable(input.renderer, {
+      ? mountText(input.renderer, {
           content: cardState.metaText,
           fg: NORD.nord3,
           width: "100%",
@@ -1221,6 +1334,7 @@ export const renderMessageStreamContent = (
       : undefined;
 
     if (isTodoCardGroup && todoCardGroup) {
+      // UI 渲染区：TODO workflow 聚合卡片（使用最新快照 + 最新状态合并）
       const latestMessage = [...todoCardGroup.messages]
         .reverse()
         .find((message) => Boolean(getTodoToolCardModel(message))) ?? todoCardGroup.messages[todoCardGroup.messages.length - 1];
@@ -1237,6 +1351,7 @@ export const renderMessageStreamContent = (
         };
         appendTodoToolCardBody({
           renderer: input.renderer,
+          theme: input.theme,
           bodyWrap,
           item: {
             ...latestMessage,
@@ -1248,13 +1363,16 @@ export const renderMessageStreamContent = (
         });
       }
     } else if (isTool && isTodoToolCard && toolItem && todoToolCardModel) {
+      // UI 渲染区：单个 TODO 工具卡片
       appendTodoToolCardBody({
         renderer: input.renderer,
+        theme: input.theme,
         bodyWrap,
         item: toolItem,
         model: todoToolCardModel,
       });
     } else if (isToolLike) {
+      // UI 渲染区：紧凑工具行（状态标记 + [toolName] + 摘要）
       const toolStatus = cardState.toolStatus ?? "done";
       // Compact tool row format contract:
       // "<status> [<toolName>] | <collapsed summary>"
@@ -1273,38 +1391,42 @@ export const renderMessageStreamContent = (
           ? buildToolGroupCollapsedSummaryText(item as ToolGroupSummaryCardInput)
           : undefined;
 
-      const titleRow = new BoxRenderable(input.renderer, {
+      const titleRow = mountBox(input.renderer, {
         width: "100%",
         flexDirection: "row",
         backgroundColor: cardBackgroundColor,
         paddingLeft: 1,
       });
-      const titleStatusText = new TextRenderable(input.renderer, {
+      // 部件说明：工具行状态标记（运行/成功/失败符号）。
+      const titleStatusText = mountText(input.renderer, {
         content: isToolGroupToggle ? "" : `${statusMark} `,
-        fg: getToolStatusColor(toolStatus),
+        fg: getToolStatusColor(input.theme, toolStatus),
       });
-      const titlePrefixText = new TextRenderable(input.renderer, {
+      // 部件说明：工具名称前缀（如 [read] / [bash] / [tools]）。
+      const titlePrefixText = mountText(input.renderer, {
         content: `[${cardState.titleText ?? "tool"}]`,
         fg:
           isToolGroupSummary || isToolGroupToggle
-            ? getToolStatusColor(toolStatus)
+            ? getToolStatusColor(input.theme, toolStatus)
             : NORD.nord4,
       });
       titleRow.add(titleStatusText);
       titleRow.add(titlePrefixText);
 
       if (collapsedSummary) {
-        const titleSummaryText = new TextRenderable(input.renderer, {
+        // 部件说明：折叠摘要文本（展示关键结果或统计信息）。
+        const titleSummaryText = mountText(input.renderer, {
           content: ` ${collapsedSummary}`,
           fg: isToolGroupSummary
-            ? getToolStatusColor(toolStatus)
-            : getToolCollapsedSummaryColor(toolStatus),
+            ? getToolStatusColor(input.theme, toolStatus)
+            : getToolCollapsedSummaryColor(input.theme, toolStatus),
           width: "100%",
           truncate: true,
         });
         titleRow.add(titleSummaryText);
       } else {
-        const titleSpacer = new TextRenderable(input.renderer, {
+        // 部件说明：占位空白，保证行内布局稳定。
+        const titleSpacer = mountText(input.renderer, {
           content: " ",
           fg: NORD.nord3,
           width: "100%",
@@ -1313,8 +1435,10 @@ export const renderMessageStreamContent = (
       }
       bodyWrap.add(titleRow);
     } else {
+      // UI 渲染区：普通消息（assistant 使用 Markdown，其余使用纯文本）
       if (cardState.role === "assistant") {
-        const markdown = new MarkdownRenderable(input.renderer, {
+        // 部件说明：assistant 正文使用 Markdown 渲染，保留格式与代码块展示能力。
+        const markdown = mountMarkdown(input.renderer, {
           content: cardState.bodyText ?? " ",
           syntaxStyle: ASSISTANT_MARKDOWN_SYNTAX_STYLE,
           conceal: true,
@@ -1323,7 +1447,8 @@ export const renderMessageStreamContent = (
         });
         bodyWrap.add(markdown);
       } else {
-        const bodyText = new TextRenderable(input.renderer, {
+        // 部件说明：user/system/other 正文使用普通文本节点。
+        const bodyText = mountText(input.renderer, {
           content: cardState.bodyText ?? " ",
           fg: isUser ? NORD.nord5 : isSystem ? NORD.nord8 : NORD.nord4,
           width: "100%",
@@ -1337,7 +1462,8 @@ export const renderMessageStreamContent = (
       bodyWrap.add(meta);
     }
     if (!isToolLike && !isAssistant) {
-      const accent = new BoxRenderable(input.renderer, {
+      // UI 渲染区：普通消息左侧强调线（用户/系统/其他颜色不同）
+      const accent = mountBox(input.renderer, {
         width: 1,
         border: ["left"],
         borderStyle: "single",

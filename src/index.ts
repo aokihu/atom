@@ -299,6 +299,7 @@ const main = async () => {
       serverUrl: gateway.baseUrl,
       mode: "tui",
       agentName,
+      themeName: agentConfig.tui?.theme,
     });
   } finally {
     await shutdown.run("tui exit");

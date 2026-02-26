@@ -1,9 +1,24 @@
-import { BoxRenderable, TextRenderable } from "@opentui/core";
-import type { CliRenderer } from "@opentui/core";
+/**
+ * TUI 组件：Status Strip（状态条）
+ * 用于何处：被 `src/clients/tui/runtime/ui.ts` 装配在消息区与输入区之间，由 `CoreTuiClientApp` 刷新连接状态/工作状态文案。
+ * 主要职责：构建状态条节点树，并根据运行状态生成一行或多行状态文本内容。
+ *
+ * ASCII Layout
+ * +-------------------------------------------------------------------+
+ * | row1: agent / connect / status / version                     |
+ * | row2: reserved secondary line (optional by layout rows)      |
+ * +-------------------------------------------------------------------+
+ */
+import { Box, Text, instantiate } from "@opentui/core";
+import type { BoxRenderable, CliRenderer, TextRenderable } from "@opentui/core";
 
-import { NORD } from "../theme/nord";
 import type { LayoutMetrics, TerminalSize } from "../layout/metrics";
+import type { TuiTheme } from "../theme";
 import { stringDisplayWidth, truncateToDisplayWidth } from "../utils/text";
+
+// ================================
+// 类型定义区
+// ================================
 
 export type StatusStripViewInput = {
   layout: LayoutMetrics;
@@ -26,10 +41,14 @@ export type StatusStripView = {
   rowTexts: [TextRenderable, TextRenderable];
 };
 
+// ================================
+// 逻辑计算区（状态文案）
+// ================================
+
 const buildSweepBar = (tick = 0, width = 12): string => {
   const normalizedWidth = Math.max(6, width);
   const period = normalizedWidth + 6;
-  const center = (tick % period) - 3; // start off-screen, sweep through, then off-screen
+  const center = (tick % period) - 3;
 
   let bar = "";
   for (let i = 0; i < normalizedWidth; i += 1) {
@@ -66,27 +85,6 @@ const buildBusyStatusPill = (
   return `[${label} ${sweep}]`;
 };
 
-export const createStatusStripView = (ctx: CliRenderer): StatusStripView => {
-  const box = new BoxRenderable(ctx, {
-    border: true,
-    borderStyle: "single",
-    borderColor: NORD.nord3,
-    backgroundColor: NORD.nord0,
-    paddingX: 1,
-    width: "100%",
-    flexDirection: "column",
-  });
-  const row1 = new TextRenderable(ctx, { content: " ", fg: NORD.nord4, width: "100%", truncate: true });
-  const row2 = new TextRenderable(ctx, { content: " ", fg: NORD.nord3, width: "100%", truncate: true });
-  box.add(row1);
-  box.add(row2);
-
-  return {
-    box,
-    rowTexts: [row1, row2],
-  };
-};
-
 export const buildStatusStripRows = (input: StatusStripViewInput): string[] => {
   const connectLabel =
     input.connection === "ok" ? "OK" : input.connection === "error" ? "ERROR" : "UNKNOWN";
@@ -109,7 +107,38 @@ export const buildStatusStripRows = (input: StatusStripViewInput): string[] => {
       ? `${left}${" ".repeat(fillerWidth)}${right}`
       : `${left}  ${right}`;
 
-  return [
-    truncateToDisplayWidth(line, input.rowWidth),
-  ].slice(0, input.layout.statusRows);
+  return [truncateToDisplayWidth(line, input.rowWidth)].slice(0, input.layout.statusRows);
+};
+
+// ================================
+// UI 渲染区（Constructs 节点树）
+// ================================
+
+export const createStatusStripView = (ctx: CliRenderer, theme: TuiTheme): StatusStripView => {
+  const C = theme.colors;
+  // 部件说明：状态条根容器（边框 + 双行文本）。
+  // 这里直接在 Constructs 中内联创建两个 Text 子节点，后续再从 children 中取回引用。
+  const box = instantiate(
+    ctx,
+    Box(
+      {
+        border: true,
+        borderStyle: "single",
+        borderColor: C.borderDefault,
+        backgroundColor: C.panelBackground,
+        paddingX: 1,
+        width: "100%",
+        flexDirection: "column",
+      },
+      Text({ content: " ", fg: C.textSecondary, width: "100%", truncate: true }),
+      Text({ content: " ", fg: C.textMuted, width: "100%", truncate: true }),
+    ),
+  ) as unknown as BoxRenderable;
+
+  // 部件说明：第 1 行显示主状态；第 2 行预留为辅助状态行（当前通常为空）。
+  const [row1, row2] = box.getChildren() as [TextRenderable, TextRenderable];
+  return {
+    box,
+    rowTexts: [row1, row2],
+  };
 };

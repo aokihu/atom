@@ -334,8 +334,20 @@ export const validateMcpConfig = (config: AgentConfig) => {
   });
 };
 
+export const validateTuiConfig = (config: AgentConfig) => {
+  const tui = config.tui;
+  if (tui === undefined) return;
+
+  if (typeof tui !== "object" || tui === null || Array.isArray(tui)) {
+    throw new Error("tui must be a JSON object");
+  }
+
+  ensureNonEmptyString(tui.theme, "tui.theme");
+};
+
 export const validateAgentConfig = (config: AgentConfig) => {
   validateAgentAndProvidersConfig(config);
   validateToolsConfig(config);
   validateMcpConfig(config);
+  validateTuiConfig(config);
 };

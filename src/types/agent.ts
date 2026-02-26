@@ -103,11 +103,16 @@ export type MCPConfig = {
   servers?: MCPServerConfig[];
 };
 
+export type AgentTuiConfig = {
+  theme?: string;
+};
+
 export type AgentConfig = {
   agent?: AgentRuntimeConfig;
   providers?: AgentProviderConfig[];
   permissions?: AgentToolsPermission;
   mcp?: MCPConfig;
+  tui?: AgentTuiConfig;
 };
 
 export type ContextMemoryTier = "core" | "working" | "ephemeral";

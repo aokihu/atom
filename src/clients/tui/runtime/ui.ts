@@ -1,18 +1,23 @@
-import {
+import { Box, instantiate } from "@opentui/core";
+import type {
   BoxRenderable,
+  CliRenderer,
   ScrollBoxRenderable,
   SelectRenderable,
   TextRenderable,
   TextareaRenderable,
 } from "@opentui/core";
-import type { CliRenderer } from "@opentui/core";
 
-import { NORD } from "../theme/nord";
+import type { TuiTheme } from "../theme";
 import { createContextModalView } from "../views/context_modal";
 import { createInputPaneView } from "../views/input_pane";
 import { createMessagePaneView } from "../views/message_pane";
 import { createSlashModalView } from "../views/slash_modal";
 import { createStatusStripView } from "../views/status_strip";
+
+// ================================
+// 类型定义区
+// ================================
 
 export type TuiClientUiBundle = {
   appRoot: BoxRenderable;
@@ -59,30 +64,42 @@ export type TuiClientUiBundle = {
   destroyTrees: () => void;
 };
 
+// ================================
+// 导出接口区（UI Bundle 组装）
+// ================================
+
 export const createTuiClientUiBundle = (
   renderer: CliRenderer,
   args: {
+    theme: TuiTheme;
     textareaKeyBindings: any[];
     onInputSubmit: () => void;
     onSlashSelect: () => void;
   },
 ): TuiClientUiBundle => {
-  const appRoot = new BoxRenderable(renderer, {
-    width: "100%",
-    height: "100%",
-    flexDirection: "column",
-    backgroundColor: NORD.nord0,
-  });
+  const C = args.theme.colors;
 
-  const messagePaneView = createMessagePaneView(renderer);
-  const statusStripView = createStatusStripView(renderer);
-  const inputPaneView = createInputPaneView(renderer, {
+  // UI 渲染区：应用根容器（消息区 / 状态条 / 输入区）
+  const appRoot = instantiate(
+    renderer,
+    Box({
+      width: "100%",
+      height: "100%",
+      flexDirection: "column",
+      backgroundColor: C.appBackground,
+    }),
+  ) as unknown as BoxRenderable;
+
+  const messagePaneView = createMessagePaneView(renderer, args.theme);
+  const statusStripView = createStatusStripView(renderer, args.theme);
+  const inputPaneView = createInputPaneView(renderer, args.theme, {
     keyBindings: args.textareaKeyBindings,
     onSubmit: args.onInputSubmit,
   });
-  const slashModalView = createSlashModalView(renderer, args.onSlashSelect);
-  const contextModalView = createContextModalView(renderer);
+  const slashModalView = createSlashModalView(renderer, args.theme, args.onSlashSelect);
+  const contextModalView = createContextModalView(renderer, args.theme);
 
+  // 生命周期区：挂载/卸载/销毁集中管理，避免外层分散处理树结构
   const mount = (targetRenderer: CliRenderer) => {
     appRoot.add(messagePaneView.box);
     appRoot.add(statusStripView.box);
@@ -161,3 +178,4 @@ export const createTuiClientUiBundle = (
     destroyTrees,
   };
 };
+
