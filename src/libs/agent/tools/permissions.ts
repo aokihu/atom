@@ -10,6 +10,7 @@
  * @description 权限检查和安全防护
  */
 
+import { isAbsolute, relative, resolve } from "node:path";
 import type {
   AgentPermissionRules,
   AgentToolsPermission,
@@ -105,6 +106,72 @@ const violatesBuiltinRules = (target: string): boolean => {
   return false;
 };
 
+const normalizeWorkspacePath = (workspace?: string) => {
+  const normalized = typeof workspace === "string" ? workspace.trim() : "";
+  return normalized ? resolve(normalized) : null;
+};
+
+const isPathEqualOrDescendant = (target: string, base: string) => {
+  const rel = relative(base, target);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+};
+
+export const isWorkspaceAgentHardBlocked = (
+  targetPath: string,
+  workspace?: string,
+) => {
+  const workspacePath = normalizeWorkspacePath(workspace);
+  if (!workspacePath) {
+    return false;
+  }
+
+  const protectedDir = resolve(workspacePath, ".agent");
+  const target = resolve(targetPath);
+  return isPathEqualOrDescendant(target, protectedDir);
+};
+
+export const shouldHideWorkspaceAgentEntry = (
+  parentDir: string,
+  entryName: string,
+  workspace?: string,
+) => {
+  if (entryName !== ".agent") {
+    return false;
+  }
+
+  const workspacePath = normalizeWorkspacePath(workspace);
+  if (!workspacePath) {
+    return false;
+  }
+
+  return resolve(parentDir) === workspacePath;
+};
+
+export const getWorkspaceAgentRipgrepExcludes = (
+  searchDir: string,
+  workspace?: string,
+) => {
+  const workspacePath = normalizeWorkspacePath(workspace);
+  if (!workspacePath) {
+    return [] as string[];
+  }
+
+  const protectedDir = resolve(workspacePath, ".agent");
+  const normalizedSearchDir = resolve(searchDir);
+
+  if (!isPathEqualOrDescendant(protectedDir, normalizedSearchDir)) {
+    return [] as string[];
+  }
+
+  const rel = relative(normalizedSearchDir, protectedDir);
+  if (rel === "") {
+    return [] as string[];
+  }
+
+  const normalizedRel = rel.replaceAll("\\", "/");
+  return [`!${normalizedRel}`, `!${normalizedRel}/**`];
+};
+
 /**
  * 根据规则检查目标字符串是否被允许
  *
@@ -168,8 +235,17 @@ const matchByRules = (target: string, rules?: AgentPermissionRules) => {
  * @param {AgentToolsPermission} [tools] - 工具配置
  * @returns {boolean} 是否允许读取
  */
-export const canReadFile = (filepath: string, tools?: AgentToolsPermission) =>
-  matchByRules(filepath, tools?.read);
+export const canReadFile = (
+  filepath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceAgentHardBlocked(filepath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(filepath, tools?.read);
+};
 
 /**
  * 检查是否允许列出目录内容
@@ -178,8 +254,17 @@ export const canReadFile = (filepath: string, tools?: AgentToolsPermission) =>
  * @param {AgentToolsPermission} [tools] - 工具配置
  * @returns {boolean} 是否允许列出目录
  */
-export const canListDir = (dirpath: string, tools?: AgentToolsPermission) =>
-  matchByRules(dirpath, tools?.ls);
+export const canListDir = (
+  dirpath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceAgentHardBlocked(dirpath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(dirpath, tools?.ls);
+};
 
 /**
  * 检查是否允许读取目录树
@@ -188,8 +273,17 @@ export const canListDir = (dirpath: string, tools?: AgentToolsPermission) =>
  * @param {AgentToolsPermission} [tools] - 工具配置
  * @returns {boolean} 是否允许读取目录树
  */
-export const canReadTree = (dirpath: string, tools?: AgentToolsPermission) =>
-  matchByRules(dirpath, tools?.tree);
+export const canReadTree = (
+  dirpath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceAgentHardBlocked(dirpath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(dirpath, tools?.tree);
+};
 
 /**
  * 检查是否允许使用ripgrep搜索目录
@@ -198,8 +292,17 @@ export const canReadTree = (dirpath: string, tools?: AgentToolsPermission) =>
  * @param {AgentToolsPermission} [tools] - 工具配置
  * @returns {boolean} 是否允许使用ripgrep
  */
-export const canRipgrep = (dirpath: string, tools?: AgentToolsPermission) =>
-  matchByRules(dirpath, tools?.ripgrep);
+export const canRipgrep = (
+  dirpath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceAgentHardBlocked(dirpath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(dirpath, tools?.ripgrep);
+};
 
 /**
  * 检查是否允许写入文件

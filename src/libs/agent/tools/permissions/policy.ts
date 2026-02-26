@@ -13,6 +13,8 @@ import {
   canUseGit,
   canVisitUrl,
   canWriteFile,
+  getWorkspaceAgentRipgrepExcludes,
+  shouldHideWorkspaceAgentEntry,
 } from "../permissions";
 import type { ToolExecutionContext } from "../types";
 
@@ -23,19 +25,31 @@ export class PermissionPolicy {
   constructor(private readonly context: ToolExecutionContext) {}
 
   canReadFile(filepath: string) {
-    return canReadFile(filepath, getToolsPermissions(this.context));
+    return canReadFile(
+      filepath,
+      getToolsPermissions(this.context),
+      this.context.workspace,
+    );
   }
 
   canListDir(dirpath: string) {
-    return canListDir(dirpath, getToolsPermissions(this.context));
+    return canListDir(dirpath, getToolsPermissions(this.context), this.context.workspace);
   }
 
   canReadTree(dirpath: string) {
-    return canReadTree(dirpath, getToolsPermissions(this.context));
+    return canReadTree(dirpath, getToolsPermissions(this.context), this.context.workspace);
   }
 
   canRipgrep(dirpath: string) {
-    return canRipgrep(dirpath, getToolsPermissions(this.context));
+    return canRipgrep(dirpath, getToolsPermissions(this.context), this.context.workspace);
+  }
+
+  shouldHideDirEntry(parentDir: string, entryName: string) {
+    return shouldHideWorkspaceAgentEntry(parentDir, entryName, this.context.workspace);
+  }
+
+  getRipgrepExcludeGlobs(searchDir: string) {
+    return getWorkspaceAgentRipgrepExcludes(searchDir, this.context.workspace);
   }
 
   canWriteFile(filepath: string) {

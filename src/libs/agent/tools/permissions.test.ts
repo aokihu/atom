@@ -3,8 +3,11 @@ import {
   canUseBackground,
   canCopyFrom,
   canUseBash,
+  canListDir,
   canMoveTo,
   canReadFile,
+  canReadTree,
+  canRipgrep,
   canUseGit,
   canVisitUrl,
   canWriteFile,
@@ -32,6 +35,56 @@ describe("agent tool permissions", () => {
 
   test("no rules defaults to allow for safe targets", () => {
     expect(canReadFile("/Users/example/work/file.txt")).toBe(true);
+  });
+
+  test("hard-blocks {workspace}/.agent paths before user rules", () => {
+    const workspace = "/Users/example/workspace";
+
+    expect(
+      canReadFile(`${workspace}/.agent/secret.txt`, {
+        read: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canListDir(`${workspace}/.agent`, {
+        ls: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canReadTree(`${workspace}/.agent`, {
+        tree: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canRipgrep(`${workspace}/.agent`, {
+        ripgrep: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+  });
+
+  test("hard-block skips parsing invalid user regex for {workspace}/.agent", () => {
+    const workspace = "/Users/example/workspace";
+
+    expect(
+      canReadFile(`${workspace}/.agent/secret.txt`, {
+        read: { allow: ["("] },
+      }, workspace),
+    ).toBe(false);
+  });
+
+  test("non-.agent paths still use user rules when workspace is provided", () => {
+    const workspace = "/Users/example/workspace";
+
+    expect(
+      canReadFile(`${workspace}/visible.txt`, {
+        read: { allow: ["^/Users/example/workspace/visible\\.txt$"] },
+      }, workspace),
+    ).toBe(true);
+    expect(
+      canReadFile(`${workspace}/other.txt`, {
+        read: { allow: ["^/Users/example/workspace/visible\\.txt$"] },
+      }, workspace),
+    ).toBe(false);
   });
 
   test("webfetch blocks local file protocol by builtin rules", () => {
