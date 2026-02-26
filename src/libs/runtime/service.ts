@@ -27,6 +27,8 @@ const CONTEXT_OVERFLOW_CANCELLED_BY = "system.contextoverflow";
 type TaskMessageBuffer = {
   items: TaskOutputMessage[];
   nextSeq: number;
+  stepBase: number;
+  lastRawCompletedStep: number;
 };
 
 const toTaskSnapshot = (task: TaskItem<string, string>): TaskSnapshot => ({
@@ -370,6 +372,8 @@ export class AgentRuntimeService implements RuntimeGateway {
     const created: TaskMessageBuffer = {
       items: [],
       nextSeq: 1,
+      stepBase: 0,
+      lastRawCompletedStep: 0,
     };
     this.taskMessages.set(taskId, created);
     return created;
@@ -377,14 +381,49 @@ export class AgentRuntimeService implements RuntimeGateway {
 
   private appendTaskMessage(taskId: string, message: TaskOutputMessageDraft): void {
     const buffer = this.ensureTaskMessageBuffer(taskId);
+    const normalizedMessage = this.normalizeTaskMessageStep(buffer, message);
     const nextMessage: TaskOutputMessage = {
-      ...(message as Omit<TaskOutputMessage, "seq" | "createdAt">),
+      ...(normalizedMessage as Omit<TaskOutputMessage, "seq" | "createdAt">),
       seq: buffer.nextSeq,
-      createdAt: message.createdAt ?? Date.now(),
+      createdAt: normalizedMessage.createdAt ?? Date.now(),
     } as TaskOutputMessage;
 
     buffer.items.push(nextMessage);
     buffer.nextSeq += 1;
+  }
+
+  private normalizeTaskMessageStep(
+    buffer: TaskMessageBuffer,
+    message: TaskOutputMessageDraft,
+  ): TaskOutputMessageDraft {
+    if (message.category === "tool" && typeof message.step !== "number") {
+      return {
+        ...message,
+        step: buffer.stepBase + buffer.lastRawCompletedStep + 1,
+      };
+    }
+
+    if (message.category !== "other" || message.type !== "step.finish") {
+      return message;
+    }
+
+    const rawStep = message.step;
+    if (typeof rawStep !== "number" || !Number.isFinite(rawStep) || rawStep <= 0) {
+      return message;
+    }
+
+    if (rawStep <= buffer.lastRawCompletedStep) {
+      // A new model segment started and step numbering restarted from 1.
+      buffer.stepBase += buffer.lastRawCompletedStep;
+      buffer.lastRawCompletedStep = 0;
+    }
+
+    buffer.lastRawCompletedStep = rawStep;
+
+    return {
+      ...message,
+      step: buffer.stepBase + rawStep,
+    };
   }
 
   private getTaskMessagesDelta(taskId: string, afterSeq: number): TaskMessagesDelta {
