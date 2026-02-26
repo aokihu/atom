@@ -113,6 +113,24 @@ const validateAgentModelParams = (value: unknown, keyPath: string) => {
   ensureInteger(params.seed, `${keyPath}.seed`);
 };
 
+const validateAgentExecutionConfig = (value: unknown, keyPath: string) => {
+  if (value === undefined) return;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${keyPath} must be a JSON object`);
+  }
+
+  const execution = value as Record<string, unknown>;
+  ensurePositiveInteger(execution.maxModelStepsPerRun, `${keyPath}.maxModelStepsPerRun`);
+  ensureBoolean(execution.autoContinueOnStepLimit, `${keyPath}.autoContinueOnStepLimit`);
+  ensurePositiveInteger(execution.maxToolCallsPerTask, `${keyPath}.maxToolCallsPerTask`);
+  ensurePositiveInteger(execution.maxContinuationRuns, `${keyPath}.maxContinuationRuns`);
+  ensurePositiveInteger(execution.maxModelStepsPerTask, `${keyPath}.maxModelStepsPerTask`);
+  ensureBoolean(
+    execution.continueWithoutAdvancingContextRound,
+    `${keyPath}.continueWithoutAdvancingContextRound`,
+  );
+};
+
 const parseAgentModelRef = (value: string) => {
   const separatorIndex = value.indexOf("/");
   if (separatorIndex <= 0 || separatorIndex >= value.length - 1) {
@@ -142,6 +160,7 @@ const validateAgentAndProvidersConfig = (config: AgentConfig) => {
   ensureNonEmptyString(agent.name, "agent.name");
   ensureRequiredNonEmptyString(agent.model, "agent.model");
   validateAgentModelParams(agent.params, "agent.params");
+  validateAgentExecutionConfig(agent.execution, "agent.execution");
   if (typeof agent.model !== "string") {
     return;
   }

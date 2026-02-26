@@ -5,6 +5,14 @@
     "params": {
       "temperature": 0.2,
       "maxOutputTokens": 4096
+    },
+    "execution": {
+      "maxModelStepsPerRun": 10,
+      "autoContinueOnStepLimit": true,
+      "maxToolCallsPerTask": 40,
+      "maxContinuationRuns": 5,
+      "maxModelStepsPerTask": 80,
+      "continueWithoutAdvancingContextRound": true
     }
   },
   "providers": [

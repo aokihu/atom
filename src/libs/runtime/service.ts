@@ -1,4 +1,5 @@
 import { Agent } from "../agent/agent";
+import { ControlledTaskStopError } from "./errors";
 import { PriorityTaskQueue, createTask } from "./queue";
 
 import type { RuntimeGateway } from "../channel/channel";
@@ -16,6 +17,7 @@ import type {
   TaskStatusResponse,
 } from "../../types/http";
 import type { TaskItem } from "../../types/task";
+import type { TaskExecutionStopReason } from "../../types/task";
 import { TaskStatus } from "../../types/task";
 
 const DEFAULT_AGENT_SESSION_ID = "default";
@@ -72,11 +74,43 @@ export class AgentRuntimeService implements RuntimeGateway {
         });
 
         try {
-          return await this.getAgent().runTask(task.input, {
+          const result = await this.runAgentTask(task, {
             onOutputMessage: (message) => {
               this.appendTaskMessage(task.id, message);
             },
           });
+
+          if (!result.completed) {
+            task.metadata = {
+              ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
+              execution: {
+                completed: false,
+                stopReason: result.stopReason,
+                segmentCount: result.segmentCount,
+                totalToolCalls: result.totalToolCalls,
+                totalModelSteps: result.totalModelSteps,
+                retrySuppressed: true,
+              },
+            };
+
+            this.appendTaskMessage(task.id, {
+              category: "other",
+              type: "task.status",
+              text: `Task not completed: stopped by ${result.stopReason} (tools ${result.totalToolCalls}, model steps ${result.totalModelSteps})`,
+            });
+
+            throw new ControlledTaskStopError({
+              stopReason: result.stopReason,
+              message: `Task not completed: ${result.stopReason}`,
+              details: {
+                segmentCount: result.segmentCount,
+                totalToolCalls: result.totalToolCalls,
+                totalModelSteps: result.totalModelSteps,
+              },
+            });
+          }
+
+          return result.text;
         } catch (error) {
           this.handleFatalQueueErrorIfNeeded(task, error);
           throw error;
@@ -156,6 +190,51 @@ export class AgentRuntimeService implements RuntimeGateway {
       throw new Error(`Unknown agent session: ${sessionId}`);
     }
     return agent;
+  }
+
+  private async runAgentTask(
+    task: TaskItem<string, string>,
+    options?: {
+      onOutputMessage?: (message: TaskOutputMessageDraft) => void;
+    },
+  ): Promise<{
+    text: string;
+    completed: boolean;
+    stopReason: TaskExecutionStopReason | "completed";
+    segmentCount: number;
+    totalToolCalls: number;
+    totalModelSteps: number;
+  }> {
+    const agent = this.getAgent();
+    const maybeDetailed = agent as Agent & {
+      runTaskDetailed?: (
+        question: string,
+        options?: {
+          onOutputMessage?: (message: TaskOutputMessageDraft) => void;
+        },
+      ) => Promise<{
+        text: string;
+        completed: boolean;
+        stopReason: TaskExecutionStopReason | "completed";
+        segmentCount: number;
+        totalToolCalls: number;
+        totalModelSteps: number;
+      }>;
+    };
+
+    if (typeof maybeDetailed.runTaskDetailed === "function") {
+      return await maybeDetailed.runTaskDetailed(task.input, options);
+    }
+
+    const text = await agent.runTask(task.input, options as any);
+    return {
+      text,
+      completed: true,
+      stopReason: "completed",
+      segmentCount: 1,
+      totalToolCalls: 0,
+      totalModelSteps: 0,
+    };
   }
 
   start() {

@@ -418,4 +418,43 @@ describe("context_sanitizer", () => {
     expect(merged.memory.working.find((item) => item.id === "b")?.content).toBe("B2");
     expect(merged.memory.working.find((item) => item.id === "c")?.content).toBe("C1");
   });
+
+  test("mergeContextWithMemoryPolicy deep-merges unknown top-level execution metadata", () => {
+    const current = createBaseContext() as AgentContext & {
+      active_task_meta?: Record<string, unknown>;
+    };
+    current.active_task_meta = {
+      id: "task-1",
+      status: "running",
+      execution: {
+        segment_index: 1,
+        tool_calls: { used: 1, limit: 40 },
+      },
+    };
+
+    const patch = sanitizeIncomingContextPatch(
+      {
+        active_task_meta: {
+          execution: {
+            tool_calls: { remaining: 39 },
+            model_steps: { used: 10, task_limit: 80 },
+          },
+        },
+      },
+      current,
+    );
+
+    const merged = mergeContextWithMemoryPolicy(current, patch) as AgentContext & {
+      active_task_meta?: Record<string, any>;
+    };
+
+    expect(merged.active_task_meta?.id).toBe("task-1");
+    expect(merged.active_task_meta?.execution?.segment_index).toBe(1);
+    expect(merged.active_task_meta?.execution?.tool_calls).toEqual({
+      used: 1,
+      limit: 40,
+      remaining: 39,
+    });
+    expect(merged.active_task_meta?.execution?.model_steps?.task_limit).toBe(80);
+  });
 });

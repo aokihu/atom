@@ -178,6 +178,9 @@ const initializeRuntimeService = async (
       workspace: cliOptions.workspace,
       toolContext: { permissions: agentConfig, workspace: cliOptions.workspace },
       mcpTools,
+      dependencies: {
+        executionConfig: agentConfig.agent?.execution,
+      },
     });
 
     logStage("starting task runtime...");

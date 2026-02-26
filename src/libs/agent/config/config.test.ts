@@ -91,6 +91,41 @@ describe("agent config", () => {
     ).not.toThrow();
   });
 
+  test("validateAgentConfig accepts agent.execution", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        agent: {
+          name: "Atom",
+          model: "deepseek/deepseek-chat",
+          execution: {
+            maxModelStepsPerRun: 12,
+            autoContinueOnStepLimit: true,
+            maxToolCallsPerTask: 50,
+            maxContinuationRuns: 6,
+            maxModelStepsPerTask: 90,
+            continueWithoutAdvancingContextRound: true,
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  test("validateAgentConfig rejects invalid agent.execution.maxToolCallsPerTask", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        agent: {
+          name: "Atom",
+          model: "deepseek/deepseek-chat",
+          execution: {
+            maxToolCallsPerTask: 0,
+          },
+        },
+      }),
+    ).toThrow("agent.execution.maxToolCallsPerTask must be a positive integer");
+  });
+
   test("validateAgentConfig rejects deprecated agentName", () => {
     const config = createValidConfig() as any;
     config.agentName = "Atom";

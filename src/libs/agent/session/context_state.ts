@@ -54,8 +54,10 @@ export class AgentContextState {
     this.context = compactRawContextForStorage(mergedContext);
   }
 
-  updateRuntime() {
-    this.context.runtime.round += 1;
+  refreshRuntime(options?: { advanceRound?: boolean }) {
+    if (options?.advanceRound ?? true) {
+      this.context.runtime.round += 1;
+    }
     this.context.runtime.datetime = this.clock.nowDatetime();
   }
 
@@ -65,6 +67,10 @@ export class AgentContextState {
 
   nowTimestamp() {
     return this.clock.nowTimestamp();
+  }
+
+  updateRuntime() {
+    this.refreshRuntime({ advanceRound: true });
   }
 
   snapshot() {
