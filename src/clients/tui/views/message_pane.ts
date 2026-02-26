@@ -37,6 +37,7 @@ export type ChatMessageCardInput =
   | {
       role: "tool";
       toolName: string;
+      step?: number;
       callSummary?: string;
       resultSummary?: string;
       errorMessage?: string;
@@ -48,8 +49,21 @@ export type ChatMessageCardInput =
       taskId?: string;
     };
 
+export type ToolGroupSummaryCardInput = {
+  role: "tool_group_summary";
+  taskId?: string;
+  step: number;
+  createdAt?: number;
+  executed: number;
+  success: number;
+  failed: number;
+  status: "done" | "error";
+};
+
+export type MessagePaneRenderItem = ChatMessageCardInput | ToolGroupSummaryCardInput;
+
 export type ChatMessageCardViewState = {
-  role: ChatMessageCardInput["role"];
+  role: MessagePaneRenderItem["role"];
   titleText?: string;
   bodyText?: string;
   metaText?: string;
@@ -70,6 +84,81 @@ export type RenderMessageStreamInput = {
   listBox: BoxRenderable;
   agentName: string;
   items: ChatMessageCardInput[];
+};
+
+const isToolCardInput = (
+  item: ChatMessageCardInput,
+): item is Extract<ChatMessageCardInput, { role: "tool" }> => item.role === "tool";
+
+const canParticipateInToolGroupCollapse = (
+  item: Extract<ChatMessageCardInput, { role: "tool" }>,
+): item is Extract<ChatMessageCardInput, { role: "tool" }> & { taskId: string; step: number } => {
+  return (
+    typeof item.taskId === "string" &&
+    item.taskId.trim().length > 0 &&
+    typeof item.step === "number" &&
+    Number.isFinite(item.step)
+  );
+};
+
+const buildToolGroupCollapsedSummaryText = (
+  item: ToolGroupSummaryCardInput,
+): string => `executed=${item.executed} success=${item.success} failed=${item.failed}`;
+
+export const collapseCompletedToolGroups = (
+  items: readonly ChatMessageCardInput[],
+): MessagePaneRenderItem[] => {
+  const collapsed: MessagePaneRenderItem[] = [];
+
+  let index = 0;
+  while (index < items.length) {
+    const current = items[index];
+    if (!current || !isToolCardInput(current) || !canParticipateInToolGroupCollapse(current)) {
+      if (current) collapsed.push(current);
+      index += 1;
+      continue;
+    }
+
+    const groupTaskId = current.taskId;
+    const groupStep = current.step;
+    const group: Extract<ChatMessageCardInput, { role: "tool" }>[] = [];
+    let cursor = index;
+
+    while (cursor < items.length) {
+      const candidate = items[cursor];
+      if (!candidate || !isToolCardInput(candidate) || !canParticipateInToolGroupCollapse(candidate)) {
+        break;
+      }
+      if (candidate.taskId !== groupTaskId || candidate.step !== groupStep) {
+        break;
+      }
+      group.push(candidate);
+      cursor += 1;
+    }
+
+    const hasRunning = group.some((tool) => tool.status === "running");
+    if (group.length >= 2 && !hasRunning) {
+      const failed = group.filter((tool) => tool.status === "error").length;
+      const executed = group.length;
+      const success = executed - failed;
+      collapsed.push({
+        role: "tool_group_summary",
+        taskId: groupTaskId,
+        step: groupStep,
+        createdAt: group[0]?.createdAt,
+        executed,
+        success,
+        failed,
+        status: failed > 0 ? "error" : "done",
+      });
+    } else {
+      collapsed.push(...group);
+    }
+
+    index = cursor;
+  }
+
+  return collapsed;
 };
 
 const getToolStatusColor = (status: "running" | "done" | "error"): string => {
@@ -323,8 +412,18 @@ export const buildMessageSubHeaderLine = (
 };
 
 export const buildChatMessageCardViewState = (
-  item: ChatMessageCardInput,
+  item: MessagePaneRenderItem,
 ): ChatMessageCardViewState => {
+  if (item.role === "tool_group_summary") {
+    return {
+      role: "tool_group_summary",
+      titleText: "tools",
+      toolCollapsed: true,
+      toolStatus: item.status,
+      metaText: `tools${item.taskId ? ` : ${item.taskId}` : ""}${typeof item.step === "number" ? ` step ${item.step}` : ""}`,
+    };
+  }
+
   if (item.role === "tool") {
     return {
       role: "tool",
@@ -358,7 +457,9 @@ export const renderMessageStreamContent = (
     if (!child.isDestroyed) child.destroyRecursively();
   }
 
-  if (input.items.length === 0) {
+  const renderItems = collapseCompletedToolGroups(input.items);
+
+  if (renderItems.length === 0) {
     const emptyWrap = new BoxRenderable(input.renderer, {
       width: "100%",
       backgroundColor: NORD.nord0,
@@ -375,19 +476,22 @@ export const renderMessageStreamContent = (
     return;
   }
 
-  for (const [index, item] of input.items.entries()) {
+  for (const [index, item] of renderItems.entries()) {
     const cardState = buildChatMessageCardViewState(item);
     const isUser = cardState.role === "user";
     const isSystem = cardState.role === "system";
     const isAssistant = cardState.role === "assistant";
     const isTool = cardState.role === "tool";
-    const previousItem = index > 0 ? input.items[index - 1] : undefined;
+    const isToolGroupSummary = cardState.role === "tool_group_summary";
+    const isToolLike = isTool || isToolGroupSummary;
+    const previousItem = index > 0 ? renderItems[index - 1] : undefined;
     const previousRole = previousItem?.role;
+    const previousIsToolLike = previousRole === "tool" || previousRole === "tool_group_summary";
     const groupedPlainText =
       (isAssistant || isSystem) && previousRole === cardState.role;
     const toolMarginTop =
-      isTool && previousItem ? (previousRole === "tool" ? 0 : 1) : 0;
-    const isCompactTool = isTool;
+      isToolLike && previousItem ? (previousIsToolLike ? 0 : 1) : 0;
+    const isCompactTool = isToolLike;
     const toolBorderEnabled = false;
     const cardBackgroundColor = isCompactTool
       ? NORD.nord0
@@ -398,7 +502,7 @@ export const renderMessageStreamContent = (
       width: "100%",
       flexDirection: "row",
       marginTop:
-        index === 0 ? 1 : isTool ? toolMarginTop : groupedPlainText ? 0 : 1,
+        index === 0 ? 1 : isToolLike ? toolMarginTop : groupedPlainText ? 0 : 1,
       border: toolBorderEnabled,
       borderStyle: toolBorderEnabled ? "single" : undefined,
       borderColor:
@@ -413,10 +517,10 @@ export const renderMessageStreamContent = (
     const bodyWrap = new BoxRenderable(input.renderer, {
       width: "100%",
       flexDirection: "column",
-      paddingLeft: isTool ? 0 : 1,
+      paddingLeft: isToolLike ? 0 : 1,
       paddingRight: 1,
-      paddingTop: isTool ? 0 : isUser ? 1 : 0,
-      paddingBottom: isTool ? 0 : isUser ? 1 : 0,
+      paddingTop: isToolLike ? 0 : isUser ? 1 : 0,
+      paddingBottom: isToolLike ? 0 : isUser ? 1 : 0,
       backgroundColor: cardBackgroundColor,
     });
 
@@ -429,15 +533,18 @@ export const renderMessageStreamContent = (
         })
       : undefined;
 
-    if (isTool) {
-      const toolItem = item as Extract<ChatMessageCardInput, { role: "tool" }>;
+    if (isToolLike) {
       const toolStatus = cardState.toolStatus ?? "done";
       // Compact tool row format contract:
       // "<status> [<toolName>] | <collapsed summary>"
       // Keep the trailing space after the status glyph so the symbol and tool name never touch.
       const statusMark =
         toolStatus === "error" ? "✕ " : toolStatus === "running" ? "… " : "✓ ";
-      const collapsedSummary = buildToolCardCollapsedSummary(toolItem);
+      const collapsedSummary = isTool
+        ? buildToolCardCollapsedSummary(item as Extract<ChatMessageCardInput, { role: "tool" }>)
+        : isToolGroupSummary
+          ? buildToolGroupCollapsedSummaryText(item as ToolGroupSummaryCardInput)
+          : undefined;
 
       const titleRow = new BoxRenderable(input.renderer, {
         width: "100%",
@@ -451,7 +558,7 @@ export const renderMessageStreamContent = (
       });
       const titlePrefixText = new TextRenderable(input.renderer, {
         content: `[${cardState.titleText ?? "tool"}]`,
-        fg: NORD.nord4,
+        fg: isToolGroupSummary ? getToolStatusColor(toolStatus) : NORD.nord4,
       });
       titleRow.add(titleStatusText);
       titleRow.add(titlePrefixText);
@@ -459,7 +566,9 @@ export const renderMessageStreamContent = (
       if (collapsedSummary) {
         const titleSummaryText = new TextRenderable(input.renderer, {
           content: ` ${collapsedSummary}`,
-          fg: getToolCollapsedSummaryColor(toolStatus),
+          fg: isToolGroupSummary
+            ? getToolStatusColor(toolStatus)
+            : getToolCollapsedSummaryColor(toolStatus),
           width: "100%",
           truncate: true,
         });
@@ -494,10 +603,10 @@ export const renderMessageStreamContent = (
       }
     }
 
-    if (!isTool && meta) {
+    if (!isToolLike && meta) {
       bodyWrap.add(meta);
     }
-    if (!isTool && !isAssistant) {
+    if (!isToolLike && !isAssistant) {
       const accent = new BoxRenderable(input.renderer, {
         width: 1,
         border: ["left"],

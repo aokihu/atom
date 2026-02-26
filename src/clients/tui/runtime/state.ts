@@ -27,6 +27,7 @@ export type ToolChatStreamItem = {
   id: number;
   role: "tool";
   toolName: string;
+  step?: number;
   callSummary?: string;
   resultSummary?: string;
   errorMessage?: string;
@@ -132,6 +133,7 @@ export class TuiClientState {
 
   appendToolMessage(args: {
     toolName: string;
+    step?: number;
     callSummary?: string;
     resultSummary?: string;
     errorMessage?: string;
@@ -145,6 +147,7 @@ export class TuiClientState {
       id: this.nextChatId++,
       role: "tool",
       toolName: args.toolName,
+      step: args.step,
       callSummary: args.callSummary,
       resultSummary: args.resultSummary,
       errorMessage: args.errorMessage,
@@ -167,6 +170,7 @@ export class TuiClientState {
       Pick<
         ToolChatStreamItem,
         | "toolName"
+        | "step"
         | "callSummary"
         | "resultSummary"
         | "errorMessage"

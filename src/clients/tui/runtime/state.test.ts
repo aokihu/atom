@@ -11,6 +11,7 @@ describe("TuiClientState tool messages", () => {
 
     const id = state.appendToolMessage({
       toolName: "read",
+      step: 2,
       callSummary: "{\"filepath\":\"/tmp/a.txt\"}",
       callDisplay: {
         version: 1,
@@ -24,6 +25,7 @@ describe("TuiClientState tool messages", () => {
     });
 
     const updated = state.updateToolMessage(id, {
+      step: 2,
       resultSummary: "{\"size\":11}",
       resultDisplay: {
         version: 1,
@@ -43,10 +45,10 @@ describe("TuiClientState tool messages", () => {
       throw new Error("tool item missing");
     }
     expect(item.toolName).toBe("read");
+    expect(item.step).toBe(2);
     expect(item.callDisplay?.templateKey).toBe("builtin.read.call");
     expect(item.resultDisplay?.templateKey).toBe("builtin.read.result");
     expect(item.collapsed).toBe(true);
     expect(item.status).toBe("done");
   });
 });
-

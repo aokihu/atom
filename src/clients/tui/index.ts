@@ -709,6 +709,7 @@ class CoreTuiClientApp {
 
   private appendToolChatMessage(args: {
     toolName: string;
+    step?: number;
     callSummary?: string;
     resultSummary?: string;
     errorMessage?: string;
@@ -726,6 +727,7 @@ class CoreTuiClientApp {
     id: number,
     patch: Partial<{
       toolName: string;
+      step?: number;
       callSummary?: string;
       resultSummary?: string;
       errorMessage?: string;
@@ -1075,6 +1077,7 @@ class CoreTuiClientApp {
               if (existingId !== undefined) {
                 this.updateToolChatMessage(existingId, {
                   toolName: message.toolName,
+                  step: message.step,
                   callSummary: message.inputSummary,
                   callDisplay: message.inputDisplay,
                   collapsed: true,
@@ -1083,6 +1086,7 @@ class CoreTuiClientApp {
               } else {
                 const id = this.appendToolChatMessage({
                   toolName: message.toolName,
+                  step: message.step,
                   callSummary: message.inputSummary,
                   callDisplay: message.inputDisplay,
                   collapsed: true,
@@ -1109,6 +1113,7 @@ class CoreTuiClientApp {
             if (existingId !== undefined) {
               this.updateToolChatMessage(existingId, {
                 toolName: message.toolName,
+                step: message.step,
                 resultSummary: message.outputSummary,
                 errorMessage: message.errorMessage,
                 resultDisplay: message.outputDisplay,
@@ -1119,6 +1124,7 @@ class CoreTuiClientApp {
             } else {
               this.appendToolChatMessage({
                 toolName: message.toolName,
+                step: message.step,
                 resultSummary: message.outputSummary,
                 errorMessage: message.errorMessage,
                 resultDisplay: message.outputDisplay,
