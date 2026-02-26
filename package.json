@@ -3,7 +3,7 @@
   "module": "index.ts",
   "description": "Atom 智能生命体",
   "type": "module",
-  "version": "0.10.4",
+  "version": "0.10.6",
   "scripts": {
     "dev": "bun run src/index.ts --workspace=./Playground",
     "typecheck": "bun x tsc --noEmit",
@@ -11,21 +11,21 @@
   },
   "devDependencies": {
     "@types/bun": "^1.3.9",
-    "@types/node": "^22.18.12"
+    "@types/node": "^22.19.12"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^2.0.20",
     "@ai-sdk/mcp": "^1.0.21",
     "@ai-sdk/openai-compatible": "^2.0.30",
     "@openrouter/ai-sdk-provider": "^2.2.3",
-    "@opentui/core": "^0.1.81",
+    "@opentui/core": "^0.1.83",
     "@toon-format/toon": "^2.1.0",
-    "ai": "^6.0.86",
-    "openai": "^6.22.0",
-    "radashi": "^12.7.1",
+    "ai": "^6.0.101",
+    "openai": "^6.25.0",
+    "radashi": "^12.7.2",
     "zod": "^4.3.6"
   }
 }

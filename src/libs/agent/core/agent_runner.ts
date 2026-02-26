@@ -341,6 +341,7 @@ export class AgentRunner {
         ...this.baseToolContext,
         onOutputMessage: options?.onOutputMessage,
         toolBudget: extras?.toolBudget,
+        toolOutputMessageSource: "sdk_hooks",
       },
       mcpTools: this.mcpTools,
     });

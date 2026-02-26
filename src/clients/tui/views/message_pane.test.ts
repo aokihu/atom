@@ -104,7 +104,7 @@ describe("collapseCompletedToolGroups", () => {
     expect(result[0]?.role).toBe("tool");
   });
 
-  test("treats adjacent different steps as separate groups", () => {
+  test("collapses adjacent different steps within the same task tool block", () => {
     const result = collapseCompletedToolGroups([
       makeTool({ toolName: "read", step: 1 }),
       makeTool({ toolName: "ls", step: 1 }),
@@ -112,13 +112,25 @@ describe("collapseCompletedToolGroups", () => {
       makeTool({ toolName: "git", step: 2 }),
     ]);
 
+    expect(result).toHaveLength(1);
+    expect(result[0]?.role).toBe("tool_group_summary");
+    if (result[0]?.role === "tool_group_summary") {
+      expect(result[0].executed).toBe(4);
+      expect(result[0].step).toBeUndefined();
+    }
+  });
+
+  test("does not merge adjacent tool rows from different tasks", () => {
+    const result = collapseCompletedToolGroups([
+      makeTool({ toolName: "read", taskId: "task-1" }),
+      makeTool({ toolName: "ls", taskId: "task-1" }),
+      makeTool({ toolName: "write", taskId: "task-2" }),
+      makeTool({ toolName: "git", taskId: "task-2" }),
+    ]);
+
     expect(result).toHaveLength(2);
     expect(result[0]?.role).toBe("tool_group_summary");
     expect(result[1]?.role).toBe("tool_group_summary");
-    if (result[0]?.role === "tool_group_summary" && result[1]?.role === "tool_group_summary") {
-      expect(result[0].step).toBe(1);
-      expect(result[1].step).toBe(2);
-    }
   });
 
   test("uses non-tool messages as hard boundaries between tool groups", () => {
@@ -136,13 +148,17 @@ describe("collapseCompletedToolGroups", () => {
     expect(result[2]?.role).toBe("tool_group_summary");
   });
 
-  test("does not collapse tools without a step", () => {
+  test("collapses a same-task tool block even when step is missing", () => {
     const result = collapseCompletedToolGroups([
       makeTool({ step: undefined }),
       makeTool({ step: undefined, toolName: "ls" }),
     ]);
 
-    expect(result).toHaveLength(2);
-    expect(result.every((item) => item.role === "tool")).toBe(true);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.role).toBe("tool_group_summary");
+    if (result[0]?.role === "tool_group_summary") {
+      expect(result[0].executed).toBe(2);
+      expect(result[0].step).toBeUndefined();
+    }
   });
 });

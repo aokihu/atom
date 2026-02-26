@@ -589,4 +589,85 @@ describe("AgentRuntimeService", () => {
       "read:2",
     ]);
   });
+
+  test("preserves explicit tool message steps without rewriting them", async () => {
+    const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext() {},
+      async runTaskDetailed(
+        _input: string,
+        options?: {
+          onOutputMessage?: (message: TaskOutputMessageDraft) => void;
+        },
+      ) {
+        options?.onOutputMessage?.({
+          category: "tool",
+          type: "tool.call",
+          toolName: "ls",
+          toolCallId: "call-1",
+          step: 7,
+        });
+        options?.onOutputMessage?.({
+          category: "tool",
+          type: "tool.result",
+          toolName: "ls",
+          toolCallId: "call-1",
+          ok: true,
+          step: 7,
+        });
+        options?.onOutputMessage?.({
+          category: "other",
+          type: "step.finish",
+          step: 1,
+          finishReason: "stop",
+          text: "Step 1 finished",
+        });
+
+        return {
+          text: "done",
+          finishReason: "stop",
+          stepCount: 1,
+          totalModelSteps: 1,
+          totalToolCalls: 1,
+          segmentCount: 1,
+          completed: true,
+          stopReason: "completed",
+        };
+      },
+      async runTask() {
+        return "should-not-be-called";
+      },
+      abortCurrentRun() {
+        return false;
+      },
+      getContextSnapshot() {
+        return {
+          version: 2.3,
+          runtime: {
+            round: 1,
+            workspace: "/tmp/",
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: { core: [], working: [], ephemeral: [] },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {} });
+    service.start();
+    const { taskId } = service.submitTask({ input: "explicit step passthrough" });
+
+    await waitUntil(() => service.getTask(taskId)?.task.status === TaskStatus.Success);
+    service.stop();
+
+    const toolMessages = service.getTask(taskId)?.messages?.items.filter(
+      (item) => item.category === "tool",
+    );
+
+    expect(toolMessages?.map((item) => item.step)).toEqual([7, 7]);
+  });
 });

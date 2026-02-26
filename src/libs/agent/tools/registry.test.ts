@@ -129,4 +129,51 @@ describe("tool registry", () => {
       /Tool budget exceeded/,
     );
   });
+
+  test("suppresses registry tool messages in sdk_hooks mode while keeping budget checks", async () => {
+    const messages: TaskOutputMessageDraft[] = [];
+    let used = 0;
+
+    const registry = createToolRegistry({
+      context: {
+        toolOutputMessageSource: "sdk_hooks",
+        onOutputMessage: (message) => {
+          messages.push(message);
+        },
+        toolBudget: {
+          tryConsume(toolName: string) {
+            if (used >= 1) {
+              return {
+                ok: false as const,
+                used,
+                remaining: 0,
+                limit: 1,
+                toolName,
+              };
+            }
+            used += 1;
+            return {
+              ok: true as const,
+              used,
+              remaining: 0,
+              limit: 1,
+              toolName,
+            };
+          },
+        },
+      },
+      mcpTools: {
+        "memory:search": {
+          execute: async () => ({ items: [] }),
+        } as any,
+      },
+    });
+
+    await (registry["memory:search"] as any).execute({ query: "first" }, { toolCallId: "mcp-1" });
+    await expect((registry["memory:search"] as any).execute({ query: "second" })).rejects.toThrow(
+      /Tool budget exceeded/,
+    );
+
+    expect(messages.filter((message) => message.category === "tool")).toHaveLength(0);
+  });
 });

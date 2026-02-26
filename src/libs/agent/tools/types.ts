@@ -48,6 +48,7 @@ export type ToolExecutionContext = {
   workspace?: string;
   onOutputMessage?: AgentOutputMessageSink;
   toolBudget?: ToolBudgetController;
+  toolOutputMessageSource?: "registry" | "sdk_hooks";
 };
 
 export type ToolDefinition = ToolSet[string];

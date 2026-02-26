@@ -52,7 +52,7 @@ export type ChatMessageCardInput =
 export type ToolGroupSummaryCardInput = {
   role: "tool_group_summary";
   taskId?: string;
-  step: number;
+  step?: number;
   createdAt?: number;
   executed: number;
   success: number;
@@ -92,12 +92,10 @@ const isToolCardInput = (
 
 const canParticipateInToolGroupCollapse = (
   item: Extract<ChatMessageCardInput, { role: "tool" }>,
-): item is Extract<ChatMessageCardInput, { role: "tool" }> & { taskId: string; step: number } => {
+): item is Extract<ChatMessageCardInput, { role: "tool" }> & { taskId: string } => {
   return (
     typeof item.taskId === "string" &&
-    item.taskId.trim().length > 0 &&
-    typeof item.step === "number" &&
-    Number.isFinite(item.step)
+    item.taskId.trim().length > 0
   );
 };
 
@@ -120,7 +118,6 @@ export const collapseCompletedToolGroups = (
     }
 
     const groupTaskId = current.taskId;
-    const groupStep = current.step;
     const group: Extract<ChatMessageCardInput, { role: "tool" }>[] = [];
     let cursor = index;
 
@@ -129,7 +126,7 @@ export const collapseCompletedToolGroups = (
       if (!candidate || !isToolCardInput(candidate) || !canParticipateInToolGroupCollapse(candidate)) {
         break;
       }
-      if (candidate.taskId !== groupTaskId || candidate.step !== groupStep) {
+      if (candidate.taskId !== groupTaskId) {
         break;
       }
       group.push(candidate);
@@ -141,10 +138,15 @@ export const collapseCompletedToolGroups = (
       const failed = group.filter((tool) => tool.status === "error").length;
       const executed = group.length;
       const success = executed - failed;
+      const numericSteps = group
+        .map((tool) => (typeof tool.step === "number" && Number.isFinite(tool.step) ? tool.step : undefined))
+        .filter((step): step is number => step !== undefined);
+      const uniqueSteps = new Set<number>(numericSteps);
+      const summaryStep = uniqueSteps.size === 1 ? numericSteps[0] : undefined;
       collapsed.push({
         role: "tool_group_summary",
         taskId: groupTaskId,
-        step: groupStep,
+        step: summaryStep,
         createdAt: group[0]?.createdAt,
         executed,
         success,

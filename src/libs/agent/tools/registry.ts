@@ -20,6 +20,7 @@ import {
 } from "./types";
 import { emitOutputMessage, summarizeOutputValue, toOutputErrorMessage } from "../core/output_messages";
 import { buildToolCallDisplay, buildToolResultDisplay } from "./tool_display";
+import { getToolErrorMessageFromOutput } from "./tool_output_error";
 
 const BUILTIN_TOOL_FACTORIES: Record<BuiltinToolName, ToolFactory> = {
   ls: lsTool,
@@ -56,21 +57,6 @@ const getToolCallId = (args: unknown[]): string | undefined => {
   return typeof value === "string" ? value : undefined;
 };
 
-const getToolErrorMessage = (result: unknown): string | undefined => {
-  if (!result || typeof result !== "object") return undefined;
-
-  const error = (result as Record<string, unknown>).error;
-  if (typeof error === "string" && error.trim() !== "") {
-    return error;
-  }
-
-  if (error !== undefined) {
-    return summarizeOutputValue(error);
-  }
-
-  return undefined;
-};
-
 const wrapToolDefinition = (
   toolName: string,
   definition: ToolDefinitionMap[string],
@@ -84,6 +70,7 @@ const wrapToolDefinition = (
   return {
     ...(definition as Record<string, unknown>),
     execute: async (...args: unknown[]) => {
+      const emitToolMessages = context.toolOutputMessageSource !== "sdk_hooks";
       const toolCallId = getToolCallId(args);
       const input = args[0];
       const budgetResult = context.toolBudget?.tryConsume(toolName);
@@ -96,43 +83,49 @@ const wrapToolDefinition = (
         });
       }
 
-      emitOutputMessage(context.onOutputMessage, {
-        category: "tool",
-        type: "tool.call",
-        toolName,
-        toolCallId,
-        inputSummary: summarizeOutputValue(input),
-        inputDisplay: buildToolCallDisplay(toolName, input),
-      });
+      if (emitToolMessages) {
+        emitOutputMessage(context.onOutputMessage, {
+          category: "tool",
+          type: "tool.call",
+          toolName,
+          toolCallId,
+          inputSummary: summarizeOutputValue(input),
+          inputDisplay: buildToolCallDisplay(toolName, input),
+        });
+      }
 
       try {
         const result = await execute.apply(definition, args);
-        const errorMessage = getToolErrorMessage(result);
+        const errorMessage = getToolErrorMessageFromOutput(result);
 
-        emitOutputMessage(context.onOutputMessage, {
-          category: "tool",
-          type: "tool.result",
-          toolName,
-          toolCallId,
-          ok: errorMessage === undefined,
-          outputSummary: summarizeOutputValue(result),
-          errorMessage,
-          outputDisplay: buildToolResultDisplay(toolName, input, result, errorMessage),
-        });
+        if (emitToolMessages) {
+          emitOutputMessage(context.onOutputMessage, {
+            category: "tool",
+            type: "tool.result",
+            toolName,
+            toolCallId,
+            ok: errorMessage === undefined,
+            outputSummary: summarizeOutputValue(result),
+            errorMessage,
+            outputDisplay: buildToolResultDisplay(toolName, input, result, errorMessage),
+          });
+        }
 
         return result;
       } catch (error) {
-        emitOutputMessage(context.onOutputMessage, {
-          category: "tool",
-          type: "tool.result",
-          toolName,
-          toolCallId,
-          ok: false,
-          errorMessage: toOutputErrorMessage(error),
-          outputDisplay: buildToolResultDisplay(toolName, input, {
-            error: toOutputErrorMessage(error),
-          }, toOutputErrorMessage(error)),
-        });
+        if (emitToolMessages) {
+          emitOutputMessage(context.onOutputMessage, {
+            category: "tool",
+            type: "tool.result",
+            toolName,
+            toolCallId,
+            ok: false,
+            errorMessage: toOutputErrorMessage(error),
+            outputDisplay: buildToolResultDisplay(toolName, input, {
+              error: toOutputErrorMessage(error),
+            }, toOutputErrorMessage(error)),
+          });
+        }
 
         throw error;
       }
@@ -144,7 +137,10 @@ const wrapToolRegistryWithOutput = (
   registry: ToolDefinitionMap,
   context: ToolExecutionContext,
 ): ToolDefinitionMap => {
-  if (!context.onOutputMessage && !context.toolBudget) {
+  const emitsToolMessages =
+    context.toolOutputMessageSource !== "sdk_hooks" && context.onOutputMessage !== undefined;
+
+  if (!emitsToolMessages && !context.toolBudget) {
     return registry;
   }
 
