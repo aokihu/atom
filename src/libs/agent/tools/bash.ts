@@ -25,7 +25,7 @@ import {
 const startActionSchema = z.object({
   action: z.literal("start"),
   mode: z.enum(["once", "normal", "background"]),
-  cwd: z.string().describe("absolute working directory path"),
+  cwd: z.string().optional().describe("absolute working directory path, defaults to tool workspace"),
   command: z.string().min(1).describe("bash command string"),
   sessionId: z.string().optional().describe("session id for normal mode"),
   idleTimeoutMs: z
@@ -252,13 +252,18 @@ export const bashTool = (context: ToolExecutionContext) =>
       }
       const startInput: BashToolInput = parsed.data;
 
-      const { cwd, command, mode } = startInput;
+      const { command, mode } = startInput;
 
       if (mode === "background") {
         return {
           error: "bash background mode has been removed",
           hint: "Use the 'background' tool instead",
         };
+      }
+
+      const cwd = startInput.cwd ?? context.workspace;
+      if (typeof cwd !== "string" || cwd.trim() === "") {
+        return invalidInput("Invalid cwd", "cwd is required when workspace is unavailable");
       }
 
       if (!isAbsolutePathString(cwd)) {

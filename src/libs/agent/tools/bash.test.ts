@@ -58,6 +58,24 @@ describe("bash tool", () => {
     expect(result.stdout).toBe("hello");
   });
 
+  test("once mode defaults cwd to workspace when omitted", async () => {
+    const workspace = await createWorkspaceTempDir();
+
+    const result = await executeTool(
+      { workspace },
+      {
+        action: "start",
+        mode: "once",
+        command: "pwd",
+      },
+    );
+
+    expect(result.mode).toBe("once");
+    expect(result.success).toBe(true);
+    expect(result.cwd).toBe(workspace);
+    expect(result.stdout.trim()).toBe(workspace);
+  });
+
   test("once mode returns non-zero exit without throwing", async () => {
     const cwd = await createWorkspaceTempDir();
 
