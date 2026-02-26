@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 
 export const DEFAULT_NORMAL_IDLE_TIMEOUT_MS = 60_000;
@@ -169,6 +170,7 @@ export const decodeBackgroundCursor = (cursor?: string): CursorDecodeResult<numb
 export const shellSingleQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
 export const getBashStateDir = (workspace: string) => join(workspace, ".agent", "bash");
+export const getBackgroundStateDir = (workspace: string) => join(workspace, ".agent", "background");
 
 export const toTmuxSessionName = (sessionId: string) =>
   `atom-bash-${sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
@@ -178,3 +180,20 @@ export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
 export const isAbsolutePathString = (value: string) =>
   value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value);
 
+export const validateExistingDirectory = async (dirpath: string) => {
+  try {
+    const pathStat = await stat(dirpath);
+    if (!pathStat.isDirectory()) {
+      return { ok: false as const, error: "cwd must be an existing directory" };
+    }
+    return { ok: true as const };
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && (error as any).code === "ENOENT") {
+      return { ok: false as const, error: "cwd directory does not exist" };
+    }
+    return {
+      ok: false as const,
+      error: error instanceof Error ? `failed to access cwd: ${error.message}` : "failed to access cwd",
+    };
+  }
+};

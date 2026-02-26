@@ -13,6 +13,40 @@ export type AgentSessionSnapshot = {
   context: AgentContext;
 };
 
+export type AgentTaskContextStart = {
+  id: string;
+  type: string;
+  input: string;
+  retries: number;
+  startedAt: number;
+};
+
+export type AgentTaskContextFinish = {
+  id: string;
+  type: string;
+  status: "success" | "failed" | "cancelled";
+  finishedAt: number;
+  retries: number;
+  attempts: number;
+};
+
+export type AgentTaskContextFinishOptions = {
+  recordLastTask?: boolean;
+  preserveCheckpoint?: boolean;
+};
+
+type AgentTaskCheckpoint = {
+  task_id: string;
+  task_type: string;
+  saved_at: number;
+  retries: number;
+  attempts: number;
+  working_memory: AgentContext["memory"]["working"];
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 export class AgentSession {
   private readonly workspace: string;
   private readonly contextState: AgentContextState;
@@ -37,6 +71,117 @@ export class AgentSession {
   }
 
   mergeExtractedContext(context: Partial<AgentContext>) {
+    this.applyContextPatch(context);
+  }
+
+  beginTaskContext(task: AgentTaskContextStart) {
+    const checkpoint = this.getTaskCheckpoint();
+    const canRestoreCheckpoint = task.retries > 0 && checkpoint?.task_id === task.id;
+
+    this.applyContextPatch({
+      active_task: task.input,
+      active_task_meta: {
+        id: task.id,
+        type: task.type,
+        status: "running",
+        retries: task.retries,
+        attempt: task.retries + 1,
+        started_at: task.startedAt,
+      },
+      task_checkpoint: canRestoreCheckpoint ? checkpoint : null,
+      memory: {
+        working: canRestoreCheckpoint ? checkpoint.working_memory : [],
+        ephemeral: [],
+      },
+    });
+  }
+
+  finishTaskContext(task: AgentTaskContextFinish, options?: AgentTaskContextFinishOptions) {
+    const recordLastTask = options?.recordLastTask ?? true;
+    const preserveCheckpoint = options?.preserveCheckpoint ?? false;
+    const checkpoint = preserveCheckpoint ? this.buildTaskCheckpoint(task) : null;
+
+    this.applyContextPatch({
+      active_task: null,
+      active_task_meta: null,
+      task_checkpoint: checkpoint,
+      ...(recordLastTask
+        ? {
+            last_task: {
+              id: task.id,
+              type: task.type,
+              status: task.status,
+              finished_at: task.finishedAt,
+              retries: task.retries,
+              attempts: task.attempts,
+            },
+          }
+        : {}),
+      memory: {
+        working: [],
+        ephemeral: [],
+      },
+    });
+  }
+
+  private getTaskCheckpoint(): AgentTaskCheckpoint | null {
+    const contextRecord = this.contextState.getCurrentContext() as Record<string, unknown>;
+    const rawCheckpoint = contextRecord.task_checkpoint;
+    if (!isPlainObject(rawCheckpoint)) {
+      return null;
+    }
+
+    const taskId = typeof rawCheckpoint.task_id === "string" ? rawCheckpoint.task_id : null;
+    const taskType = typeof rawCheckpoint.task_type === "string" ? rawCheckpoint.task_type : null;
+    const savedAt =
+      typeof rawCheckpoint.saved_at === "number" && Number.isFinite(rawCheckpoint.saved_at)
+        ? rawCheckpoint.saved_at
+        : null;
+    const retries =
+      typeof rawCheckpoint.retries === "number" && Number.isInteger(rawCheckpoint.retries)
+        ? rawCheckpoint.retries
+        : null;
+    const attempts =
+      typeof rawCheckpoint.attempts === "number" && Number.isInteger(rawCheckpoint.attempts)
+        ? rawCheckpoint.attempts
+        : null;
+    const workingMemory = Array.isArray(rawCheckpoint.working_memory)
+      ? (structuredClone(rawCheckpoint.working_memory) as AgentContext["memory"]["working"])
+      : null;
+
+    if (!taskId || !taskType || savedAt === null || retries === null || attempts === null || !workingMemory) {
+      return null;
+    }
+
+    return {
+      task_id: taskId,
+      task_type: taskType,
+      saved_at: savedAt,
+      retries,
+      attempts,
+      working_memory: workingMemory,
+    };
+  }
+
+  private buildTaskCheckpoint(task: AgentTaskContextFinish): AgentTaskCheckpoint | null {
+    const current = this.contextState.getCurrentContext();
+    const workingMemory = structuredClone(current.memory.working);
+
+    if (!Array.isArray(workingMemory) || workingMemory.length === 0) {
+      return null;
+    }
+
+    return {
+      task_id: task.id,
+      task_type: task.type,
+      saved_at: task.finishedAt,
+      retries: task.retries,
+      attempts: task.attempts,
+      working_memory: workingMemory,
+    };
+  }
+
+  private applyContextPatch(context: unknown) {
     const sanitizedPatch = sanitizeIncomingContextPatch(
       context,
       this.contextState.getCurrentContext(),

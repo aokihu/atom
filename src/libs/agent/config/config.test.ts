@@ -58,6 +58,20 @@ describe("agent config", () => {
     expect(() => validateAgentConfig(createValidConfig())).not.toThrow();
   });
 
+  test("validateAgentConfig accepts permissions.background rules", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        permissions: {
+          background: {
+            allow: ["^/Users/me/work/.*"],
+            deny: ["^/Users/me/work/secrets/.*"],
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
   test("validateAgentConfig accepts agent.params", () => {
     expect(() =>
       validateAgentConfig({

@@ -82,6 +82,10 @@
       "allow": ["^{workspace}/.*"],
       "deny": []
     },
+    "background": {
+      "allow": ["^{workspace}/.*"],
+      "deny": []
+    },
     "webfetch": {
       "allow": ["^https://(docs\\.|developer\\.)?example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]

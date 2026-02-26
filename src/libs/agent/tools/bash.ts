@@ -4,13 +4,6 @@ import { createPermissionPolicy } from "./permissions/policy";
 import type { ToolExecutionContext } from "./types";
 import { validateBashCommandSafety } from "./bash_command_guard";
 import {
-  getBackgroundBashSessionCwd,
-  hasBackgroundBashSession,
-  killBackgroundBashSession,
-  queryBackgroundBashSession,
-  startBackgroundBashSession,
-} from "./bash_background";
-import {
   getNormalBashSessionCwd,
   hasNormalBashSession,
   killNormalBashSession,
@@ -19,16 +12,14 @@ import {
 } from "./bash_sessions";
 import {
   checkBashAvailable,
-  checkTmuxAvailable,
   clampQueryMaxItems,
-  decodeBackgroundCursor,
   decodeNormalCursor,
   DEFAULT_NORMAL_IDLE_TIMEOUT_MS,
-  encodeBackgroundCursor,
   encodeNormalCursor,
   generateBashSessionId,
   isAbsolutePathString,
   isValidBashSessionId,
+  validateExistingDirectory,
 } from "./bash_utils";
 
 const startActionSchema = z.object({
@@ -36,7 +27,7 @@ const startActionSchema = z.object({
   mode: z.enum(["once", "normal", "background"]),
   cwd: z.string().describe("absolute working directory path"),
   command: z.string().min(1).describe("bash command string"),
-  sessionId: z.string().optional().describe("session id for normal/background modes"),
+  sessionId: z.string().optional().describe("session id for normal mode"),
   idleTimeoutMs: z
     .number()
     .int()
@@ -94,10 +85,6 @@ const commandBlocked = (ruleId: string, detail: string) => ({
   detail,
 });
 
-const tmuxUnavailableError = () => ({
-  error: "tmux command is not available in runtime environment",
-});
-
 const bashUnavailableError = () => ({
   error: "bash command is not available in runtime environment",
 });
@@ -146,11 +133,7 @@ const runOnceCommand = async (cwd: string, command: string) => {
   }
 };
 
-const isBackgroundLookupPossible = (context: ToolExecutionContext) =>
-  typeof context.workspace === "string" && context.workspace.trim() !== "";
-
 const queryBashSession = async (
-  context: ToolExecutionContext,
   policy: ReturnType<typeof createPermissionPolicy>,
   sessionId: string,
   cursor: string | undefined,
@@ -186,60 +169,14 @@ const queryBashSession = async (
     };
   }
 
-  if (!isBackgroundLookupPossible(context)) {
-    return {
-      error: "Session not found",
-      sessionId,
-      status: "not_found" as const,
-      warning: "workspace is unavailable for background session lookup",
-    };
-  }
-
-  const workspace = context.workspace!;
-  const backgroundCwd = await getBackgroundBashSessionCwd(workspace, sessionId);
-  if (!backgroundCwd) {
-    return {
-      error: "Session not found",
-      sessionId,
-      status: "not_found" as const,
-    };
-  }
-
-  if (!policy.canUseBash(backgroundCwd)) {
-    return permissionDenied();
-  }
-
-  const decoded = decodeBackgroundCursor(cursor);
-  if (!decoded.ok) {
-    return invalidInput("Invalid cursor", decoded.error);
-  }
-
-  const result = await queryBackgroundBashSession({
-    workspace,
-    sessionId,
-    offset: decoded.value,
-    maxItems,
-  });
-
-  if (!result) {
-    return {
-      error: "Session not found",
-      sessionId,
-      status: "not_found" as const,
-    };
-  }
-  if ("error" in result) {
-    return result;
-  }
-
   return {
-    ...result,
-    nextCursor: encodeBackgroundCursor(result.nextOffset),
+    error: "Session not found",
+    sessionId,
+    status: "not_found" as const,
   };
 };
 
 const killBashSession = async (
-  context: ToolExecutionContext,
   policy: ReturnType<typeof createPermissionPolicy>,
   sessionId: string,
   force: boolean,
@@ -261,48 +198,17 @@ const killBashSession = async (
     return result;
   }
 
-  if (!isBackgroundLookupPossible(context)) {
-    return {
-      error: "Session not found",
-      sessionId,
-      status: "not_found" as const,
-      warning: "workspace is unavailable for background session lookup",
-    };
-  }
-
-  const workspace = context.workspace!;
-  const backgroundCwd = await getBackgroundBashSessionCwd(workspace, sessionId);
-  if (!backgroundCwd) {
-    return {
-      error: "Session not found",
-      sessionId,
-      status: "not_found" as const,
-    };
-  }
-
-  if (!policy.canUseBash(backgroundCwd)) {
-    return permissionDenied();
-  }
-
-  const result = await killBackgroundBashSession({
-    workspace,
+  return {
+    error: "Session not found",
     sessionId,
-    force,
-  });
-  if (!result) {
-    return {
-      error: "Session not found",
-      sessionId,
-      status: "not_found" as const,
-    };
-  }
-  return result;
+    status: "not_found" as const,
+  };
 };
 
 export const bashTool = (context: ToolExecutionContext) =>
   tool({
     description:
-      "Run bash commands in once/normal/background modes, then query or kill non-once sessions.",
+      "Run bash commands in once/normal modes, then query or kill normal sessions.",
     inputSchema: bashInputSchema,
     execute: async (input: BashToolSchemaInput) => {
       const policy = createPermissionPolicy(context);
@@ -319,7 +225,6 @@ export const bashTool = (context: ToolExecutionContext) =>
         }
 
         return await queryBashSession(
-          context,
           policy,
           queryInput.sessionId,
           queryInput.cursor,
@@ -338,7 +243,7 @@ export const bashTool = (context: ToolExecutionContext) =>
           return invalidInput("Invalid sessionId", "sessionId must match /^[a-zA-Z0-9._-]+$/");
         }
 
-        return await killBashSession(context, policy, killInput.sessionId, killInput.force ?? false);
+        return await killBashSession(policy, killInput.sessionId, killInput.force ?? false);
       }
 
       const parsed = startActionSchema.safeParse(input);
@@ -349,12 +254,24 @@ export const bashTool = (context: ToolExecutionContext) =>
 
       const { cwd, command, mode } = startInput;
 
+      if (mode === "background") {
+        return {
+          error: "bash background mode has been removed",
+          hint: "Use the 'background' tool instead",
+        };
+      }
+
       if (!isAbsolutePathString(cwd)) {
         return invalidInput("Invalid cwd", "cwd must be an absolute path");
       }
 
       if (!policy.canUseBash(cwd)) {
         return permissionDenied();
+      }
+
+      const cwdCheck = await validateExistingDirectory(cwd);
+      if (!cwdCheck.ok) {
+        return invalidInput("Invalid cwd", cwdCheck.error);
       }
 
       const safety = validateBashCommandSafety(command);
@@ -391,17 +308,6 @@ export const bashTool = (context: ToolExecutionContext) =>
         };
       }
 
-      if (isBackgroundLookupPossible(context)) {
-        const exists = await hasBackgroundBashSession(context.workspace!, sessionId);
-        if (exists) {
-          return {
-            error: "Session already exists",
-            sessionId,
-            status: "failed_to_start" as const,
-          };
-        }
-      }
-
       if (mode === "normal") {
         return await startNormalBashSession({
           sessionId,
@@ -411,19 +317,6 @@ export const bashTool = (context: ToolExecutionContext) =>
         });
       }
 
-      if (!isBackgroundLookupPossible(context)) {
-        return invalidInput("Invalid tool context", "workspace is required for background mode");
-      }
-
-      if (!(await checkTmuxAvailable())) {
-        return tmuxUnavailableError();
-      }
-
-      return await startBackgroundBashSession({
-        workspace: context.workspace!,
-        sessionId,
-        cwd,
-        command,
-      });
+      return invalidInput("Invalid input", "mode must be 'once' or 'normal'");
     },
   });

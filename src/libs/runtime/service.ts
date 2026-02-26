@@ -82,6 +82,71 @@ export class AgentRuntimeService implements RuntimeGateway {
           throw error;
         }
       },
+      {
+        onTaskAttemptStart: (task) => {
+          this.getAgent().beginTaskContext({
+            id: task.id,
+            type: task.type,
+            input: task.input,
+            retries: task.retries,
+            startedAt: task.startedAt ?? Date.now(),
+          });
+        },
+        onTaskAttemptSettled: (task) => {
+          const finishedAt = task.finishedAt ?? Date.now();
+          const attempts = task.retries + 1;
+
+          if (task.status === TaskStatus.Pending) {
+            this.getAgent().finishTaskContext(
+              {
+                id: task.id,
+                type: task.type,
+                status: "failed",
+                finishedAt,
+                retries: task.retries,
+                attempts,
+              },
+              { recordLastTask: false, preserveCheckpoint: true },
+            );
+            return;
+          }
+
+          if (task.status === TaskStatus.Success) {
+            this.getAgent().finishTaskContext({
+              id: task.id,
+              type: task.type,
+              status: "success",
+              finishedAt,
+              retries: task.retries,
+              attempts,
+            });
+            return;
+          }
+
+          if (task.status === TaskStatus.Cancelled) {
+            this.getAgent().finishTaskContext({
+              id: task.id,
+              type: task.type,
+              status: "cancelled",
+              finishedAt,
+              retries: task.retries,
+              attempts,
+            });
+            return;
+          }
+
+          if (task.status === TaskStatus.Failed) {
+            this.getAgent().finishTaskContext({
+              id: task.id,
+              type: task.type,
+              status: "failed",
+              finishedAt,
+              retries: task.retries,
+              attempts,
+            });
+          }
+        },
+      },
     );
   }
 

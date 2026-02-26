@@ -78,6 +78,24 @@ describe("bash tool", () => {
     expect(result.stderr).toContain("err");
   });
 
+  test("start rejects missing cwd directory", async () => {
+    const workspace = await createWorkspaceTempDir();
+    const missingCwd = join(workspace, "missing-dir");
+
+    const result = await executeTool(
+      { workspace },
+      {
+        action: "start",
+        mode: "once",
+        cwd: missingCwd,
+        command: "echo hello",
+      },
+    );
+
+    expect(result.error).toBe("Invalid cwd");
+    expect(result.detail).toBe("cwd directory does not exist");
+  });
+
   test("normal mode supports incremental query cursor and stream separation", async () => {
     const cwd = await createWorkspaceTempDir();
     const startResult = await executeTool(
@@ -228,5 +246,66 @@ describe("bash tool", () => {
 
     expect(killAgainResult.success).toBe(true);
     expect(killAgainResult.status).toBe("already_exited");
+  });
+
+  test("background mode returns migration error", async () => {
+    const cwd = await createWorkspaceTempDir();
+
+    const result = await executeTool(
+      { workspace: cwd },
+      {
+        action: "start",
+        mode: "background",
+        cwd,
+        command: "echo hello",
+      },
+    );
+
+    expect(result.error).toBe("bash background mode has been removed");
+    expect(result.hint).toBe("Use the 'background' tool instead");
+  });
+
+  test("query and kill do not read background tool sessions", async () => {
+    const workspace = await createWorkspaceTempDir();
+    const stateDir = join(workspace, ".agent", "background");
+    await mkdir(stateDir, { recursive: true });
+
+    const sessionId = "bg-owned-by-background-tool";
+    await Bun.write(
+      join(stateDir, `${sessionId}.json`),
+      JSON.stringify(
+        {
+          sessionId,
+          tool: "background",
+          cwd: workspace,
+          command: "echo hi",
+          tmuxSessionName: "atom-bash-test-ignored",
+          startedAt: Date.now(),
+          logFile: join(stateDir, `${sessionId}.log`),
+          cmdScriptFile: join(stateDir, `${sessionId}.cmd.sh`),
+          runnerScriptFile: join(stateDir, `${sessionId}.runner.sh`),
+        },
+        null,
+        2,
+      ),
+    );
+
+    const queryResult = await executeTool(
+      { workspace },
+      {
+        action: "query",
+        sessionId,
+      },
+    );
+    expect(queryResult.status).toBe("not_found");
+
+    const killResult = await executeTool(
+      { workspace },
+      {
+        action: "kill",
+        sessionId,
+      },
+    );
+    expect(killResult.status).toBe("not_found");
   });
 });

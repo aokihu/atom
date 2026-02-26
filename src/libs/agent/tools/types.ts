@@ -13,6 +13,7 @@ export const BUILTIN_TOOL_NAMES = [
   "mv",
   "git",
   "bash",
+  "background",
   "webfetch",
 ] as const;
 

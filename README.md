@@ -248,6 +248,10 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
       "allow": ["^{workspace}/.*"],
       "deny": []
     },
+    "background": {
+      "allow": ["^{workspace}/.*"],
+      "deny": []
+    },
     "webfetch": {
       "allow": ["^https://docs\\.example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
@@ -261,10 +265,12 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
 补充说明：
 - `cp` / `mv` 工具默认不覆盖目标文件，需显式传入 `overwrite: true`。
 - `git` 工具在执行时会检查运行环境是否安装 `git`；若未安装会返回错误，而不会在启动阶段失败。
-- `bash` 工具支持 `once` / `normal` / `background` 三种模式，并支持 `query` / `kill` 查询与终止非 `once` 会话。
+- `bash` 工具支持 `once` / `normal` 两种模式，并支持 `query` / `kill` 查询与终止 `normal` 会话。
 - `bash.normal` 使用“输出空闲超时”机制（默认 `60s`），超时后会自动终止进程。
-- `bash.background` 依赖运行环境安装 `tmux`；会话日志与元数据位于 `{workspace}/.agent/bash/`，并按 session 分别保存（`<sessionId>.log` / `<sessionId>.json`）。
-- `bash` 在执行前有一层内置危险命令拦截（如灾难性删除/关机/磁盘破坏类命令），该策略独立于权限配置且不可绕过。
+- `background` 工具提供 tmux 持久会话管理（`start/list/inspect/query_logs/capture_pane/send_keys/new_window/split_pane/kill`）。
+- `background` 依赖运行环境安装 `tmux`；会话日志与元数据位于 `{workspace}/.agent/background/`（不兼容旧 `{workspace}/.agent/bash/` 后台会话文件）。
+- `background.query_logs` 查询 `start` 时主命令结构化日志；后续 pane/window 输出请用 `background.capture_pane`。
+- `bash` 与 `background` 在执行命令前都会做内置危险命令拦截（如灾难性删除/关机/磁盘破坏类命令），该策略独立于权限配置且不可绕过。
 
 ## TUI Implementation Notes (for contributors)
 

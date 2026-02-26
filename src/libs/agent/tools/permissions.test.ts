@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  canUseBackground,
   canCopyFrom,
   canUseBash,
   canMoveTo,
@@ -89,6 +90,19 @@ describe("agent tool permissions", () => {
     expect(
       canUseBash("/Users/example/secret/repo", {
         bash: { deny: ["^/Users/example/secret/.*"] },
+      }),
+    ).toBe(false);
+  });
+
+  test("background permission checks cwd path", () => {
+    expect(
+      canUseBackground("/Users/example/work/repo", {
+        background: { allow: ["^/Users/example/work/.*"] },
+      }),
+    ).toBe(true);
+    expect(
+      canUseBackground("/Users/example/secret/repo", {
+        background: { deny: ["^/Users/example/secret/.*"] },
       }),
     ).toBe(false);
   });

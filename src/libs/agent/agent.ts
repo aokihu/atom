@@ -13,6 +13,9 @@ import {
 } from "./core/agent_runner";
 import {
   AgentSession,
+  type AgentTaskContextFinish,
+  type AgentTaskContextFinishOptions,
+  type AgentTaskContextStart,
   type AgentSessionSnapshot,
 } from "./session/agent_session";
 import type { ToolDefinitionMap, ToolExecutionContext } from "./tools";
@@ -83,6 +86,14 @@ export class Agent {
 
   abortCurrentRun(reason?: string): boolean {
     return this.runner.abortCurrentRun(reason);
+  }
+
+  beginTaskContext(task: AgentTaskContextStart) {
+    this.session.beginTaskContext(task);
+  }
+
+  finishTaskContext(task: AgentTaskContextFinish, options?: AgentTaskContextFinishOptions) {
+    this.session.finishTaskContext(task, options);
   }
 
   displayMessages() {

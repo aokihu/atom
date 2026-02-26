@@ -1,4 +1,5 @@
 import { bashTool } from "./bash";
+import { backgroundTool } from "./background";
 import { cpTool } from "./cp";
 import { gitTool } from "./git";
 import { lsTool } from "./ls";
@@ -30,6 +31,7 @@ const BUILTIN_TOOL_FACTORIES: Record<BuiltinToolName, ToolFactory> = {
   mv: mvTool,
   git: gitTool,
   bash: bashTool,
+  background: backgroundTool,
   webfetch: webfetchTool,
 };
 

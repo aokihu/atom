@@ -7,6 +7,7 @@ import {
   canReadFile,
   canReadTree,
   canRipgrep,
+  canUseBackground,
   canUseTodo,
   canUseBash,
   canUseGit,
@@ -67,6 +68,10 @@ export class PermissionPolicy {
 
   canUseBash(dirpath: string) {
     return canUseBash(dirpath, getToolsPermissions(this.context));
+  }
+
+  canUseBackground(dirpath: string) {
+    return canUseBackground(dirpath, getToolsPermissions(this.context));
   }
 
   canVisitUrl(url: string) {

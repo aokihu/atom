@@ -18,6 +18,7 @@ import { initMCPTools } from "./libs/mcp";
 import { AgentRuntimeService } from "./libs/runtime";
 import { HttpGatewayClient, startHttpGateway } from "./libs/channel";
 import { startTuiClient } from "./clients";
+import { cleanupInvalidBackgroundBashSessionsOnStartup } from "./libs/agent/tools/background_sessions";
 
 const DEFAULT_AGENT_NAME = "Atom";
 
@@ -220,6 +221,23 @@ const main = async () => {
   logStage("checking workspace...");
   await workspace_check(cliOptions.workspace);
   logStage("workspace ready");
+
+  try {
+    const cleanupResult = await cleanupInvalidBackgroundBashSessionsOnStartup({
+      workspace: cliOptions.workspace,
+    });
+    if (cleanupResult.skipped) {
+      logStage(`background session cleanup skipped (${cleanupResult.reason ?? "unknown reason"})`);
+    } else if (cleanupResult.removed > 0) {
+      logStage(
+        `background session cleanup removed ${cleanupResult.removed} invalid session(s) (scanned ${cleanupResult.scanned})`,
+      );
+    }
+  } catch (error) {
+    console.warn(
+      `[startup] background session cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 
   logStage("loading agent config...");
   const agentConfig = await loadAgentConfig({

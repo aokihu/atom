@@ -7,12 +7,20 @@ import { type TaskQueue, type TaskItem, TaskStatus } from "../../../types/task";
 
 type Task = TaskItem<any, any>;
 
+export type PriorityTaskQueueHooks = {
+  onTaskAttemptStart?: (task: Task) => void;
+  onTaskAttemptSettled?: (task: Task) => void;
+};
+
 export class PriorityTaskQueue implements TaskQueue {
   private heap: Task[] = [];
   private running = false;
   private current: Task | null = null;
 
-  constructor(private executor: (task: Task) => Promise<any>) {}
+  constructor(
+    private executor: (task: Task) => Promise<any>,
+    private readonly hooks: PriorityTaskQueueHooks = {},
+  ) {}
 
   add(task: Task) {
     this.push(task);
@@ -66,6 +74,7 @@ export class PriorityTaskQueue implements TaskQueue {
 
     task.status = TaskStatus.Running;
     task.startedAt = Date.now();
+    this.safeRunHook(this.hooks.onTaskAttemptStart, task);
 
     try {
       const result = await this.executor(task);
@@ -86,6 +95,7 @@ export class PriorityTaskQueue implements TaskQueue {
       }
     } finally {
       task.finishedAt = Date.now();
+      this.safeRunHook(this.hooks.onTaskAttemptSettled, task);
       this.current = null;
       this.schedule(); // 执行下一个
     }
@@ -205,5 +215,17 @@ export class PriorityTaskQueue implements TaskQueue {
     }
 
     return (task.metadata as Record<string, unknown>).cancelReason === "forceabort";
+  }
+
+  private safeRunHook(hook: ((task: Task) => void) | undefined, task: Task) {
+    if (!hook) {
+      return;
+    }
+
+    try {
+      hook(task);
+    } catch {
+      // Hooks are observational/coordinating only; queue progress must not be blocked.
+    }
   }
 }

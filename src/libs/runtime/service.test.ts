@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ModelMessage } from "ai";
 
 import { AgentRuntimeService } from "./service";
 import { TaskStatus } from "../../types/task";
@@ -26,12 +27,24 @@ const tick = async () => {
   await Promise.resolve();
 };
 
+const waitUntil = async (check: () => boolean, timeoutMs = 1000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() > deadline) {
+      throw new Error("waitUntil timeout");
+    }
+    await Bun.sleep(1);
+  }
+};
+
 describe("AgentRuntimeService", () => {
   test("clears pending queue and suppresses retry when context length overflow happens", async () => {
     const firstTaskGate = createDeferred();
     let runCount = 0;
 
     const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext() {},
       async runTask(
         _input: string,
         options?: {
@@ -56,10 +69,23 @@ describe("AgentRuntimeService", () => {
         return false;
       },
       getContextSnapshot() {
-        return {} as any;
+        return {
+          version: 2.3,
+          runtime: {
+            round: 1,
+            workspace: "/tmp/",
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: {
+            core: [],
+            working: [],
+            ephemeral: [],
+          },
+        };
       },
       getMessagesSnapshot() {
-        return [];
+        return [] as ModelMessage[];
       },
     } as unknown as Agent;
 
@@ -88,9 +114,11 @@ describe("AgentRuntimeService", () => {
     expect(firstSnapshot?.task.status).toBe(TaskStatus.Failed);
     expect(firstSnapshot?.task.retries).toBe(firstSnapshot?.task.maxRetries);
     expect(firstSnapshot?.task.error?.message).toBe(CONTEXT_OVERFLOW_ERROR);
-    expect(firstSnapshot?.messages?.items.some((item) => item.type === "task.error" && item.text === CONTEXT_OVERFLOW_ERROR)).toBe(
-      true,
-    );
+    expect(
+      firstSnapshot?.messages?.items.some(
+        (item) => item.type === "task.error" && item.text === CONTEXT_OVERFLOW_ERROR,
+      ),
+    ).toBe(true);
 
     expect(secondSnapshot?.task.status).toBe(TaskStatus.Cancelled);
     expect(secondSnapshot?.task.metadata?.cancelReason).toBe("contextoverflow");
@@ -101,5 +129,113 @@ describe("AgentRuntimeService", () => {
 
     expect(service.getQueueStats().size).toBe(0);
     expect(runCount).toBe(1);
+  });
+
+  test("cleans task context on retry and terminal completion via agent lifecycle methods", async () => {
+    const beginCalls: any[] = [];
+    const finishCalls: Array<{ task: any; options?: any }> = [];
+    let runAttempts = 0;
+
+    const fakeAgent = {
+      beginTaskContext(task: any) {
+        beginCalls.push(task);
+      },
+      finishTaskContext(task: any, options?: any) {
+        finishCalls.push({ task, options });
+      },
+      async runTask() {
+        runAttempts += 1;
+        if (runAttempts === 1) {
+          throw new Error("temporary failure");
+        }
+        return "ok";
+      },
+      getContextSnapshot() {
+        return {
+          version: 2.3,
+          runtime: {
+            round: 1,
+            workspace: "/tmp/",
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: {
+            core: [],
+            working: [],
+            ephemeral: [],
+          },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+      abortCurrentRun() {
+        return false;
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {} });
+    service.start();
+    const { taskId } = service.submitTask({ input: "do thing" });
+
+    await waitUntil(() => service.getTask(taskId)?.task.status === TaskStatus.Success);
+    service.stop();
+
+    expect(beginCalls).toHaveLength(2);
+    expect(beginCalls.map((call) => call.retries)).toEqual([0, 1]);
+    expect(beginCalls.map((call) => call.input)).toEqual(["do thing", "do thing"]);
+
+    expect(finishCalls).toHaveLength(2);
+    expect(finishCalls[0]?.options).toEqual({ recordLastTask: false, preserveCheckpoint: true });
+    expect(finishCalls[0]?.task.status).toBe("failed");
+    expect(finishCalls[1]?.task.status).toBe("success");
+    expect(finishCalls[1]?.options).toBeUndefined();
+  });
+
+  test("writes terminal cancelled context when agent run is aborted", async () => {
+    const finishCalls: Array<{ task: any; options?: any }> = [];
+
+    const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext(task: any, options?: any) {
+        finishCalls.push({ task, options });
+      },
+      async runTask() {
+        throw new Error("request aborted");
+      },
+      getContextSnapshot() {
+        return {
+          version: 2.3,
+          runtime: {
+            round: 1,
+            workspace: "/tmp/",
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: {
+            core: [],
+            working: [],
+            ephemeral: [],
+          },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+      abortCurrentRun() {
+        return false;
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {} });
+    service.start();
+    const { taskId } = service.submitTask({ input: "cancel me" });
+
+    await waitUntil(() => service.getTask(taskId)?.task.status === TaskStatus.Cancelled);
+    service.stop();
+
+    expect(finishCalls).toHaveLength(1);
+    expect(finishCalls[0]?.task.status).toBe("cancelled");
+    expect(finishCalls[0]?.options).toBeUndefined();
   });
 });
