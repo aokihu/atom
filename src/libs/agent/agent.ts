@@ -4,7 +4,10 @@
 
 import { inspect } from "node:util";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import type { AgentModelParams } from "../../types/agent";
+import type {
+  AgentContextProjectionSnapshot,
+  AgentModelParams,
+} from "../../types/agent";
 
 import {
   AgentRunner,
@@ -78,6 +81,10 @@ export class Agent {
 
   getContextSnapshot() {
     return this.session.getContextSnapshot();
+  }
+
+  getContextProjectionSnapshot(): AgentContextProjectionSnapshot {
+    return this.session.getContextProjectionSnapshot();
   }
 
   getSessionSnapshot(): AgentSessionSnapshot {

@@ -3,7 +3,10 @@ import type {
   AgentContext,
   AgentContextMemory,
   ContextMemoryBlock,
+  ContextMemoryBlockStatus,
   ContextMemoryTier,
+  ContextProjectionDebug,
+  ContextProjectionDropReason,
 } from "../../../types/agent";
 import {
   CONTEXT_MEMORY_TIERS,
@@ -12,6 +15,11 @@ import {
 } from "./context_policy";
 
 type PlainRecord = Record<string, unknown>;
+
+type ProjectionBuildResult = {
+  injectedContext: AgentContext;
+  debug: ContextProjectionDebug;
+};
 
 export type SanitizedContextPatch = Record<string, unknown> & {
   memory?: Partial<Record<ContextMemoryTier, ContextMemoryBlock[]>>;
@@ -28,6 +36,9 @@ const canonicalMemoryBlockSchema = z
     content: z.string().min(1),
   })
   .passthrough();
+
+const MAX_DROPPED_SAMPLES_PER_REASON = 5;
+const MEMORY_BLOCK_STATUSES = ["open", "done", "failed", "cancelled"] as const;
 
 const hasOwn = (value: object, key: PropertyKey) =>
   Object.prototype.hasOwnProperty.call(value, key);
@@ -97,12 +108,36 @@ const normalizeTags = (value: unknown): string[] => {
   return tags;
 };
 
-const passesTierThreshold = (tier: ContextMemoryTier, block: ContextMemoryBlock) => {
-  const policy = CONTEXT_POLICY.tiers[tier];
-  return block.decay <= policy.maxDecay && block.confidence >= policy.minConfidence;
+const normalizeBlockStatus = (value: unknown): ContextMemoryBlockStatus | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim() as ContextMemoryBlockStatus;
+  return MEMORY_BLOCK_STATUSES.includes(normalized) ? normalized : undefined;
 };
 
-const isExpiredByRound = (
+const isTerminalBlockStatus = (status: unknown): status is Exclude<ContextMemoryBlockStatus, "open"> =>
+  status === "done" || status === "failed" || status === "cancelled";
+
+const passesProjectionThreshold = (tier: ContextMemoryTier, block: ContextMemoryBlock) => {
+  const policy = CONTEXT_POLICY.tiers[tier];
+  if (block.decay > policy.maxDecay) return false;
+  if (block.confidence < policy.minConfidence) return false;
+  return true;
+};
+
+const getProjectionThresholdFailureReason = (
+  tier: ContextMemoryTier,
+  block: ContextMemoryBlock,
+): Extract<ContextProjectionDropReason, "threshold_decay" | "threshold_confidence"> | null => {
+  const policy = CONTEXT_POLICY.tiers[tier];
+  if (block.decay > policy.maxDecay) return "threshold_decay";
+  if (block.confidence < policy.minConfidence) return "threshold_confidence";
+  return null;
+};
+
+const isExpiredByProjectionRound = (
   tier: ContextMemoryTier,
   block: ContextMemoryBlock,
   currentRound: number,
@@ -116,6 +151,24 @@ const isExpiredByRound = (
   return age > maxAgeRounds;
 };
 
+const isExpiredByRawRetentionRound = (
+  tier: ContextMemoryTier,
+  block: ContextMemoryBlock,
+  currentRound: number,
+) => {
+  const age = currentRound - block.round;
+
+  if (tier === "ephemeral") {
+    return age > CONTEXT_POLICY.rawRetention.ephemeralMaxAgeRounds;
+  }
+
+  if (tier === "working" && isTerminalBlockStatus(block.status)) {
+    return age > CONTEXT_POLICY.rawRetention.workingTerminalMaxAgeRounds;
+  }
+
+  return false;
+};
+
 const compareMemoryBlocks = (a: ContextMemoryBlock, b: ContextMemoryBlock) => {
   const qualityDiff = getMemoryBlockQuality(b) - getMemoryBlockQuality(a);
   if (qualityDiff !== 0) return qualityDiff;
@@ -126,6 +179,21 @@ const compareMemoryBlocks = (a: ContextMemoryBlock, b: ContextMemoryBlock) => {
   return a.id.localeCompare(b.id);
 };
 
+const compareRawMemoryBlocks = (tier: ContextMemoryTier, a: ContextMemoryBlock, b: ContextMemoryBlock) => {
+  if (tier === "working") {
+    const aTerminal = isTerminalBlockStatus(a.status);
+    const bTerminal = isTerminalBlockStatus(b.status);
+    if (aTerminal !== bTerminal) {
+      return aTerminal ? 1 : -1;
+    }
+  }
+
+  const roundDiff = b.round - a.round;
+  if (roundDiff !== 0) return roundDiff;
+
+  return compareMemoryBlocks(a, b);
+};
+
 const choosePreferredBlock = (a: ContextMemoryBlock, b: ContextMemoryBlock) => {
   const qualityA = getMemoryBlockQuality(a);
   const qualityB = getMemoryBlockQuality(b);
@@ -134,6 +202,22 @@ const choosePreferredBlock = (a: ContextMemoryBlock, b: ContextMemoryBlock) => {
   if (qualityA > qualityB) return a;
 
   return b.round >= a.round ? b : a;
+};
+
+const choosePreferredRawBlock = (
+  tier: ContextMemoryTier,
+  a: ContextMemoryBlock,
+  b: ContextMemoryBlock,
+) => {
+  if (tier === "working") {
+    const aTerminal = isTerminalBlockStatus(a.status);
+    const bTerminal = isTerminalBlockStatus(b.status);
+    if (aTerminal !== bTerminal) {
+      return aTerminal ? b : a;
+    }
+  }
+
+  return choosePreferredBlock(a, b);
 };
 
 const normalizeMemoryBlock = (
@@ -161,6 +245,7 @@ const normalizeMemoryBlock = (
   const parsedRound = toPositiveInteger(value.round) ?? currentRound;
   const round = Math.min(parsedRound, currentRound);
   const normalizedContent = trimToMax(contentRaw, CONTEXT_POLICY.contentMaxLength);
+  const normalizedStatus = normalizeBlockStatus(value.status);
 
   const normalized: PlainRecord = { ...value };
   normalized.id = id;
@@ -171,23 +256,21 @@ const normalizeMemoryBlock = (
   normalized.round = round;
   normalized.tags = normalizeTags(value.tags);
 
+  if (tier === "working") {
+    normalized.status = normalizedStatus ?? "open";
+  } else if (normalizedStatus) {
+    normalized.status = normalizedStatus;
+  }
+
   const parsed = canonicalMemoryBlockSchema.safeParse(normalized);
   if (!parsed.success) {
     return null;
   }
 
-  const block = parsed.data as ContextMemoryBlock;
-  if (!passesTierThreshold(tier, block)) {
-    return null;
-  }
-  if (isExpiredByRound(tier, block, currentRound)) {
-    return null;
-  }
-
-  return block;
+  return parsed.data as ContextMemoryBlock;
 };
 
-const sanitizeTierBlocks = (
+const sanitizeTierBlocksHard = (
   input: unknown,
   tier: ContextMemoryTier,
   currentRound: number,
@@ -208,12 +291,10 @@ const sanitizeTierBlocks = (
       continue;
     }
 
-    byId.set(block.id, choosePreferredBlock(existing, block));
+    byId.set(block.id, choosePreferredRawBlock(tier, existing, block));
   }
 
-  return Array.from(byId.values())
-    .sort(compareMemoryBlocks)
-    .slice(0, CONTEXT_POLICY.tiers[tier].maxItems);
+  return Array.from(byId.values()).sort((a, b) => compareRawMemoryBlocks(tier, a, b));
 };
 
 const deepMergeValue = (currentValue: unknown, patchValue: unknown): unknown => {
@@ -278,7 +359,54 @@ const createEmptyMemory = (): AgentContextMemory => ({
   ephemeral: [],
 });
 
-export const sanitizeIncomingContextPatch = (
+const createZeroTierCounts = (): Record<ContextMemoryTier, number> => ({
+  core: 0,
+  working: 0,
+  ephemeral: 0,
+});
+
+const createProjectionDebug = (round: number): ContextProjectionDebug => ({
+  round,
+  rawCounts: createZeroTierCounts(),
+  injectedCounts: createZeroTierCounts(),
+  droppedByReason: {
+    working_status_terminal: 0,
+    threshold_decay: 0,
+    threshold_confidence: 0,
+    expired_by_round: 0,
+    over_max_items: 0,
+    invalid_block: 0,
+  },
+  droppedSamples: {},
+});
+
+const recordProjectionDrop = (
+  debug: ContextProjectionDebug,
+  reason: ContextProjectionDropReason,
+  tier: ContextMemoryTier,
+  block: Partial<Pick<ContextMemoryBlock, "id" | "type">> | null,
+) => {
+  debug.droppedByReason[reason] += 1;
+
+  const samples = (debug.droppedSamples[reason] ??= []);
+  if (samples.length >= MAX_DROPPED_SAMPLES_PER_REASON) {
+    return;
+  }
+
+  samples.push({
+    tier,
+    id: block?.id,
+    type: block?.type,
+  });
+};
+
+const stripProjectionOnlyTopLevelFields = (context: AgentContext) => {
+  const record = context as Record<string, unknown>;
+  delete record.task_checkpoint;
+  delete record.last_task;
+};
+
+export const sanitizeIncomingContextPatchHard = (
   input: unknown,
   currentContext: Pick<AgentContext, "runtime">,
 ): SanitizedContextPatch => {
@@ -313,7 +441,7 @@ export const sanitizeIncomingContextPatch = (
       continue;
     }
 
-    memoryPatch[tier] = sanitizeTierBlocks(rawTierValue, tier, currentContext.runtime.round);
+    memoryPatch[tier] = sanitizeTierBlocksHard(rawTierValue, tier, currentContext.runtime.round);
     hasMemoryPatch = true;
   }
 
@@ -323,6 +451,8 @@ export const sanitizeIncomingContextPatch = (
 
   return patch;
 };
+
+export const sanitizeIncomingContextPatch = sanitizeIncomingContextPatchHard;
 
 export const mergeContextWithMemoryPolicy = (
   current: AgentContext,
@@ -363,7 +493,7 @@ export const mergeContextWithMemoryPolicy = (
   return merged;
 };
 
-export const compactContextMemory = (context: AgentContext): AgentContext => {
+export const compactRawContextForStorage = (context: AgentContext): AgentContext => {
   const next = structuredClone(context) as AgentContext;
   const rawContext = context as Record<string, unknown>;
   const rawMemory = isPlainObject(rawContext.memory) ? rawContext.memory : {};
@@ -372,7 +502,12 @@ export const compactContextMemory = (context: AgentContext): AgentContext => {
   next.memory = createEmptyMemory();
 
   for (const tier of CONTEXT_MEMORY_TIERS) {
-    next.memory[tier] = sanitizeTierBlocks(rawMemory[tier], tier, currentRound);
+    const rawTierValue = rawMemory[tier];
+    const normalizedBlocks = sanitizeTierBlocksHard(rawTierValue, tier, currentRound).filter(
+      (block) => !isExpiredByRawRetentionRound(tier, block, currentRound),
+    );
+
+    next.memory[tier] = normalizedBlocks.slice(0, CONTEXT_POLICY.rawRetention.tiers[tier].maxItems);
   }
 
   next.runtime = structuredClone(context.runtime);
@@ -380,8 +515,81 @@ export const compactContextMemory = (context: AgentContext): AgentContext => {
   return next;
 };
 
+export const buildInjectedContextProjection = (rawContext: AgentContext): ProjectionBuildResult => {
+  const injectedContext = structuredClone(rawContext) as AgentContext;
+  const rawRecord = rawContext as Record<string, unknown>;
+  const rawMemory = isPlainObject(rawRecord.memory) ? rawRecord.memory : {};
+  const currentRound = rawContext.runtime.round;
+  const debug = createProjectionDebug(currentRound);
+
+  stripProjectionOnlyTopLevelFields(injectedContext);
+  injectedContext.memory = createEmptyMemory();
+
+  for (const tier of CONTEXT_MEMORY_TIERS) {
+    const rawTierValue = rawMemory[tier];
+    const rawItems = Array.isArray(rawTierValue) ? rawTierValue : [];
+    debug.rawCounts[tier] = rawItems.length;
+
+    const deduped = new Map<string, ContextMemoryBlock>();
+
+    for (const item of rawItems) {
+      const block = normalizeMemoryBlock(item, tier, currentRound);
+      if (!block) {
+        recordProjectionDrop(debug, "invalid_block", tier, isPlainObject(item) ? item : null);
+        continue;
+      }
+
+      if (tier === "working" && isTerminalBlockStatus(block.status)) {
+        recordProjectionDrop(debug, "working_status_terminal", tier, block);
+        continue;
+      }
+
+      const thresholdFailure = getProjectionThresholdFailureReason(tier, block);
+      if (thresholdFailure) {
+        recordProjectionDrop(debug, thresholdFailure, tier, block);
+        continue;
+      }
+
+      if (isExpiredByProjectionRound(tier, block, currentRound)) {
+        recordProjectionDrop(debug, "expired_by_round", tier, block);
+        continue;
+      }
+
+      const existing = deduped.get(block.id);
+      if (!existing) {
+        deduped.set(block.id, block);
+        continue;
+      }
+
+      deduped.set(block.id, choosePreferredBlock(existing, block));
+    }
+
+    const projected = Array.from(deduped.values()).sort(compareMemoryBlocks);
+    const maxItems = CONTEXT_POLICY.tiers[tier].maxItems;
+    if (projected.length > maxItems) {
+      for (const block of projected.slice(maxItems)) {
+        recordProjectionDrop(debug, "over_max_items", tier, block);
+      }
+    }
+
+    injectedContext.memory[tier] = projected.slice(0, maxItems);
+    debug.injectedCounts[tier] = injectedContext.memory[tier].length;
+  }
+
+  injectedContext.runtime = structuredClone(rawContext.runtime);
+  injectedContext.version = rawContext.version;
+
+  return {
+    injectedContext,
+    debug,
+  };
+};
+
 export const __contextSanitizerInternals = {
-  sanitizeTierBlocks,
+  sanitizeTierBlocksHard,
   normalizeMemoryBlock,
   isPlainObject,
+  isExpiredByProjectionRound,
+  isExpiredByRawRetentionRound,
+  passesProjectionThreshold,
 };

@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 
-import type { AgentContext } from "./agent";
+import type { AgentContext, ContextProjectionDebug } from "./agent";
 import type { TaskItem, TaskPriority } from "./task";
 
 export type ApiErrorCode =
@@ -180,6 +180,8 @@ export type HealthzResponse = {
 
 export type AgentContextResponse = {
   context: AgentContext;
+  injectedContext: AgentContext;
+  projectionDebug: ContextProjectionDebug;
 };
 
 export type AgentMessagesResponse = {

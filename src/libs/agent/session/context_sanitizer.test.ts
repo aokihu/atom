@@ -2,9 +2,10 @@ import { describe, expect, test } from "bun:test";
 import type { AgentContext } from "../../../types/agent";
 import { CONTEXT_POLICY } from "./context_policy";
 import {
-  compactContextMemory,
+  buildInjectedContextProjection,
+  compactRawContextForStorage,
   mergeContextWithMemoryPolicy,
-  sanitizeIncomingContextPatch,
+  sanitizeIncomingContextPatchHard,
 } from "./context_sanitizer";
 
 const createBaseContext = (): AgentContext => ({
@@ -23,10 +24,10 @@ const createBaseContext = (): AgentContext => ({
 });
 
 describe("context_sanitizer", () => {
-  test("sanitizes incoming patch, strips system fields, filters by thresholds, and defaults confidence", () => {
+  test("hard sanitize strips system fields, keeps low-quality blocks in raw patch, defaults confidence, and defaults working status", () => {
     const context = createBaseContext();
 
-    const patch = sanitizeIncomingContextPatch(
+    const patch = sanitizeIncomingContextPatchHard(
       {
         version: 1,
         runtime: {
@@ -38,22 +39,22 @@ describe("context_sanitizer", () => {
         memory: {
           working: [
             {
-              id: "drop-decay",
+              id: "keep-high-decay-in-raw",
               type: "task",
               decay: 0.9,
               confidence: 0.95,
               round: 1,
               tags: ["x"],
-              content: "too decayed",
+              content: "too decayed for projection, but keep in raw",
             },
             {
-              id: "drop-confidence",
+              id: "keep-low-confidence-in-raw",
               type: "task",
               decay: 0.3,
               confidence: 0.1,
               round: 1,
               tags: ["x"],
-              content: "too uncertain",
+              content: "too uncertain for projection, but keep in raw",
             },
           ],
           ephemeral: [
@@ -74,7 +75,8 @@ describe("context_sanitizer", () => {
     expect("version" in patch).toBe(false);
     expect("runtime" in patch).toBe(false);
     expect(patch.project).toEqual({ name: "atom" });
-    expect(patch.memory?.working).toEqual([]);
+    expect(patch.memory?.working).toHaveLength(2);
+    expect(patch.memory?.working?.every((block) => block.status === "open")).toBe(true);
     expect(patch.memory?.ephemeral).toHaveLength(1);
 
     const block = patch.memory?.ephemeral?.[0];
@@ -85,10 +87,10 @@ describe("context_sanitizer", () => {
     expect(block?.content).toBe("keep me");
   });
 
-  test("deduplicates duplicate ids by quality and then newer round when quality ties", () => {
+  test("hard sanitize deduplicates duplicate ids by quality and newer round on ties", () => {
     const context = createBaseContext();
 
-    const patch = sanitizeIncomingContextPatch(
+    const patch = sanitizeIncomingContextPatchHard(
       {
         memory: {
           working: [
@@ -141,29 +143,105 @@ describe("context_sanitizer", () => {
     expect(working.find((item) => item.id === "task-2")?.content).toBe("higher");
   });
 
-  test("limits oversized tiers and keeps higher-quality items first", () => {
-    const context = createBaseContext();
+  test("projection filters by thresholds, TTL and working terminal status, and reports debug stats", () => {
+    const raw = {
+      ...createBaseContext(),
+      runtime: {
+        ...createBaseContext().runtime,
+        round: 10,
+      },
+      last_task: { id: "old" },
+      task_checkpoint: { task_id: "t1" },
+      memory: {
+        core: [
+          {
+            id: "core-keep",
+            type: "identity",
+            decay: 0.1,
+            confidence: 0.95,
+            round: 1,
+            tags: ["core"],
+            content: "keep",
+          },
+        ],
+        working: [
+          {
+            id: "work-done",
+            type: "task",
+            decay: 0.1,
+            confidence: 0.95,
+            round: 9,
+            tags: ["task"],
+            content: "done task",
+            status: "done",
+          },
+          {
+            id: "work-low-confidence",
+            type: "task",
+            decay: 0.1,
+            confidence: 0.1,
+            round: 9,
+            tags: ["task"],
+            content: "low confidence",
+            status: "open",
+          },
+          {
+            id: "work-keep",
+            type: "task",
+            decay: 0.1,
+            confidence: 0.95,
+            round: 9,
+            tags: ["task"],
+            content: "keep",
+            status: "open",
+          },
+        ],
+        ephemeral: [
+          {
+            id: "temp-expired",
+            type: "hint",
+            decay: 0.2,
+            confidence: 0.9,
+            round: 1,
+            tags: ["temp"],
+            content: "expired",
+          },
+          {
+            id: "temp-keep",
+            type: "hint",
+            decay: 0.2,
+            confidence: 0.9,
+            round: 10,
+            tags: ["temp"],
+            content: "keep",
+          },
+        ],
+      },
+    } as AgentContext;
 
-    const working = Array.from({ length: 60 }, (_, index) => ({
-      id: `task-${index}`,
-      type: "task",
-      decay: 0.3 + (index % 10) * 0.01,
-      confidence: 0.95 - index * 0.005,
-      round: 1,
-      tags: ["t"],
-      content: `item-${index}`,
-    }));
+    const result = buildInjectedContextProjection(raw);
 
-    const patch = sanitizeIncomingContextPatch({ memory: { working } }, context);
-    const sanitized = patch.memory?.working ?? [];
+    expect((result.injectedContext as any).last_task).toBeUndefined();
+    expect((result.injectedContext as any).task_checkpoint).toBeUndefined();
+    expect(result.injectedContext.memory.core.map((x) => x.id)).toEqual(["core-keep"]);
+    expect(result.injectedContext.memory.working.map((x) => x.id)).toEqual(["work-keep"]);
+    expect(result.injectedContext.memory.ephemeral.map((x) => x.id)).toEqual(["temp-keep"]);
 
-    expect(sanitized).toHaveLength(CONTEXT_POLICY.tiers.working.maxItems);
-    expect(sanitized[0]?.id).toBe("task-0");
+    expect(result.debug.round).toBe(10);
+    expect(result.debug.rawCounts).toEqual({ core: 1, working: 3, ephemeral: 2 });
+    expect(result.debug.injectedCounts).toEqual({ core: 1, working: 1, ephemeral: 1 });
+    expect(result.debug.droppedByReason.working_status_terminal).toBe(1);
+    expect(result.debug.droppedByReason.threshold_confidence).toBe(1);
+    expect(result.debug.droppedByReason.expired_by_round).toBe(1);
   });
 
-  test("compactContextMemory cleans historical dirty memory and preserves unknown top-level fields", () => {
+  test("compactRawContextForStorage preserves low-quality raw blocks, applies raw retention TTL, and preserves unknown fields", () => {
     const dirty = {
       ...createBaseContext(),
+      runtime: {
+        ...createBaseContext().runtime,
+        round: 200,
+      },
       project: { name: "atom" },
       memory: {
         core: [],
@@ -176,6 +254,7 @@ describe("context_sanitizer", () => {
             round: 1,
             tags: ["a"],
             content: "old",
+            status: "open",
           },
           {
             id: "dup",
@@ -185,108 +264,86 @@ describe("context_sanitizer", () => {
             round: 2,
             tags: ["b"],
             content: "new",
+            status: "open",
           },
           {
-            id: "bad",
+            id: "terminal-expired",
             type: "task",
-            decay: 0.99,
-            confidence: 0.99,
+            decay: 0.95,
+            confidence: 0.2,
             round: 1,
-            tags: [],
-            content: "too-decayed",
+            tags: ["t"],
+            content: "keep raw unless expired by raw TTL",
+            status: "done",
+          },
+          {
+            id: "terminal-fresh",
+            type: "task",
+            decay: 0.95,
+            confidence: 0.2,
+            round: 100,
+            tags: ["t"],
+            content: "keep raw terminal",
+            status: "failed",
           },
         ],
         ephemeral: [
           {
             id: "legacy-no-confidence",
             type: "hint",
-            decay: 0.6,
-            round: 1,
+            decay: 0.95,
+            round: 200,
             tags: ["temp"],
             content: "legacy",
+          },
+          {
+            id: "temp-expired",
+            type: "hint",
+            decay: 0.2,
+            confidence: 0.9,
+            round: 100,
+            tags: ["temp"],
+            content: "expired by raw retention ttl",
           },
         ],
       },
     } as unknown as AgentContext;
 
-    const compacted = compactContextMemory(dirty);
+    const compacted = compactRawContextForStorage(dirty);
 
-    expect(compacted.project).toEqual({ name: "atom" });
-    expect(compacted.memory.working).toHaveLength(1);
-    expect(compacted.memory.working[0]?.content).toBe("new");
-    expect(compacted.memory.ephemeral).toHaveLength(1);
+    expect((compacted as any).project).toEqual({ name: "atom" });
+    expect(compacted.memory.working.map((x) => x.id)).toEqual(["dup", "terminal-fresh"]);
+    expect(compacted.memory.working.find((x) => x.id === "dup")?.content).toBe("new");
+    expect(compacted.memory.ephemeral.map((x) => x.id)).toEqual(["legacy-no-confidence"]);
     expect(compacted.memory.ephemeral[0]?.confidence).toBe(0.5);
   });
 
-  test("automatically deletes expired blocks by round for working/ephemeral and keeps core", () => {
+  test("compactRawContextForStorage enforces raw tier caps", () => {
     const context = createBaseContext();
-    context.runtime.round = 20;
-    context.memory = {
-      core: [
-        {
-          id: "core-old",
-          type: "identity",
-          decay: 0.1,
-          confidence: 0.95,
-          round: 1,
-          tags: ["core"],
-          content: "keep-core",
-        },
-      ],
-      working: [
-        {
-          id: "working-expired",
-          type: "task",
-          decay: 0.2,
-          confidence: 0.9,
-          round: 1,
-          tags: ["task"],
-          content: "drop-working",
-        },
-        {
-          id: "working-fresh",
-          type: "task",
-          decay: 0.2,
-          confidence: 0.9,
-          round: 10,
-          tags: ["task"],
-          content: "keep-working",
-        },
-      ],
-      ephemeral: [
-        {
-          id: "temp-expired",
-          type: "hint",
-          decay: 0.2,
-          confidence: 0.9,
-          round: 10,
-          tags: ["temp"],
-          content: "drop-ephemeral",
-        },
-        {
-          id: "temp-fresh",
-          type: "hint",
-          decay: 0.2,
-          confidence: 0.9,
-          round: 17,
-          tags: ["temp"],
-          content: "keep-ephemeral",
-        },
-      ],
-    };
+    context.runtime.round = 50;
+    context.memory.working = Array.from(
+      { length: CONTEXT_POLICY.rawRetention.tiers.working.maxItems + 20 },
+      (_, index) => ({
+        id: `work-${index}`,
+        type: "task",
+        decay: 0.9,
+        confidence: 0.1,
+        round: 50 - (index % 5),
+        tags: ["w"],
+        content: `item-${index}`,
+        status: "open" as const,
+      }),
+    );
 
-    const compacted = compactContextMemory(context);
-
-    expect(compacted.memory.core.map((x) => x.id)).toEqual(["core-old"]);
-    expect(compacted.memory.working.map((x) => x.id)).toEqual(["working-fresh"]);
-    expect(compacted.memory.ephemeral.map((x) => x.id)).toEqual(["temp-fresh"]);
+    const compacted = compactRawContextForStorage(context);
+    expect(compacted.memory.working.length).toBe(CONTEXT_POLICY.rawRetention.tiers.working.maxItems);
   });
 
   test("clamps future block round to current runtime round", () => {
     const context = createBaseContext();
     context.runtime.round = 4;
 
-    const patch = sanitizeIncomingContextPatch(
+    const patch = sanitizeIncomingContextPatchHard(
       {
         memory: {
           working: [
@@ -340,15 +397,25 @@ describe("context_sanitizer", () => {
             decay: 0.25,
             confidence: 0.95,
             round: 2,
-            tags: ["y2"],
+            tags: ["y", "z"],
             content: "B2",
+          },
+          {
+            id: "c",
+            type: "task",
+            decay: 0.4,
+            confidence: 0.8,
+            round: 2,
+            tags: ["n"],
+            content: "C1",
           },
         ],
       },
     });
 
-    expect(merged.memory.working).toHaveLength(2);
+    expect(merged.memory.working.map((item) => item.id).sort()).toEqual(["a", "b", "c"]);
     expect(merged.memory.working.find((item) => item.id === "a")?.content).toBe("A1");
     expect(merged.memory.working.find((item) => item.id === "b")?.content).toBe("B2");
+    expect(merged.memory.working.find((item) => item.id === "c")?.content).toBe("C1");
   });
 });

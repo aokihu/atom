@@ -238,4 +238,73 @@ describe("AgentRuntimeService", () => {
     expect(finishCalls[0]?.task.status).toBe("cancelled");
     expect(finishCalls[0]?.options).toBeUndefined();
   });
+
+  test("returns raw and injected context views for debugging when agent exposes projection snapshot", () => {
+    const rawContext = {
+      version: 2.3,
+      runtime: {
+        round: 2,
+        workspace: "/tmp/",
+        datetime: new Date().toISOString(),
+        startup_at: Date.now(),
+      },
+      memory: {
+        core: [],
+        working: [{ id: "w1" }],
+        ephemeral: [],
+      },
+    } as any;
+
+    const injectedContext = {
+      ...rawContext,
+      memory: {
+        ...rawContext.memory,
+        working: [],
+      },
+    };
+
+    const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext() {},
+      async runTask() {
+        return "ok";
+      },
+      abortCurrentRun() {
+        return false;
+      },
+      getContextSnapshot() {
+        return rawContext;
+      },
+      getContextProjectionSnapshot() {
+        return {
+          context: rawContext,
+          injectedContext,
+          projectionDebug: {
+            round: 2,
+            rawCounts: { core: 0, working: 1, ephemeral: 0 },
+            injectedCounts: { core: 0, working: 0, ephemeral: 0 },
+            droppedByReason: {
+              working_status_terminal: 1,
+              threshold_decay: 0,
+              threshold_confidence: 0,
+              expired_by_round: 0,
+              over_max_items: 0,
+              invalid_block: 0,
+            },
+            droppedSamples: {},
+          },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {} });
+    const response = service.getAgentContext();
+
+    expect(response.context.memory.working).toHaveLength(1);
+    expect(response.injectedContext.memory.working).toHaveLength(0);
+    expect(response.projectionDebug.droppedByReason.working_status_terminal).toBe(1);
+  });
 });

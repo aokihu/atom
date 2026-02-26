@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { decode } from "@toon-format/toon";
 import { AgentSession } from "./agent_session";
 import { CONTEXT_POLICY } from "./context_policy";
 
@@ -48,6 +49,39 @@ describe("AgentSession", () => {
     expect(session.getContextSnapshot().runtime.round).toBe(3);
   });
 
+  test("beginTaskContext resets prior task conversation messages so tasks do not chain through message history", () => {
+    const session = new AgentSession({
+      workspace: "/tmp/workspace",
+      systemPrompt: "system prompt",
+      contextClock: createClock(),
+    });
+
+    session.beginTaskContext({
+      id: "task-1",
+      type: "http.input",
+      input: "first task",
+      retries: 0,
+      startedAt: 1700000001000,
+    });
+    session.prepareUserTurn("old question");
+    expect(session.getMessagesSnapshot().some((m) => m.role === "user" && m.content === "old question")).toBe(
+      true,
+    );
+
+    session.beginTaskContext({
+      id: "task-2",
+      type: "http.input",
+      input: "second task",
+      retries: 0,
+      startedAt: 1700000002000,
+    });
+    session.prepareUserTurn("new question");
+
+    const messages = session.getMessagesSnapshot();
+    expect(messages.some((m) => m.role === "user" && m.content === "old question")).toBe(false);
+    expect(messages.some((m) => m.role === "user" && m.content === "new question")).toBe(true);
+  });
+
   test("merges extracted context into runtime context", () => {
     const session = new AgentSession({
       workspace: "/tmp/workspace",
@@ -67,7 +101,41 @@ describe("AgentSession", () => {
     expect(context.project?.name).toBe("atom");
   });
 
-  test("sanitizes extracted memory context, ignores system field overrides, and merges by id", () => {
+  test("records SDK token usage into runtime.token_usage and accumulates total tokens", () => {
+    const session = new AgentSession({
+      workspace: "/tmp/workspace",
+      systemPrompt: "system prompt",
+      contextClock: createClock(),
+    });
+
+    session.recordRuntimeTokenUsageFromSDK({
+      inputTokens: 120,
+      outputTokens: 45,
+      totalTokens: 165,
+      reasoningTokens: 8,
+      cachedInputTokens: 32,
+    });
+    session.recordRuntimeTokenUsageFromSDK({
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+    });
+
+    const context = session.getContextSnapshot();
+    expect(context.runtime.token_usage).toBeTruthy();
+    expect(context.runtime.token_usage).toMatchObject({
+      source: "ai-sdk",
+      input_tokens: 10,
+      output_tokens: 5,
+      total_tokens: 15,
+      cumulative_total_tokens: 180,
+    });
+    expect(context.runtime.token_usage?.reasoning_tokens).toBeUndefined();
+    expect(context.runtime.token_usage?.cached_input_tokens).toBeUndefined();
+    expect(typeof context.runtime.token_usage?.updated_at).toBe("number");
+  });
+
+  test("hard-sanitizes extracted memory context, ignores system field overrides, and merges by id", () => {
     const session = new AgentSession({
       workspace: "/tmp/workspace",
       systemPrompt: "system prompt",
@@ -126,13 +194,14 @@ describe("AgentSession", () => {
     expect(context.version).toBe(CONTEXT_POLICY.version);
     expect(context.runtime.round).toBe(1);
     expect(context.runtime.workspace).toBe("/tmp/workspace/");
-    expect(context.memory.working).toHaveLength(1);
+    expect(context.memory.working).toHaveLength(2);
     expect(context.memory.working[0]?.id).toBe("task-1");
     expect(context.memory.working[0]?.content).toBe("second");
     expect(context.memory.working[0]?.round).toBe(1);
+    expect(context.memory.working.find((item) => item.id === "task-2")?.content).toBe("too-decayed");
   });
 
-  test("beginTaskContext writes active task and clears working/ephemeral while preserving core", () => {
+  test("beginTaskContext writes active task, closes stale open working, and preserves raw ephemeral/core", () => {
     const session = new AgentSession({
       workspace: "/tmp/workspace",
       systemPrompt: "system prompt",
@@ -205,11 +274,13 @@ describe("AgentSession", () => {
       started_at: 1700000001234,
     });
     expect(context.memory.core.map((item) => item.id)).toEqual(["core-1"]);
-    expect(context.memory.working).toEqual([]);
-    expect(context.memory.ephemeral).toEqual([]);
+    expect(context.memory.working).toHaveLength(1);
+    expect((context.memory.working[0] as any)?.status).toBe("cancelled");
+    expect((context.memory.working[0] as any)?.closed_at).toBe(1700000001234);
+    expect(context.memory.ephemeral).toHaveLength(1);
   });
 
-  test("finishTaskContext clears active task state and records last_task metadata", () => {
+  test("finishTaskContext clears active task state, records last_task metadata, and marks working terminal", () => {
     const session = new AgentSession({
       workspace: "/tmp/workspace",
       systemPrompt: "system prompt",
@@ -222,6 +293,32 @@ describe("AgentSession", () => {
       input: "new task",
       retries: 0,
       startedAt: 1700000001000,
+    });
+    session.mergeExtractedContext({
+      memory: {
+        working: [
+          {
+            id: "work-1",
+            type: "task",
+            decay: 0.2,
+            confidence: 0.9,
+            round: 1,
+            tags: ["task"],
+            content: "in progress",
+          },
+        ],
+        ephemeral: [
+          {
+            id: "temp-1",
+            type: "hint",
+            decay: 0.2,
+            confidence: 0.9,
+            round: 1,
+            tags: ["temp"],
+            content: "raw temp",
+          },
+        ],
+      } as any,
     });
 
     session.finishTaskContext({
@@ -238,8 +335,8 @@ describe("AgentSession", () => {
       active_task_meta?: unknown;
       last_task?: Record<string, unknown>;
       memory: {
-        working: unknown[];
-        ephemeral: unknown[];
+        working: Array<Record<string, unknown>>;
+        ephemeral: Array<Record<string, unknown>>;
       };
     };
 
@@ -253,11 +350,14 @@ describe("AgentSession", () => {
       retries: 1,
       attempts: 2,
     });
-    expect(context.memory.working).toEqual([]);
-    expect(context.memory.ephemeral).toEqual([]);
+    expect(context.memory.working).toHaveLength(1);
+    expect(context.memory.working[0]?.status).toBe("done");
+    expect(context.memory.working[0]?.task_id).toBe("task-123");
+    expect(context.memory.working[0]?.closed_at).toBe(1700000002000);
+    expect(context.memory.ephemeral).toHaveLength(1);
   });
 
-  test("finishTaskContext can clear retry attempt context without updating last_task", () => {
+  test("finishTaskContext can end retry attempt without updating last_task and preserves failed raw working history", () => {
     const session = new AgentSession({
       workspace: "/tmp/workspace",
       systemPrompt: "system prompt",
@@ -270,6 +370,21 @@ describe("AgentSession", () => {
       input: "new task",
       retries: 0,
       startedAt: 1700000001000,
+    });
+    session.mergeExtractedContext({
+      memory: {
+        working: [
+          {
+            id: "work-1",
+            type: "task",
+            decay: 0.2,
+            confidence: 0.9,
+            round: 1,
+            tags: ["task"],
+            content: "retry progress",
+          },
+        ],
+      } as any,
     });
     session.finishTaskContext(
       {
@@ -294,14 +409,16 @@ describe("AgentSession", () => {
       active_task?: string | null;
       last_task?: unknown;
       memory: {
-        working: unknown[];
+        working: Array<Record<string, unknown>>;
         ephemeral: unknown[];
       };
     };
 
     expect(context.active_task).toBe("retry task");
     expect("last_task" in context).toBe(false);
-    expect(context.memory.working).toEqual([]);
+    expect(context.memory.working).toHaveLength(1);
+    expect(context.memory.working[0]?.id).toBe("work-1");
+    expect(context.memory.working[0]?.status).toBe("failed");
     expect(context.memory.ephemeral).toEqual([]);
   });
 
@@ -355,7 +472,9 @@ describe("AgentSession", () => {
       };
     };
 
-    expect(afterRetryCleanup.memory.working).toEqual([]);
+    expect(afterRetryCleanup.memory.working).toHaveLength(1);
+    expect((afterRetryCleanup.memory.working[0] as any)?.id).toBe("progress-1");
+    expect((afterRetryCleanup.memory.working[0] as any)?.status).toBe("failed");
     expect(afterRetryCleanup.memory.ephemeral).toEqual([]);
     expect(afterRetryCleanup.task_checkpoint).toBeTruthy();
     expect(afterRetryCleanup.task_checkpoint?.task_id).toBe("task-long");
@@ -379,6 +498,7 @@ describe("AgentSession", () => {
     expect(afterRetryBegin.active_task).toBe("long task");
     expect(afterRetryBegin.memory.working.map((item) => item.id)).toEqual(["progress-1"]);
     expect(afterRetryBegin.memory.working[0]?.content).toBe("step 1 done");
+    expect((afterRetryBegin.memory.working[0] as any)?.status).toBe("open");
     expect(afterRetryBegin.task_checkpoint?.task_id).toBe("task-long");
   });
 
@@ -434,12 +554,67 @@ describe("AgentSession", () => {
     const context = session.getContextSnapshot() as {
       task_checkpoint?: unknown;
       last_task?: Record<string, unknown>;
-      memory: { working: unknown[]; ephemeral: unknown[] };
+      memory: { working: Array<Record<string, unknown>>; ephemeral: unknown[] };
     };
 
     expect(context.task_checkpoint).toBeNull();
     expect(context.last_task?.status).toBe("success");
-    expect(context.memory.working).toEqual([]);
+    expect(context.memory.working).toHaveLength(1);
+    expect(context.memory.working[0]?.status).toBe("failed");
     expect(context.memory.ephemeral).toEqual([]);
+  });
+
+  test("injectContext uses projected context so terminal working blocks stay in raw but are excluded from injected context", () => {
+    const session = new AgentSession({
+      workspace: "/tmp/workspace",
+      systemPrompt: "system prompt",
+      contextClock: createClock(),
+    });
+
+    session.mergeExtractedContext({
+      memory: {
+        working: [
+          {
+            id: "work-done",
+            type: "task",
+            decay: 0.1,
+            confidence: 0.95,
+            round: 1,
+            tags: ["task"],
+            content: "already finished",
+            status: "done",
+          },
+          {
+            id: "work-open",
+            type: "task",
+            decay: 0.1,
+            confidence: 0.95,
+            round: 1,
+            tags: ["task"],
+            content: "current work",
+            status: "open",
+          },
+        ],
+      } as any,
+      last_task: { id: "t-1", status: "success" } as any,
+      task_checkpoint: { task_id: "t-1", working_memory: [] } as any,
+    });
+
+    const projection = session.getContextProjectionSnapshot();
+    expect(projection.context.memory.working.map((item) => item.id).sort()).toEqual([
+      "work-done",
+      "work-open",
+    ]);
+    expect(projection.injectedContext.memory.working.map((item) => item.id)).toEqual(["work-open"]);
+    expect((projection.injectedContext as any).last_task).toBeUndefined();
+    expect((projection.injectedContext as any).task_checkpoint).toBeUndefined();
+
+    session.prepareUserTurn("next");
+    const systemContextMessage = String(session.getMessagesSnapshot()[0]?.content ?? "");
+    const encoded = systemContextMessage.split("\n").slice(1, -1).join("\n");
+    const decoded = decode(encoded) as any;
+    expect(decoded.memory.working.map((item: any) => item.id)).toEqual(["work-open"]);
+    expect(decoded.last_task).toBeUndefined();
+    expect(decoded.task_checkpoint).toBeUndefined();
   });
 });

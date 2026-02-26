@@ -13,8 +13,15 @@ export type ContextTierPolicy = {
   maxAgeRounds?: number;
 };
 
+export type RawContextRetentionPolicy = {
+  tiers: Record<ContextMemoryTier, { maxItems: number }>;
+  workingTerminalMaxAgeRounds: number;
+  ephemeralMaxAgeRounds: number;
+};
+
 export const CONTEXT_POLICY = {
   version: 2.3,
+  projectionPolicyVersion: "v2.3-projection",
   defaultConfidence: 0.5,
   contentMaxLength: 512,
   tagsMaxItems: 8,
@@ -39,6 +46,15 @@ export const CONTEXT_POLICY = {
       maxAgeRounds: 3,
     },
   } satisfies Record<ContextMemoryTier, ContextTierPolicy>,
+  rawRetention: {
+    tiers: {
+      core: { maxItems: 200 },
+      working: { maxItems: 500 },
+      ephemeral: { maxItems: 200 },
+    },
+    workingTerminalMaxAgeRounds: 120,
+    ephemeralMaxAgeRounds: 30,
+  } satisfies RawContextRetentionPolicy,
 } as const;
 
 export const getMemoryBlockQuality = (block: Pick<ContextMemoryBlock, "decay" | "confidence">) =>

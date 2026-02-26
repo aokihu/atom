@@ -101,6 +101,9 @@ export class AgentRunner {
         tools: this.createToolRegistryForRun(options),
         stopWhen: stepCountIs(this.maxSteps),
         onOutputMessage: options?.onOutputMessage,
+        onUsage: (usage) => {
+          session.recordRuntimeTokenUsageFromSDK(usage);
+        },
       });
     } finally {
       if (this.currentAbortController === abortController) {
@@ -127,6 +130,9 @@ export class AgentRunner {
       tools: this.createToolRegistryForRun(options),
       stopWhen: stepCountIs(this.maxSteps),
       onOutputMessage: options?.onOutputMessage,
+      onUsage: (usage) => {
+        session.recordRuntimeTokenUsageFromSDK(usage);
+      },
     });
 
     const originalTextStream = stream.textStream;

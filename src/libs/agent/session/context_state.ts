@@ -1,8 +1,13 @@
-import type { AgentContext } from "../../../types/agent";
+import type {
+  AgentContext,
+  AgentContextProjectionSnapshot,
+  AgentContextRuntime,
+} from "../../../types/agent";
 import { formatedDatetimeNow } from "../../utils/date";
 import { CONTEXT_POLICY } from "./context_policy";
 import {
-  compactContextMemory,
+  buildInjectedContextProjection,
+  compactRawContextForStorage,
   mergeContextWithMemoryPolicy,
   type SanitizedContextPatch,
 } from "./context_sanitizer";
@@ -46,7 +51,7 @@ export class AgentContextState {
 
   merge(context: SanitizedContextPatch) {
     const mergedContext = mergeContextWithMemoryPolicy(this.context, context);
-    this.context = compactContextMemory(mergedContext);
+    this.context = compactRawContextForStorage(mergedContext);
   }
 
   updateRuntime() {
@@ -54,8 +59,35 @@ export class AgentContextState {
     this.context.runtime.datetime = this.clock.nowDatetime();
   }
 
+  updateRuntimeTokenUsage(tokenUsage: NonNullable<AgentContextRuntime["token_usage"]>) {
+    this.context.runtime.token_usage = structuredClone(tokenUsage);
+  }
+
+  nowTimestamp() {
+    return this.clock.nowTimestamp();
+  }
+
   snapshot() {
     return structuredClone(this.context);
+  }
+
+  snapshotRaw() {
+    return this.snapshot();
+  }
+
+  snapshotInjected() {
+    return this.snapshotWithProjectionDebug().injectedContext;
+  }
+
+  snapshotWithProjectionDebug(): AgentContextProjectionSnapshot {
+    const raw = this.snapshot();
+    const projection = buildInjectedContextProjection(raw);
+
+    return {
+      context: raw,
+      injectedContext: projection.injectedContext,
+      projectionDebug: projection.debug,
+    };
   }
 
   getCurrentContext() {

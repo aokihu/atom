@@ -20,6 +20,7 @@ export type ModelExecutionInput = {
   tools: ToolDefinitionMap;
   stopWhen: any;
   onOutputMessage?: AgentOutputMessageSink;
+  onUsage?: (usage: unknown) => void;
 };
 
 export class AISDKModelExecutor {
@@ -60,6 +61,8 @@ export class AISDKModelExecutor {
         finishReason: String(result.finishReason),
         text: `Task finished (${String(result.finishReason)})`,
       });
+
+      input.onUsage?.(result.usage);
 
       return result.text;
     } catch (error) {
@@ -107,6 +110,8 @@ export class AISDKModelExecutor {
           finishReason: String(result.finishReason),
           text: `Task finished (${String(result.finishReason)})`,
         });
+
+        input.onUsage?.(result.usage);
       },
       onError: async ({ error }) => {
         emitOutputMessage(input.onOutputMessage, {

@@ -84,6 +84,8 @@ export type AgentConfig = {
 
 export type ContextMemoryTier = "core" | "working" | "ephemeral";
 
+export type ContextMemoryBlockStatus = "open" | "done" | "failed" | "cancelled";
+
 export type ContextMemoryBlock = {
   id: string;
   type: string;
@@ -92,6 +94,9 @@ export type ContextMemoryBlock = {
   round: number;
   tags: string[];
   content: string;
+  status?: ContextMemoryBlockStatus;
+  task_id?: string;
+  closed_at?: number;
   [key: string]: unknown;
 };
 
@@ -106,6 +111,18 @@ export type AgentContextRuntime = {
   workspace: string;
   datetime: string;
   startup_at: number;
+  token_usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    cumulative_total_tokens?: number;
+    reasoning_tokens?: number;
+    cached_input_tokens?: number;
+    source: "ai-sdk";
+    updated_at: number;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
 };
 
 export type AgentContext = {
@@ -113,4 +130,34 @@ export type AgentContext = {
   version: number;
   runtime: AgentContextRuntime;
   memory: AgentContextMemory;
+};
+
+export type ContextProjectionDropReason =
+  | "working_status_terminal"
+  | "threshold_decay"
+  | "threshold_confidence"
+  | "expired_by_round"
+  | "over_max_items"
+  | "invalid_block";
+
+export type ContextProjectionCounts = Record<ContextMemoryTier, number>;
+
+export type ContextProjectionDroppedSample = {
+  tier: ContextMemoryTier;
+  id?: string;
+  type?: string;
+};
+
+export type ContextProjectionDebug = {
+  round: number;
+  rawCounts: ContextProjectionCounts;
+  injectedCounts: ContextProjectionCounts;
+  droppedByReason: Record<ContextProjectionDropReason, number>;
+  droppedSamples: Partial<Record<ContextProjectionDropReason, ContextProjectionDroppedSample[]>>;
+};
+
+export type AgentContextProjectionSnapshot = {
+  context: AgentContext;
+  injectedContext: AgentContext;
+  projectionDebug: ContextProjectionDebug;
 };

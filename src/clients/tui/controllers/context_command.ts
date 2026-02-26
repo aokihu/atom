@@ -22,7 +22,7 @@ export const executeContextCommand = async (input: ExecuteContextCommandInput): 
   callbacks.onStart();
   try {
     const data = await withConnectionTracking(() => client.getAgentContext());
-    callbacks.onSuccess(formatJson(data.context));
+    callbacks.onSuccess(formatJson(data));
   } catch (error) {
     callbacks.onError(formatErrorMessage(error));
   } finally {

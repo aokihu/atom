@@ -212,8 +212,40 @@ export class AgentRuntimeService implements RuntimeGateway {
   }
 
   getAgentContext(): AgentContextResponse {
+    const agent = this.getAgent() as Agent & {
+      getContextProjectionSnapshot?: () => AgentContextResponse;
+    };
+
+    if (typeof agent.getContextProjectionSnapshot === "function") {
+      return agent.getContextProjectionSnapshot();
+    }
+
+    const context = this.getAgent().getContextSnapshot();
     return {
-      context: this.getAgent().getContextSnapshot(),
+      context,
+      injectedContext: structuredClone(context),
+      projectionDebug: {
+        round: context.runtime.round,
+        rawCounts: {
+          core: context.memory.core.length,
+          working: context.memory.working.length,
+          ephemeral: context.memory.ephemeral.length,
+        },
+        injectedCounts: {
+          core: context.memory.core.length,
+          working: context.memory.working.length,
+          ephemeral: context.memory.ephemeral.length,
+        },
+        droppedByReason: {
+          working_status_terminal: 0,
+          threshold_decay: 0,
+          threshold_confidence: 0,
+          expired_by_round: 0,
+          over_max_items: 0,
+          invalid_block: 0,
+        },
+        droppedSamples: {},
+      },
     };
   }
 
