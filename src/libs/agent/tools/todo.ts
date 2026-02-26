@@ -37,35 +37,35 @@ const listActionSchema = z.object({
   action: z.literal("list"),
   status: z.enum(["all", "open", "done"]).optional(),
   limit: z.number().int().positive().max(MAX_LIST_LIMIT).optional(),
-});
+}).strict();
 
 const addActionSchema = z.object({
   action: z.literal("add"),
   title: z.string(),
   note: z.string().optional(),
-});
+}).strict();
 
 const updateActionSchema = z.object({
   action: z.literal("update"),
   id: z.number().int().positive(),
   title: z.string().optional(),
   note: z.string().optional(),
-});
+}).strict();
 
 const setDoneActionSchema = z.object({
   action: z.literal("set_done"),
   id: z.number().int().positive(),
   done: z.boolean().optional(),
-});
+}).strict();
 
 const removeActionSchema = z.object({
   action: z.literal("remove"),
   id: z.number().int().positive(),
-});
+}).strict();
 
 const clearDoneActionSchema = z.object({
   action: z.literal("clear_done"),
-});
+}).strict();
 
 const todoInputSchema = z.object({
   action: z.enum(["list", "add", "update", "set_done", "remove", "clear_done"]),
@@ -75,7 +75,7 @@ const todoInputSchema = z.object({
   status: z.enum(["all", "open", "done"]).optional(),
   done: z.boolean().optional(),
   limit: z.number().int().positive().max(MAX_LIST_LIMIT).optional(),
-});
+}).strict();
 
 type TodoToolInput = z.infer<typeof todoInputSchema>;
 
@@ -173,7 +173,7 @@ const listTodos = (db: Database, status: "all" | TodoStatus, limit: number): Tod
     .all(limit) as TodoRow[];
 };
 
-const executeList = (db: Database, dbPath: string, input: unknown) => {
+const executeList = (db: Database, input: unknown) => {
   const parsed = listActionSchema.safeParse(input);
   if (!parsed.success) {
     return invalidInput("Invalid list action input", formatZodInputError(parsed.error));
@@ -185,7 +185,6 @@ const executeList = (db: Database, dbPath: string, input: unknown) => {
 
   return {
     action: "list" as const,
-    dbPath,
     status,
     limit,
     count: rows.length,
@@ -193,7 +192,7 @@ const executeList = (db: Database, dbPath: string, input: unknown) => {
   };
 };
 
-const executeAdd = (db: Database, dbPath: string, input: unknown) => {
+const executeAdd = (db: Database, input: unknown) => {
   const parsed = addActionSchema.safeParse(input);
   if (!parsed.success) {
     return invalidInput("Invalid add action input", formatZodInputError(parsed.error));
@@ -214,13 +213,12 @@ const executeAdd = (db: Database, dbPath: string, input: unknown) => {
 
   return {
     action: "add" as const,
-    dbPath,
     success: true,
     item: row ? mapTodoRow(row) : null,
   };
 };
 
-const executeUpdate = (db: Database, dbPath: string, input: unknown) => {
+const executeUpdate = (db: Database, input: unknown) => {
   const parsed = updateActionSchema.safeParse(input);
   if (!parsed.success) {
     return invalidInput("Invalid update action input", formatZodInputError(parsed.error));
@@ -271,13 +269,12 @@ const executeUpdate = (db: Database, dbPath: string, input: unknown) => {
   const row = getTodoById(db, id);
   return {
     action: "update" as const,
-    dbPath,
     success: true,
     item: row ? mapTodoRow(row) : null,
   };
 };
 
-const executeSetDone = (db: Database, dbPath: string, input: unknown) => {
+const executeSetDone = (db: Database, input: unknown) => {
   const parsed = setDoneActionSchema.safeParse(input);
   if (!parsed.success) {
     return invalidInput("Invalid set_done action input", formatZodInputError(parsed.error));
@@ -307,13 +304,12 @@ const executeSetDone = (db: Database, dbPath: string, input: unknown) => {
   const row = getTodoById(db, id);
   return {
     action: "set_done" as const,
-    dbPath,
     success: true,
     item: row ? mapTodoRow(row) : null,
   };
 };
 
-const executeRemove = (db: Database, dbPath: string, input: unknown) => {
+const executeRemove = (db: Database, input: unknown) => {
   const parsed = removeActionSchema.safeParse(input);
   if (!parsed.success) {
     return invalidInput("Invalid remove action input", formatZodInputError(parsed.error));
@@ -330,13 +326,12 @@ const executeRemove = (db: Database, dbPath: string, input: unknown) => {
 
   return {
     action: "remove" as const,
-    dbPath,
     success: true,
     id,
   };
 };
 
-const executeClearDone = (db: Database, dbPath: string, input: unknown) => {
+const executeClearDone = (db: Database, input: unknown) => {
   const parsed = clearDoneActionSchema.safeParse(input);
   if (!parsed.success) {
     return invalidInput("Invalid clear_done action input", formatZodInputError(parsed.error));
@@ -346,26 +341,25 @@ const executeClearDone = (db: Database, dbPath: string, input: unknown) => {
 
   return {
     action: "clear_done" as const,
-    dbPath,
     success: true,
     deletedCount: deleteResult.changes,
   };
 };
 
-const executeTodoAction = (db: Database, dbPath: string, input: TodoToolInput) => {
+const executeTodoAction = (db: Database, input: TodoToolInput) => {
   switch (input.action) {
     case "list":
-      return executeList(db, dbPath, input);
+      return executeList(db, input);
     case "add":
-      return executeAdd(db, dbPath, input);
+      return executeAdd(db, input);
     case "update":
-      return executeUpdate(db, dbPath, input);
+      return executeUpdate(db, input);
     case "set_done":
-      return executeSetDone(db, dbPath, input);
+      return executeSetDone(db, input);
     case "remove":
-      return executeRemove(db, dbPath, input);
+      return executeRemove(db, input);
     case "clear_done":
-      return executeClearDone(db, dbPath, input);
+      return executeClearDone(db, input);
     default:
       return invalidInput("Unknown action");
   }
@@ -393,7 +387,7 @@ export const todoTool = (context: ToolExecutionContext) =>
       try {
         const opened = await openTodoDatabase(workspaceResult.workspace);
         db = opened.db;
-        return executeTodoAction(db, opened.dbPath, input);
+        return executeTodoAction(db, input);
       } catch (error) {
         return {
           error: error instanceof Error ? error.message : "todo tool failed",

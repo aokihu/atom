@@ -24,7 +24,6 @@ describe("todo tool", () => {
     expect(addResult.success).toBe(true);
     expect(addResult.item.title).toBe("first task");
     expect(addResult.item.status).toBe("open");
-    expect(addResult.dbPath).toBe(getTodoDbPath(workspace));
     expect(await Bun.file(getTodoDbPath(workspace)).exists()).toBe(true);
 
     const listResult = await executeTool(
@@ -113,5 +112,16 @@ describe("todo tool", () => {
   test("returns error when workspace is unavailable", async () => {
     const result = await executeTool({}, { action: "list" });
     expect(result.error).toContain("Workspace unavailable");
+  });
+
+  test("rejects external dbPath input", async () => {
+    const workspace = await createWorkspaceTempDir();
+    const result = await executeTool(
+      { workspace },
+      { action: "list", dbPath: "/tmp/override.db" } as any,
+    );
+
+    expect(result.error).toBe("Invalid list action input");
+    expect(String(result.detail ?? "")).toContain("Unrecognized key");
   });
 });
