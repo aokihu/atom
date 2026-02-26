@@ -51,16 +51,29 @@ export type ChatMessageCardInput =
 
 export type ToolGroupSummaryCardInput = {
   role: "tool_group_summary";
+  groupKey: string;
   taskId?: string;
   step?: number;
   createdAt?: number;
   executed: number;
   success: number;
   failed: number;
-  status: "done" | "error";
+  status: "running" | "done" | "error";
 };
 
-export type MessagePaneRenderItem = ChatMessageCardInput | ToolGroupSummaryCardInput;
+export type ToolGroupToggleCardInput = {
+  role: "tool_group_toggle";
+  groupKey: string;
+  taskId?: string;
+  step?: number;
+  createdAt?: number;
+  status: "running" | "done" | "error";
+};
+
+export type MessagePaneRenderItem =
+  | ChatMessageCardInput
+  | ToolGroupSummaryCardInput
+  | ToolGroupToggleCardInput;
 
 export type ChatMessageCardViewState = {
   role: MessagePaneRenderItem["role"];
@@ -86,6 +99,23 @@ export type RenderMessageStreamInput = {
   items: ChatMessageCardInput[];
 };
 
+export type CollapseCompletedToolGroupsOptions = {
+  expandedGroupKeys?: ReadonlySet<string>;
+};
+
+const TOOL_GROUP_COLLAPSE_THRESHOLD_WHEN_COMPLETED = 3;
+const TOOL_GROUP_COLLAPSE_THRESHOLD_WHEN_RUNNING = 5;
+const expandedToolGroupKeysByListBox = new WeakMap<BoxRenderable, Set<string>>();
+
+const getExpandedToolGroupKeysForListBox = (listBox: BoxRenderable): Set<string> => {
+  let keys = expandedToolGroupKeysByListBox.get(listBox);
+  if (!keys) {
+    keys = new Set<string>();
+    expandedToolGroupKeysByListBox.set(listBox, keys);
+  }
+  return keys;
+};
+
 const isToolCardInput = (
   item: ChatMessageCardInput,
 ): item is Extract<ChatMessageCardInput, { role: "tool" }> => item.role === "tool";
@@ -103,10 +133,15 @@ const buildToolGroupCollapsedSummaryText = (
   item: ToolGroupSummaryCardInput,
 ): string => `executed=${item.executed} success=${item.success} failed=${item.failed}`;
 
+const buildToolGroupKey = (taskId: string, startIndex: number): string =>
+  `${taskId}:${startIndex}`;
+
 export const collapseCompletedToolGroups = (
   items: readonly ChatMessageCardInput[],
+  options: CollapseCompletedToolGroupsOptions = {},
 ): MessagePaneRenderItem[] => {
   const collapsed: MessagePaneRenderItem[] = [];
+  const expandedGroupKeys = options.expandedGroupKeys;
 
   let index = 0;
   while (index < items.length) {
@@ -118,6 +153,7 @@ export const collapseCompletedToolGroups = (
     }
 
     const groupTaskId = current.taskId;
+    const groupKey = buildToolGroupKey(groupTaskId, index);
     const group: Extract<ChatMessageCardInput, { role: "tool" }>[] = [];
     let cursor = index;
 
@@ -134,10 +170,17 @@ export const collapseCompletedToolGroups = (
     }
 
     const hasRunning = group.some((tool) => tool.status === "running");
-    if (group.length >= 2 && !hasRunning) {
+    const collapseThreshold = hasRunning
+      ? TOOL_GROUP_COLLAPSE_THRESHOLD_WHEN_RUNNING
+      : TOOL_GROUP_COLLAPSE_THRESHOLD_WHEN_COMPLETED;
+    const shouldCollapse =
+      group.length > collapseThreshold &&
+      !(expandedGroupKeys && expandedGroupKeys.has(groupKey));
+
+    if (shouldCollapse) {
+      const success = group.filter((tool) => tool.status === "done").length;
       const failed = group.filter((tool) => tool.status === "error").length;
       const executed = group.length;
-      const success = executed - failed;
       const numericSteps = group
         .map((tool) => (typeof tool.step === "number" && Number.isFinite(tool.step) ? tool.step : undefined))
         .filter((step): step is number => step !== undefined);
@@ -145,16 +188,33 @@ export const collapseCompletedToolGroups = (
       const summaryStep = uniqueSteps.size === 1 ? numericSteps[0] : undefined;
       collapsed.push({
         role: "tool_group_summary",
+        groupKey,
         taskId: groupTaskId,
         step: summaryStep,
         createdAt: group[0]?.createdAt,
         executed,
         success,
         failed,
-        status: failed > 0 ? "error" : "done",
+        status: hasRunning ? "running" : failed > 0 ? "error" : "done",
       });
     } else {
       collapsed.push(...group);
+      if (group.length > collapseThreshold && expandedGroupKeys?.has(groupKey)) {
+        const failed = group.filter((tool) => tool.status === "error").length;
+        const numericSteps = group
+          .map((tool) => (typeof tool.step === "number" && Number.isFinite(tool.step) ? tool.step : undefined))
+          .filter((step): step is number => step !== undefined);
+        const uniqueSteps = new Set<number>(numericSteps);
+        const summaryStep = uniqueSteps.size === 1 ? numericSteps[0] : undefined;
+        collapsed.push({
+          role: "tool_group_toggle",
+          groupKey,
+          taskId: groupTaskId,
+          step: summaryStep,
+          createdAt: group[group.length - 1]?.createdAt ?? group[0]?.createdAt,
+          status: hasRunning ? "running" : failed > 0 ? "error" : "done",
+        });
+      }
     }
 
     index = cursor;
@@ -426,6 +486,16 @@ export const buildChatMessageCardViewState = (
     };
   }
 
+  if (item.role === "tool_group_toggle") {
+    return {
+      role: "tool_group_toggle",
+      titleText: "点击折叠",
+      toolCollapsed: true,
+      toolStatus: item.status,
+      metaText: `tools${item.taskId ? ` : ${item.taskId}` : ""}${typeof item.step === "number" ? ` step ${item.step}` : ""}`,
+    };
+  }
+
   if (item.role === "tool") {
     return {
       role: "tool",
@@ -459,7 +529,10 @@ export const renderMessageStreamContent = (
     if (!child.isDestroyed) child.destroyRecursively();
   }
 
-  const renderItems = collapseCompletedToolGroups(input.items);
+  const expandedToolGroupKeys = getExpandedToolGroupKeysForListBox(input.listBox);
+  const renderItems = collapseCompletedToolGroups(input.items, {
+    expandedGroupKeys: expandedToolGroupKeys,
+  });
 
   if (renderItems.length === 0) {
     const emptyWrap = new BoxRenderable(input.renderer, {
@@ -485,10 +558,14 @@ export const renderMessageStreamContent = (
     const isAssistant = cardState.role === "assistant";
     const isTool = cardState.role === "tool";
     const isToolGroupSummary = cardState.role === "tool_group_summary";
-    const isToolLike = isTool || isToolGroupSummary;
+    const isToolGroupToggle = cardState.role === "tool_group_toggle";
+    const isToolLike = isTool || isToolGroupSummary || isToolGroupToggle;
     const previousItem = index > 0 ? renderItems[index - 1] : undefined;
     const previousRole = previousItem?.role;
-    const previousIsToolLike = previousRole === "tool" || previousRole === "tool_group_summary";
+    const previousIsToolLike =
+      previousRole === "tool" ||
+      previousRole === "tool_group_summary" ||
+      previousRole === "tool_group_toggle";
     const groupedPlainText =
       (isAssistant || isSystem) && previousRole === cardState.role;
     const toolMarginTop =
@@ -515,6 +592,28 @@ export const renderMessageStreamContent = (
             : undefined,
       backgroundColor: cardBackgroundColor,
     });
+    if (isToolGroupSummary) {
+      const summaryItem = item as ToolGroupSummaryCardInput;
+      card.onMouseUp = (event) => {
+        if (event.button !== 0) return;
+        expandedToolGroupKeys.add(summaryItem.groupKey);
+        event.stopPropagation();
+        event.preventDefault();
+        renderMessageStreamContent(input);
+        input.renderer.requestRender();
+      };
+    }
+    if (isToolGroupToggle) {
+      const toggleItem = item as ToolGroupToggleCardInput;
+      card.onMouseUp = (event) => {
+        if (event.button !== 0) return;
+        expandedToolGroupKeys.delete(toggleItem.groupKey);
+        event.stopPropagation();
+        event.preventDefault();
+        renderMessageStreamContent(input);
+        input.renderer.requestRender();
+      };
+    }
 
     const bodyWrap = new BoxRenderable(input.renderer, {
       width: "100%",
@@ -541,7 +640,13 @@ export const renderMessageStreamContent = (
       // "<status> [<toolName>] | <collapsed summary>"
       // Keep the trailing space after the status glyph so the symbol and tool name never touch.
       const statusMark =
-        toolStatus === "error" ? "✕ " : toolStatus === "running" ? "… " : "✓ ";
+        isToolGroupToggle
+          ? ""
+          : toolStatus === "error"
+            ? "✕ "
+            : toolStatus === "running"
+              ? "… "
+              : "✓ ";
       const collapsedSummary = isTool
         ? buildToolCardCollapsedSummary(item as Extract<ChatMessageCardInput, { role: "tool" }>)
         : isToolGroupSummary
@@ -555,12 +660,15 @@ export const renderMessageStreamContent = (
         paddingLeft: 1,
       });
       const titleStatusText = new TextRenderable(input.renderer, {
-        content: `${statusMark} `,
+        content: isToolGroupToggle ? "" : `${statusMark} `,
         fg: getToolStatusColor(toolStatus),
       });
       const titlePrefixText = new TextRenderable(input.renderer, {
         content: `[${cardState.titleText ?? "tool"}]`,
-        fg: isToolGroupSummary ? getToolStatusColor(toolStatus) : NORD.nord4,
+        fg:
+          isToolGroupSummary || isToolGroupToggle
+            ? getToolStatusColor(toolStatus)
+            : NORD.nord4,
       });
       titleRow.add(titleStatusText);
       titleRow.add(titlePrefixText);
