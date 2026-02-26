@@ -2,7 +2,6 @@
  * 使用 ripgrep 搜索目录内容
  */
 
-import { $ } from "bun";
 import { tool } from "ai";
 import { z } from "zod";
 import { createPermissionPolicy } from "./permissions/policy";
@@ -13,6 +12,47 @@ type RipgrepToolInput = {
   pattern: string;
   caseSensitive?: boolean;
   fileGlob?: string;
+};
+
+type BuildRipgrepArgsInput = {
+  dirpath: string;
+  pattern: string;
+  caseSensitive?: boolean;
+  fileGlob?: string;
+  protectedExcludes?: string[];
+};
+
+export const buildRipgrepArgs = ({
+  dirpath,
+  pattern,
+  caseSensitive = false,
+  fileGlob,
+  protectedExcludes = [],
+}: BuildRipgrepArgsInput) => {
+  const args: string[] = [];
+
+  if (!caseSensitive) {
+    args.push("-i");
+  }
+
+  if (fileGlob) {
+    args.push("-g", fileGlob);
+  }
+
+  for (const glob of protectedExcludes) {
+    args.push("-g", glob);
+  }
+
+  args.push(pattern, dirpath);
+  return args;
+};
+
+const readSpawnOutput = async (stream: ReadableStream<Uint8Array> | null) => {
+  if (!stream) {
+    return "";
+  }
+
+  return await new Response(stream).text();
 };
 
 export const ripgrepTool = (context: ToolExecutionContext) =>
@@ -37,32 +77,40 @@ export const ripgrepTool = (context: ToolExecutionContext) =>
       caseSensitive = false,
       fileGlob,
     }: RipgrepToolInput) => {
-      if (!createPermissionPolicy(context).canRipgrep(dirpath)) {
+      const policy = createPermissionPolicy(context);
+      if (!policy.canRipgrep(dirpath)) {
         return {
           error: "Permission denied: ripgrep path not allowed",
         };
       }
 
-      const command = [
-        "rg",
-        caseSensitive ? "" : "-i",
-        fileGlob ? `-g ${fileGlob}` : "",
-        pattern,
+      const protectedExcludes = policy.getRipgrepExcludeGlobs(dirpath);
+      const args = buildRipgrepArgs({
         dirpath,
-      ]
-        .filter(Boolean)
-        .join(" ");
+        pattern,
+        caseSensitive,
+        fileGlob,
+        protectedExcludes,
+      });
+      const command = ["rg", ...args].join(" ");
 
       try {
-        let result = "";
-        if (fileGlob && !caseSensitive) {
-          result = await $`rg -i -g ${fileGlob} ${pattern} ${dirpath}`.text();
-        } else if (fileGlob) {
-          result = await $`rg -g ${fileGlob} ${pattern} ${dirpath}`.text();
-        } else if (!caseSensitive) {
-          result = await $`rg -i ${pattern} ${dirpath}`.text();
-        } else {
-          result = await $`rg ${pattern} ${dirpath}`.text();
+        const process = Bun.spawn(["rg", ...args], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+
+        const [result, stderr, exitCode] = await Promise.all([
+          readSpawnOutput(process.stdout),
+          readSpawnOutput(process.stderr),
+          process.exited,
+        ]);
+
+        if (exitCode !== 0) {
+          return {
+            error: stderr.trim() || `rg command failed (exit ${exitCode})`,
+            command,
+          };
         }
 
         return {

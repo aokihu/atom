@@ -7,7 +7,10 @@ import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
-import { createPermissionPolicy } from "./permissions/policy";
+import {
+  createPermissionPolicy,
+  type PermissionPolicy,
+} from "./permissions/policy";
 import type { ToolExecutionContext } from "./types";
 
 type TreeToolInput = {
@@ -54,6 +57,7 @@ const formatEntryName = async (entry: Dirent, fullPath: string) => {
 };
 
 const walkTree = async (
+  policy: PermissionPolicy,
   dirpath: string,
   depth: number,
   level: number | undefined,
@@ -65,6 +69,7 @@ const walkTree = async (
   if (!all) {
     entries = entries.filter((entry) => !entry.name.startsWith("."));
   }
+  entries = entries.filter((entry) => !policy.shouldHideDirEntry(dirpath, entry.name));
   entries = sortEntries(entries);
 
   const lines: string[] = [];
@@ -83,6 +88,7 @@ const walkTree = async (
       if (shouldDescend) {
         try {
           const childLines = await walkTree(
+            policy,
             fullPath,
             depth + 1,
             level,
@@ -122,7 +128,8 @@ export const treeTool = (context: ToolExecutionContext) =>
       all: z.boolean().optional().describe("list hidden files when true"),
     }),
     execute: async ({ dirpath, level, all = false }: TreeToolInput) => {
-      if (!createPermissionPolicy(context).canReadTree(dirpath)) {
+      const policy = createPermissionPolicy(context);
+      if (!policy.canReadTree(dirpath)) {
         return {
           error: "Permission denied: tree path not allowed",
         };
@@ -150,7 +157,7 @@ export const treeTool = (context: ToolExecutionContext) =>
           directories: 0,
           files: 0,
         };
-        const lines = await walkTree(dirpath, 1, level, all, "", counts);
+        const lines = await walkTree(policy, dirpath, 1, level, all, "", counts);
         const result = [...[dirpath], ...lines, formatSummary(counts)].join("\n");
 
         return {
