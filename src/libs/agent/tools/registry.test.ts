@@ -86,4 +86,47 @@ describe("tool registry", () => {
     expect(mcpResult).toBeDefined();
     expect(mcpResult && "outputDisplay" in mcpResult ? mcpResult.outputDisplay : undefined).toBeUndefined();
   });
+
+  test("enforces shared tool budget across builtin and mcp tools", async () => {
+    let used = 0;
+    const registry = createToolRegistry({
+      context: {
+        toolBudget: {
+          tryConsume(toolName: string) {
+            if (used >= 2) {
+              return {
+                ok: false as const,
+                used,
+                remaining: 0,
+                limit: 2,
+                toolName,
+              };
+            }
+            used += 1;
+            return {
+              ok: true as const,
+              used,
+              remaining: Math.max(0, 2 - used),
+              limit: 2,
+              toolName,
+            };
+          },
+        },
+      },
+      mcpTools: {
+        "memory:search": {
+          execute: async () => ({ items: [] }),
+        } as any,
+      },
+    });
+
+    const filepath = `/tmp/atom-tool-budget-${Date.now()}.txt`;
+    await Bun.write(filepath, "hello");
+
+    await (registry.read as any).execute({ filepath });
+    await (registry["memory:search"] as any).execute({ query: "ok" });
+    await expect((registry["memory:search"] as any).execute({ query: "blocked" })).rejects.toThrow(
+      /Tool budget exceeded/,
+    );
+  });
 });

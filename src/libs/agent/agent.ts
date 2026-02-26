@@ -7,8 +7,10 @@ import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { AgentModelParams } from "../../types/agent";
 
 import {
+  AgentControlledStopError,
   AgentRunner,
   type AgentDependencies,
+  type AgentRunDetailedResult,
   type AgentRunOptions,
 } from "./core/agent_runner";
 import {
@@ -22,11 +24,13 @@ import type { ToolDefinitionMap, ToolExecutionContext } from "./tools";
 
 export type {
   AgentDependencies,
+  AgentRunDetailedResult,
   AgentRunOptions,
   AgentSessionSnapshot,
   ToolDefinitionMap,
   ToolExecutionContext,
 };
+export { AgentControlledStopError };
 
 export class Agent {
   private readonly session: AgentSession;
@@ -59,6 +63,10 @@ export class Agent {
    */
   async runTask(question: string, options?: AgentRunOptions) {
     return await this.runner.runTask(this.session, question, options);
+  }
+
+  async runTaskDetailed(question: string, options?: AgentRunOptions): Promise<AgentRunDetailedResult> {
+    return await this.runner.runTaskDetailed(this.session, question, options);
   }
 
   /**

@@ -1,4 +1,8 @@
-import { TaskStatus } from "../../../types/task";
+import {
+  TaskStatus,
+  isTaskExecutionStopReason,
+  type TaskExecutionMetadata,
+} from "../../../types/task";
 
 export type CompletedTaskSummary =
   | { kind: "assistant_reply"; logKind: "assistant"; statusNotice: string; replyText: string }
@@ -11,10 +15,48 @@ type TaskLike = {
   error?: {
     message?: string;
   } | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export const isTaskStillRunning = (status: TaskStatus): boolean =>
   status === TaskStatus.Pending || status === TaskStatus.Running;
+
+const formatStopReason = (reason: string): string => reason.replaceAll("_", " ");
+
+const extractExecutionStopMetadata = (task: TaskLike): TaskExecutionMetadata | null => {
+  const metadata = task.metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+
+  const executionRaw = (metadata as Record<string, unknown>).execution;
+  if (!executionRaw || typeof executionRaw !== "object") {
+    return null;
+  }
+
+  const execution = executionRaw as Record<string, unknown>;
+  if (execution.completed !== false) {
+    return null;
+  }
+
+  const stopReason = execution.stopReason;
+  if (!isTaskExecutionStopReason(stopReason)) {
+    return null;
+  }
+
+  return {
+    completed: false,
+    stopReason,
+    segmentCount:
+      typeof execution.segmentCount === "number" ? execution.segmentCount : undefined,
+    totalToolCalls:
+      typeof execution.totalToolCalls === "number" ? execution.totalToolCalls : undefined,
+    totalModelSteps:
+      typeof execution.totalModelSteps === "number" ? execution.totalModelSteps : undefined,
+    retrySuppressed:
+      typeof execution.retrySuppressed === "boolean" ? execution.retrySuppressed : undefined,
+  };
+};
 
 export const summarizeCompletedTask = (task: TaskLike): CompletedTaskSummary => {
   if (task.status === TaskStatus.Success) {
@@ -35,6 +77,32 @@ export const summarizeCompletedTask = (task: TaskLike): CompletedTaskSummary => 
   }
 
   if (task.status === TaskStatus.Failed) {
+    const execution = extractExecutionStopMetadata(task);
+    if (execution) {
+      const parts = [
+        `Task not completed: ${formatStopReason(execution.stopReason)}`,
+      ];
+      const stats: string[] = [];
+      if (typeof execution.totalToolCalls === "number") {
+        stats.push(`tools ${execution.totalToolCalls}`);
+      }
+      if (typeof execution.totalModelSteps === "number") {
+        stats.push(`model steps ${execution.totalModelSteps}`);
+      }
+      if (typeof execution.segmentCount === "number") {
+        stats.push(`segments ${execution.segmentCount}`);
+      }
+      if (stats.length > 0) {
+        parts.push(`(${stats.join(", ")})`);
+      }
+
+      return {
+        kind: "system",
+        logKind: "system",
+        statusNotice: parts.join(" "),
+      };
+    }
+
     const message = task.error?.message ?? "Unknown error";
     return {
       kind: "error",
@@ -56,4 +124,9 @@ export const summarizeCompletedTask = (task: TaskLike): CompletedTaskSummary => 
     logKind: "system",
     statusNotice: `Task completed with unexpected status: ${task.status}`,
   };
+};
+
+export const __taskFlowInternals = {
+  extractExecutionStopMetadata,
+  formatStopReason,
 };

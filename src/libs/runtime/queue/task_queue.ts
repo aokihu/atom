@@ -4,6 +4,7 @@
  */
 
 import { type TaskQueue, type TaskItem, TaskStatus } from "../../../types/task";
+import { isNonRetryableTaskError } from "../errors";
 
 type Task = TaskItem<any, any>;
 
@@ -87,7 +88,7 @@ export class PriorityTaskQueue implements TaskQueue {
         task.status = TaskStatus.Failed;
         task.error = { message: err?.message ?? String(err) };
 
-        if (task.retries < task.maxRetries) {
+        if (!isNonRetryableTaskError(err) && task.retries < task.maxRetries) {
           task.retries++;
           task.status = TaskStatus.Pending;
           this.push(task);

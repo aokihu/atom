@@ -16,6 +16,7 @@ import {
   type ToolDefinitionMap,
   type ToolExecutionContext,
   type ToolFactory,
+  ToolBudgetExceededError,
 } from "./types";
 import { emitOutputMessage, summarizeOutputValue, toOutputErrorMessage } from "../core/output_messages";
 import { buildToolCallDisplay, buildToolResultDisplay } from "./tool_display";
@@ -85,6 +86,16 @@ const wrapToolDefinition = (
     execute: async (...args: unknown[]) => {
       const toolCallId = getToolCallId(args);
       const input = args[0];
+      const budgetResult = context.toolBudget?.tryConsume(toolName);
+      if (budgetResult && !budgetResult.ok) {
+        throw new ToolBudgetExceededError({
+          toolName,
+          used: budgetResult.used,
+          remaining: budgetResult.remaining,
+          limit: budgetResult.limit,
+        });
+      }
+
       emitOutputMessage(context.onOutputMessage, {
         category: "tool",
         type: "tool.call",
@@ -133,7 +144,7 @@ const wrapToolRegistryWithOutput = (
   registry: ToolDefinitionMap,
   context: ToolExecutionContext,
 ): ToolDefinitionMap => {
-  if (!context.onOutputMessage) {
+  if (!context.onOutputMessage && !context.toolBudget) {
     return registry;
   }
 

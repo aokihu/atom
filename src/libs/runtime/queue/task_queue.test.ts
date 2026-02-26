@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { TaskStatus, type TaskItem } from "../../../types/task";
+import { ControlledTaskStopError } from "../errors";
 import { createTask } from "./factory";
 import { PriorityTaskQueue } from "./task_queue";
 
@@ -118,5 +119,33 @@ describe("PriorityTaskQueue lifecycle hooks", () => {
     expect(task.retries).toBe(0);
     expect(settled[0]?.status).toBe(TaskStatus.Cancelled);
     expect(typeof settled[0]?.finishedAt).toBe("number");
+  });
+
+  test("does not retry non-retryable controlled stop errors", async () => {
+    const settled: Array<ReturnType<typeof snapshotTask>> = [];
+
+    const queue = new PriorityTaskQueue(
+      async () => {
+        throw new ControlledTaskStopError({
+          stopReason: "tool_budget_exhausted",
+        });
+      },
+      {
+        onTaskAttemptSettled: (task) => {
+          settled.push(snapshotTask(task));
+        },
+      },
+    );
+
+    const task = createTask<string, string>("test", "hello", { maxRetries: 5 });
+    queue.add(task);
+    queue.start();
+
+    await waitUntil(() => task.status === TaskStatus.Failed && settled.length === 1);
+
+    expect(task.retries).toBe(0);
+    expect(task.status).toBe(TaskStatus.Failed);
+    expect(task.error?.message).toContain("tool_budget_exhausted");
+    expect(settled[0]?.status).toBe(TaskStatus.Failed);
   });
 });

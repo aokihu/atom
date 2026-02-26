@@ -7,6 +7,34 @@ export type AgentRuntimeConfig = {
   name?: string;
   model: string;
   params?: AgentModelParams;
+  execution?: AgentExecutionConfig;
+};
+
+export type AgentExecutionConfig = {
+  maxModelStepsPerRun?: number;
+  autoContinueOnStepLimit?: boolean;
+  maxToolCallsPerTask?: number;
+  maxContinuationRuns?: number;
+  maxModelStepsPerTask?: number;
+  continueWithoutAdvancingContextRound?: boolean;
+};
+
+export type ResolvedAgentExecutionConfig = {
+  maxModelStepsPerRun: number;
+  autoContinueOnStepLimit: boolean;
+  maxToolCallsPerTask: number;
+  maxContinuationRuns: number;
+  maxModelStepsPerTask: number;
+  continueWithoutAdvancingContextRound: boolean;
+};
+
+export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
+  maxModelStepsPerRun: 10,
+  autoContinueOnStepLimit: true,
+  maxToolCallsPerTask: 40,
+  maxContinuationRuns: 5,
+  maxModelStepsPerTask: 80,
+  continueWithoutAdvancingContextRound: true,
 };
 
 export type AgentModelParams = {

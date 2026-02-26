@@ -190,7 +190,20 @@ export class AgentSession {
   }
 
   prepareUserTurn(question: string) {
-    this.injectContext();
+    this.injectContext({ advanceRound: true });
+    this.messages.push({
+      role: "user",
+      content: question,
+    });
+  }
+
+  prepareInternalContinuationTurn(
+    question: string,
+    options?: {
+      advanceRound?: boolean;
+    },
+  ) {
+    this.injectContext({ advanceRound: options?.advanceRound ?? false });
     this.messages.push({
       role: "user",
       content: question,
@@ -216,8 +229,8 @@ export class AgentSession {
     };
   }
 
-  private injectContext() {
-    this.contextState.updateRuntime();
+  private injectContext(options?: { advanceRound?: boolean }) {
+    this.contextState.refreshRuntime({ advanceRound: options?.advanceRound ?? true });
 
     const contextContent = buildContextBlock(this.contextState.getCurrentContext());
     this.rawContext = contextContent;

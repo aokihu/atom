@@ -48,6 +48,24 @@ describe("AgentSession", () => {
     expect(session.getContextSnapshot().runtime.round).toBe(3);
   });
 
+  test("prepareInternalContinuationTurn injects context without advancing round by default", () => {
+    const session = new AgentSession({
+      workspace: "/tmp/workspace",
+      systemPrompt: "system prompt",
+      contextClock: createClock(),
+    });
+
+    session.prepareUserTurn("hello");
+    const afterUserTurn = session.getContextSnapshot();
+
+    session.prepareInternalContinuationTurn("continue");
+
+    const snapshot = session.snapshot();
+    expect(snapshot.messages.at(-1)?.content).toBe("continue");
+    expect(snapshot.context.runtime.round).toBe(afterUserTurn.runtime.round);
+    expect(snapshot.context.runtime.datetime).not.toBe(afterUserTurn.runtime.datetime);
+  });
+
   test("merges extracted context into runtime context", () => {
     const session = new AgentSession({
       workspace: "/tmp/workspace",
@@ -207,6 +225,56 @@ describe("AgentSession", () => {
     expect(context.memory.core.map((item) => item.id)).toEqual(["core-1"]);
     expect(context.memory.working).toEqual([]);
     expect(context.memory.ephemeral).toEqual([]);
+  });
+
+  test("runtime budget updates under active_task_meta do not clear working memory", () => {
+    const session = new AgentSession({
+      workspace: "/tmp/workspace",
+      systemPrompt: "system prompt",
+      contextClock: createClock(),
+    });
+
+    session.beginTaskContext({
+      id: "task-1",
+      type: "http.input",
+      input: "long task",
+      retries: 0,
+      startedAt: 1700000001000,
+    });
+
+    session.mergeExtractedContext({
+      memory: {
+        working: [
+          {
+            id: "progress-1",
+            type: "task.progress",
+            decay: 0.2,
+            confidence: 0.9,
+            round: 1,
+            tags: ["progress"],
+            content: "done step 1",
+          },
+        ],
+      } as any,
+    });
+
+    session.mergeExtractedContext({
+      active_task_meta: {
+        execution: {
+          segment_index: 2,
+          tool_calls: { limit: 40, used: 3, remaining: 37 },
+        },
+      },
+    } as any);
+
+    const context = session.getContextSnapshot() as {
+      active_task_meta?: Record<string, unknown>;
+      memory: { working: Array<{ id: string }> };
+    };
+
+    expect(context.memory.working.map((item) => item.id)).toEqual(["progress-1"]);
+    expect((context.active_task_meta?.execution as any)?.segment_index).toBe(2);
+    expect((context.active_task_meta?.execution as any)?.tool_calls?.remaining).toBe(37);
   });
 
   test("finishTaskContext clears active task state and records last_task metadata", () => {

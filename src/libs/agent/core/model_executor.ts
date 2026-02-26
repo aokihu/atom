@@ -6,6 +6,7 @@ import {
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { AgentModelParams } from "../../../types/agent";
 import type { ToolDefinitionMap } from "../tools";
+import { ToolBudgetExceededError } from "../tools/types";
 import {
   emitOutputMessage,
   type AgentOutputMessageSink,
@@ -20,10 +21,18 @@ export type ModelExecutionInput = {
   tools: ToolDefinitionMap;
   stopWhen: any;
   onOutputMessage?: AgentOutputMessageSink;
+  emitFinalAssistantText?: boolean;
+  emitTaskFinishMessage?: boolean;
+};
+
+export type ModelExecutionResult = {
+  text: string;
+  finishReason: string;
+  stepCount: number;
 };
 
 export class AISDKModelExecutor {
-  async generate(input: ModelExecutionInput): Promise<string> {
+  async generate(input: ModelExecutionInput): Promise<ModelExecutionResult> {
     let stepCount = 0;
 
     try {
@@ -47,22 +56,34 @@ export class AISDKModelExecutor {
         },
       });
 
-      emitOutputMessage(input.onOutputMessage, {
-        category: "assistant",
-        type: "assistant.text",
+      if (input.emitFinalAssistantText !== false) {
+        emitOutputMessage(input.onOutputMessage, {
+          category: "assistant",
+          type: "assistant.text",
+          text: result.text,
+          final: true,
+        });
+      }
+
+      if (input.emitTaskFinishMessage !== false) {
+        emitOutputMessage(input.onOutputMessage, {
+          category: "other",
+          type: "task.finish",
+          finishReason: String(result.finishReason),
+          text: `Task finished (${String(result.finishReason)})`,
+        });
+      }
+
+      return {
         text: result.text,
-        final: true,
-      });
-
-      emitOutputMessage(input.onOutputMessage, {
-        category: "other",
-        type: "task.finish",
         finishReason: String(result.finishReason),
-        text: `Task finished (${String(result.finishReason)})`,
-      });
-
-      return result.text;
+        stepCount,
+      };
     } catch (error) {
+      if (error instanceof ToolBudgetExceededError) {
+        throw error;
+      }
+
       emitOutputMessage(input.onOutputMessage, {
         category: "other",
         type: "task.error",

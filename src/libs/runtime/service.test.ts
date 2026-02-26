@@ -238,4 +238,77 @@ describe("AgentRuntimeService", () => {
     expect(finishCalls[0]?.task.status).toBe("cancelled");
     expect(finishCalls[0]?.options).toBeUndefined();
   });
+
+  test("marks controlled incomplete result as failed without queue retry and stores execution metadata", async () => {
+    const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext() {},
+      async runTaskDetailed(
+        _input: string,
+        options?: {
+          onOutputMessage?: (message: TaskOutputMessageDraft) => void;
+        },
+      ) {
+        options?.onOutputMessage?.({
+          category: "other",
+          type: "task.finish",
+          text: "Task stopped (tool_budget_exhausted)",
+          finishReason: "tool_budget_exhausted",
+        });
+        return {
+          text: "",
+          finishReason: "tool_budget_exhausted",
+          stepCount: 10,
+          totalModelSteps: 25,
+          totalToolCalls: 40,
+          segmentCount: 3,
+          completed: false,
+          stopReason: "tool_budget_exhausted",
+        };
+      },
+      async runTask() {
+        return "should-not-be-called";
+      },
+      abortCurrentRun() {
+        return false;
+      },
+      getContextSnapshot() {
+        return {
+          version: 2.3,
+          runtime: {
+            round: 1,
+            workspace: "/tmp/",
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: {
+            core: [],
+            working: [],
+            ephemeral: [],
+          },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {} });
+    service.start();
+    const { taskId } = service.submitTask({ input: "long task" });
+
+    await waitUntil(() => service.getTask(taskId)?.task.status === TaskStatus.Failed);
+    service.stop();
+
+    const snapshot = service.getTask(taskId);
+    expect(snapshot?.task.status).toBe(TaskStatus.Failed);
+    expect(snapshot?.task.retries).toBe(0);
+    expect((snapshot?.task.metadata as any)?.execution?.stopReason).toBe("tool_budget_exhausted");
+    expect((snapshot?.task.metadata as any)?.execution?.retrySuppressed).toBe(true);
+    expect(
+      snapshot?.messages?.items.some(
+        (item) => item.type === "task.status" && /Task not completed: stopped by tool_budget_exhausted/.test(item.text),
+      ),
+    ).toBe(true);
+  });
 });

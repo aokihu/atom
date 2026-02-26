@@ -11,7 +11,7 @@ import type { CliRenderer, KeyEvent } from "@opentui/core";
 
 import type { GatewayClient } from "../../libs/channel/channel";
 import type { TaskOutputMessage } from "../../types/http";
-import { TaskStatus } from "../../types/task";
+import { TaskStatus, isTaskExecutionStopReason } from "../../types/task";
 import { resolveSlashCommandAction } from "./controllers/commands";
 import { executeContextCommand } from "./controllers/context_command";
 import { executePromptTaskFlow } from "./flows/prompt_task";
@@ -1046,6 +1046,20 @@ class CoreTuiClientApp {
             if (message.category === "other" && message.type === "task.error") {
               hasVisibleTaskError = true;
               this.appendChatMessage("system", `Task failed: ${message.text}`, taskId);
+              hasUiUpdate = true;
+              continue;
+            }
+
+            if (
+              message.category === "other" &&
+              message.type === "task.finish" &&
+              message.finishReason &&
+              isTaskExecutionStopReason(message.finishReason)
+            ) {
+              this.appendLog(
+                "system",
+                `Task stopped: ${message.finishReason.replaceAll("_", " ")}`,
+              );
               hasUiUpdate = true;
               continue;
             }
