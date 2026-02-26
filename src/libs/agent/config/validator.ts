@@ -1,5 +1,5 @@
 import type { AgentConfig, AgentProviderConfig } from "../../../types/agent";
-import { BUILTIN_TOOL_CONFIG_SECTIONS } from "./constants";
+import { BUILTIN_TOOL_PERMISSION_SECTIONS } from "./constants";
 
 const ensureStringArray = (value: unknown, keyPath: string) => {
   if (value === undefined) return;
@@ -241,7 +241,7 @@ export const validateToolsConfig = (config: AgentConfig) => {
   const permissions = config.permissions;
   if (permissions === undefined) return;
 
-  for (const section of BUILTIN_TOOL_CONFIG_SECTIONS) {
+  for (const section of BUILTIN_TOOL_PERMISSION_SECTIONS) {
     const rule = permissions[section];
     if (!rule) continue;
 

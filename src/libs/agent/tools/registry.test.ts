@@ -15,6 +15,19 @@ describe("tool registry", () => {
     }
   });
 
+  test("registers split todo tools and removes legacy todo tool", () => {
+    const registry = createBuiltinToolRegistry({});
+
+    expect("todo" in registry).toBe(false);
+    expect("todo_list" in registry).toBe(true);
+    expect("todo_add" in registry).toBe(true);
+    expect("todo_update" in registry).toBe(true);
+    expect("todo_complete" in registry).toBe(true);
+    expect("todo_reopen" in registry).toBe(true);
+    expect("todo_remove" in registry).toBe(true);
+    expect("todo_clear_done" in registry).toBe(true);
+  });
+
   test("merges mcp tools with builtin tools", () => {
     const registry = createToolRegistry({
       context: {},
@@ -175,5 +188,43 @@ describe("tool registry", () => {
     );
 
     expect(messages.filter((message) => message.category === "tool")).toHaveLength(0);
+  });
+
+  test("invokes onToolExecutionSettled callback for success and failure paths", async () => {
+    const events: Array<{ toolName: string; ok: boolean; error?: string }> = [];
+    const registry = createToolRegistry({
+      context: {
+        onToolExecutionSettled: (event) => {
+          events.push({
+            toolName: event.toolName,
+            ok: event.ok,
+            error: typeof event.error === "string" ? event.error : undefined,
+          });
+        },
+      },
+      mcpTools: {
+        "memory:ok": {
+          execute: async () => ({ items: [] }),
+        } as any,
+        "memory:semantic-error": {
+          execute: async () => ({ error: "boom" }),
+        } as any,
+        "memory:throw": {
+          execute: async () => {
+            throw new Error("explode");
+          },
+        } as any,
+      },
+    });
+
+    await (registry["memory:ok"] as any).execute({ query: "q1" });
+    await (registry["memory:semantic-error"] as any).execute({ query: "q2" });
+    await expect((registry["memory:throw"] as any).execute({ query: "q3" })).rejects.toThrow("explode");
+
+    expect(events.map((event) => [event.toolName, event.ok])).toEqual([
+      ["memory:ok", true],
+      ["memory:semantic-error", false],
+      ["memory:throw", false],
+    ]);
   });
 });

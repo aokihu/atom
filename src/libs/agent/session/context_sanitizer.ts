@@ -2,6 +2,8 @@ import { z } from "zod";
 import type {
   AgentContext,
   AgentContextMemory,
+  AgentContextTodoCursor,
+  AgentContextTodoCursorNext,
   ContextMemoryBlock,
   ContextMemoryBlockStatus,
   ContextMemoryTier,
@@ -39,6 +41,26 @@ const canonicalMemoryBlockSchema = z
 
 const MAX_DROPPED_SAMPLES_PER_REASON = 5;
 const MEMORY_BLOCK_STATUSES = ["open", "done", "failed", "cancelled"] as const;
+const TODO_CURSOR_NOTE_MAX_LENGTH = 120;
+const TODO_CURSOR_PHASES = ["planning", "doing", "verifying", "blocked"] as const;
+const TODO_CURSOR_NEXT_WITH_TARGET = [
+  "todo_complete",
+  "todo_reopen",
+  "todo_update",
+  "todo_remove",
+] as const satisfies ReadonlyArray<AgentContextTodoCursorNext>;
+const TODO_CURSOR_NEXT_WITHOUT_TARGET = [
+  "none",
+  "todo_list",
+  "todo_add",
+  "todo_clear_done",
+] as const satisfies ReadonlyArray<AgentContextTodoCursorNext>;
+const TODO_CURSOR_NEXT_VALUES = [
+  ...TODO_CURSOR_NEXT_WITH_TARGET,
+  ...TODO_CURSOR_NEXT_WITHOUT_TARGET,
+] as const;
+
+type ContextPatchSource = "model" | "system";
 
 const hasOwn = (value: object, key: PropertyKey) =>
   Object.prototype.hasOwnProperty.call(value, key);
@@ -84,6 +106,114 @@ const toNonEmptyTrimmedString = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed === "" ? undefined : trimmed;
+};
+
+const toNonNegativeInteger = (value: unknown): number | undefined => {
+  const numberValue = toFiniteNumber(value);
+  if (numberValue === undefined) return undefined;
+  const integerValue = Math.trunc(numberValue);
+  return integerValue >= 0 ? integerValue : undefined;
+};
+
+const isTodoCursorNextWithTarget = (value: AgentContextTodoCursorNext): boolean =>
+  (TODO_CURSOR_NEXT_WITH_TARGET as readonly string[]).includes(value);
+
+const isTodoCursorNextWithoutTarget = (value: AgentContextTodoCursorNext): boolean =>
+  (TODO_CURSOR_NEXT_WITHOUT_TARGET as readonly string[]).includes(value);
+
+const todoCursorSchema = z.object({
+  v: z.literal(1),
+  phase: z.enum(TODO_CURSOR_PHASES),
+  next: z.enum(TODO_CURSOR_NEXT_VALUES),
+  targetId: z.number().int().positive().nullable(),
+  note: z.string().optional(),
+}).strict();
+
+const sanitizeTodoCursor = (value: unknown): AgentContextTodoCursor | null => {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const parsed = todoCursorSchema.safeParse(value);
+  if (!parsed.success) {
+    return null;
+  }
+
+  const next = parsed.data.next as AgentContextTodoCursorNext;
+  if (isTodoCursorNextWithTarget(next) && parsed.data.targetId === null) {
+    return null;
+  }
+  if (isTodoCursorNextWithoutTarget(next) && parsed.data.targetId !== null) {
+    return null;
+  }
+
+  const note = parsed.data.note === undefined
+    ? undefined
+    : toNonEmptyTrimmedString(parsed.data.note);
+
+  if (parsed.data.note !== undefined && !note) {
+    return null;
+  }
+
+  return {
+    v: 1,
+    phase: parsed.data.phase,
+    next,
+    targetId: parsed.data.targetId,
+    ...(note ? { note: trimToMax(note, TODO_CURSOR_NOTE_MAX_LENGTH) } : {}),
+  };
+};
+
+const sanitizeSystemTodoProgressPatch = (value: unknown): PlainRecord | null => {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const summary = typeof value.summary === "string" ? value.summary : undefined;
+  const totalRaw = toNonNegativeInteger(value.total);
+  const stepRaw = toNonNegativeInteger(value.step);
+
+  const patch: PlainRecord = {};
+  if (summary !== undefined) {
+    patch.summary = summary;
+  }
+
+  if (totalRaw !== undefined || stepRaw !== undefined) {
+    const total = totalRaw ?? 0;
+    const step = Math.min(stepRaw ?? 0, total);
+    patch.total = total;
+    patch.step = total === 0 ? 0 : step;
+  }
+
+  if (hasOwn(value, "cursor")) {
+    if (value.cursor === null) {
+      patch.cursor = null;
+    } else {
+      const cursor = sanitizeTodoCursor(value.cursor);
+      if (cursor) {
+        patch.cursor = cursor;
+      }
+    }
+  }
+
+  return Object.keys(patch).length > 0 ? patch : null;
+};
+
+const sanitizeModelTodoPatch = (value: unknown): PlainRecord | null => {
+  if (!isPlainObject(value) || !hasOwn(value, "cursor")) {
+    return null;
+  }
+
+  if (value.cursor === null) {
+    return { cursor: null };
+  }
+
+  const cursor = sanitizeTodoCursor(value.cursor);
+  if (!cursor) {
+    return null;
+  }
+
+  return { cursor };
 };
 
 const normalizeTags = (value: unknown): string[] => {
@@ -409,18 +539,29 @@ const stripProjectionOnlyTopLevelFields = (context: AgentContext) => {
 export const sanitizeIncomingContextPatchHard = (
   input: unknown,
   currentContext: Pick<AgentContext, "runtime">,
+  options?: { source?: ContextPatchSource },
 ): SanitizedContextPatch => {
   if (!isPlainObject(input)) {
     return {};
   }
 
+  const source = options?.source ?? "model";
   const patch: SanitizedContextPatch = {};
 
   for (const [key, value] of Object.entries(input)) {
-    if (key === "runtime" || key === "version" || key === "memory") {
+    if (key === "runtime" || key === "version" || key === "memory" || key === "todo") {
       continue;
     }
     patch[key] = value;
+  }
+
+  if (hasOwn(input, "todo")) {
+    const todoPatch = source === "system"
+      ? sanitizeSystemTodoProgressPatch(input.todo)
+      : sanitizeModelTodoPatch(input.todo);
+    if (todoPatch) {
+      patch.todo = todoPatch;
+    }
   }
 
   const rawMemory = input.memory;
@@ -452,7 +593,10 @@ export const sanitizeIncomingContextPatchHard = (
   return patch;
 };
 
-export const sanitizeIncomingContextPatch = sanitizeIncomingContextPatchHard;
+export const sanitizeIncomingContextPatch = (
+  input: unknown,
+  currentContext: Pick<AgentContext, "runtime">,
+) => sanitizeIncomingContextPatchHard(input, currentContext, { source: "model" });
 
 export const mergeContextWithMemoryPolicy = (
   current: AgentContext,

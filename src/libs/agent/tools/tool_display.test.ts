@@ -19,6 +19,9 @@ describe("tool display builders", () => {
       ["ls", { dirpath: "/tmp/", all: true, long: false }, "builtin.ls.call"],
       ["tree", { dirpath: "/tmp/", level: 2, all: false }, "builtin.tree.call"],
       ["ripgrep", { dirpath: "/tmp/", pattern: "foo", caseSensitive: false }, "builtin.ripgrep.call"],
+      ["todo_list", { status: "open", limit: 20 }, "builtin.todo_list.call"],
+      ["todo_add", { title: "task" }, "builtin.todo_add.call"],
+      ["todo_complete", { id: 1 }, "builtin.todo_complete.call"],
       ["cp", { source: "/tmp/a", destination: "/tmp/b", recursive: true, overwrite: false }, "builtin.cp.call"],
       ["mv", { source: "/tmp/a", destination: "/tmp/b", overwrite: true }, "builtin.mv.call"],
       ["git", { cwd: "/tmp", subcommand: "status", args: ["--short"] }, "builtin.git.call"],
@@ -42,6 +45,28 @@ describe("tool display builders", () => {
       ["ls", { dirpath: "/tmp/", long: false }, { dirpath: "/tmp/", command: "ls /tmp/", output: "a\nb\n" }, "builtin.ls.result"],
       ["tree", { dirpath: "/tmp/" }, { dirpath: "/tmp/", command: "tree /tmp/", output: "/tmp/\n`-- a\n1 directory, 1 file\n" }, "builtin.tree.result"],
       ["ripgrep", { dirpath: "/tmp/", pattern: "foo" }, { dirpath: "/tmp/", pattern: "foo", command: "rg foo /tmp/", output: "a.txt:1:foo\nb.txt:2:foo\n" }, "builtin.ripgrep.result"],
+      [
+        "todo_list",
+        { status: "all" },
+        {
+          success: true,
+          count: 2,
+          items: [
+            { id: 1, title: "open item", note: "", status: "open", createdAt: "", updatedAt: "", completedAt: null },
+            { id: 2, title: "done item", note: "", status: "done", createdAt: "", updatedAt: "", completedAt: "x" },
+          ],
+        },
+        "builtin.todo_list.result",
+      ],
+      [
+        "todo_complete",
+        { id: 2 },
+        {
+          success: true,
+          item: { id: 2, title: "done item", note: "", status: "done", createdAt: "", updatedAt: "", completedAt: "x" },
+        },
+        "builtin.todo_complete.result",
+      ],
       ["cp", { source: "/tmp/a", destination: "/tmp/b" }, { success: true, source: "/tmp/a", destination: "/tmp/b", recursive: false, overwrite: false, method: "bun.fs" }, "builtin.cp.result"],
       ["mv", { source: "/tmp/a", destination: "/tmp/b" }, { success: true, source: "/tmp/a", destination: "/tmp/b", overwrite: false, method: "fs.rename" }, "builtin.mv.result"],
       ["git", { cwd: "/tmp", subcommand: "status" }, { success: true, cwd: "/tmp", command: "git status", stdout: "On branch main\n", stderr: "", exitCode: 0 }, "builtin.git.result"],
@@ -118,5 +143,48 @@ describe("tool display builders", () => {
     expect(getFieldValue(display, "filepath")).toBe("/tmp/missing.txt");
     expect(getFieldValue(display, "error")).toContain("exists");
   });
-});
 
+  test("todo displays include checkbox marks for completion state", () => {
+    const listDisplay = buildToolResultDisplay(
+      "todo_list",
+      { status: "all" },
+      {
+        success: true,
+        count: 2,
+        todo: { summary: "进行中 1/2（当前第2步）", total: 2, step: 2 },
+        items: [
+          { id: 1, title: "first", note: "", status: "open", createdAt: "", updatedAt: "", completedAt: null },
+          { id: 2, title: "second", note: "", status: "done", createdAt: "", updatedAt: "", completedAt: "x" },
+        ],
+      },
+    );
+    const completeDisplay = buildToolResultDisplay(
+      "todo_complete",
+      { id: 2 },
+      {
+        success: true,
+        item: { id: 2, title: "second", note: "", status: "done", createdAt: "", updatedAt: "", completedAt: "x" },
+        todo: { summary: "进行中 1/2（当前第2步）", total: 2, step: 2 },
+      },
+    );
+
+    const listPreviews = ((listDisplay?.data as Record<string, unknown>)?.previews ?? []) as Array<Record<string, unknown>>;
+    const progressPreview = listPreviews.find((preview) => preview.title === "TODO Progress");
+    const itemsPreview = listPreviews.find((preview) => preview.title === "TODO Items");
+    const listLines = Array.isArray(itemsPreview?.lines) ? (itemsPreview.lines as string[]) : [];
+    expect(progressPreview).toBeDefined();
+    expect(Array.isArray(progressPreview?.lines)).toBe(true);
+    expect(listLines.some((line) => line.startsWith("☐"))).toBe(true);
+    expect(listLines.some((line) => line.startsWith("✓"))).toBe(true);
+
+    const completeSummary = (completeDisplay?.data as Record<string, unknown>)?.summary;
+    expect(typeof completeSummary).toBe("string");
+    expect(String(completeSummary)).toBe("进行中 1/2（当前第2步）");
+
+    const completeData = (completeDisplay?.data ?? {}) as Record<string, unknown>;
+    expect(completeData.todo_id).toBe("workspace");
+    expect((completeData.progress as Record<string, unknown>)?.summary).toBe("进行中 1/2（当前第2步）");
+    const completeItems = Array.isArray(completeData.items) ? (completeData.items as Array<Record<string, unknown>>) : [];
+    expect(completeItems[0]?.mark).toBe("✓");
+  });
+});

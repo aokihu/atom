@@ -74,6 +74,10 @@
       "allow": ["^{workspace}/.*"],
       "deny": []
     },
+    "todo": {
+      "allow": ["^{workspace}/.*"],
+      "deny": []
+    },
     "cp": {
       "allow": ["^{workspace}/.*"],
       "deny": []

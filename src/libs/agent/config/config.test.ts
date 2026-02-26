@@ -72,6 +72,20 @@ describe("agent config", () => {
     ).not.toThrow();
   });
 
+  test("validateAgentConfig accepts permissions.todo rules", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        permissions: {
+          todo: {
+            allow: ["^/Users/me/work/.*"],
+            deny: ["^/Users/me/work/private/.*"],
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
   test("validateAgentConfig accepts agent.params", () => {
     expect(() =>
       validateAgentConfig({

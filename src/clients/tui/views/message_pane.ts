@@ -29,12 +29,14 @@ export type MessagePaneSubHeaderInput = {
 
 export type ChatMessageCardInput =
   | {
+      id?: number;
       role: "user" | "assistant" | "system";
       text: string;
       createdAt?: number;
       taskId?: string;
     }
   | {
+      id?: number;
       role: "tool";
       toolName: string;
       step?: number;
@@ -70,10 +72,22 @@ export type ToolGroupToggleCardInput = {
   status: "running" | "done" | "error";
 };
 
+export type TodoCardGroupRenderItem = {
+  role: "todo_card_group";
+  groupKey: string;
+  todoId: string;
+  taskId?: string;
+  step?: number;
+  createdAt?: number;
+  status: "running" | "done" | "error";
+  messages: Array<Extract<ChatMessageCardInput, { role: "tool" }>>;
+};
+
 export type MessagePaneRenderItem =
   | ChatMessageCardInput
   | ToolGroupSummaryCardInput
-  | ToolGroupToggleCardInput;
+  | ToolGroupToggleCardInput
+  | TodoCardGroupRenderItem;
 
 export type ChatMessageCardViewState = {
   role: MessagePaneRenderItem["role"];
@@ -97,6 +111,7 @@ export type RenderMessageStreamInput = {
   listBox: BoxRenderable;
   agentName: string;
   items: ChatMessageCardInput[];
+  onToggleToolCardCollapse?: (toolMessageId: number, nextCollapsed: boolean) => void;
 };
 
 export type CollapseCompletedToolGroupsOptions = {
@@ -106,12 +121,22 @@ export type CollapseCompletedToolGroupsOptions = {
 const TOOL_GROUP_COLLAPSE_THRESHOLD_WHEN_COMPLETED = 3;
 const TOOL_GROUP_COLLAPSE_THRESHOLD_WHEN_RUNNING = 5;
 const expandedToolGroupKeysByListBox = new WeakMap<BoxRenderable, Set<string>>();
+const expandedTodoCardKeysByListBox = new WeakMap<BoxRenderable, Set<string>>();
 
 const getExpandedToolGroupKeysForListBox = (listBox: BoxRenderable): Set<string> => {
   let keys = expandedToolGroupKeysByListBox.get(listBox);
   if (!keys) {
     keys = new Set<string>();
     expandedToolGroupKeysByListBox.set(listBox, keys);
+  }
+  return keys;
+};
+
+const getExpandedTodoCardKeysForListBox = (listBox: BoxRenderable): Set<string> => {
+  let keys = expandedTodoCardKeysByListBox.get(listBox);
+  if (!keys) {
+    keys = new Set<string>();
+    expandedTodoCardKeysByListBox.set(listBox, keys);
   }
   return keys;
 };
@@ -125,7 +150,8 @@ const canParticipateInToolGroupCollapse = (
 ): item is Extract<ChatMessageCardInput, { role: "tool" }> & { taskId: string } => {
   return (
     typeof item.taskId === "string" &&
-    item.taskId.trim().length > 0
+    item.taskId.trim().length > 0 &&
+    !item.toolName.startsWith("todo_")
   );
 };
 
@@ -255,6 +281,513 @@ const formatMessageTime = (createdAt?: number): string | undefined => {
   } catch {
     return undefined;
   }
+};
+
+type TodoToolCardProgress = {
+  summary?: string;
+  total?: number;
+  step?: number;
+};
+
+type TodoToolCardItem = {
+  id?: number;
+  title: string;
+  status: "open" | "done";
+  mark: "✓" | "☐";
+};
+
+type TodoToolCardModel = {
+  todoId: string;
+  actionLabel: string;
+  summary: string;
+  progress?: TodoToolCardProgress;
+  items: TodoToolCardItem[];
+};
+
+const isTodoToolName = (toolName: string): boolean => toolName.startsWith("todo_");
+
+const isRecordValue = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const getStringValue = (value: unknown, key: string): string | undefined => {
+  if (!isRecordValue(value)) return undefined;
+  const raw = value[key];
+  return typeof raw === "string" ? raw : undefined;
+};
+
+const getNumberValue = (value: unknown, key: string): number | undefined => {
+  if (!isRecordValue(value)) return undefined;
+  const raw = value[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+};
+
+const normalizeTodoItemStatus = (value: unknown): "open" | "done" | undefined =>
+  value === "open" || value === "done" ? value : undefined;
+
+const formatTodoActionLabel = (toolName: string): string =>
+  toolName
+    .replace(/^todo_/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const parseTodoToolCardProgress = (value: unknown): TodoToolCardProgress | undefined => {
+  if (!isRecordValue(value)) return undefined;
+
+  const summary = getStringValue(value, "summary");
+  const total = getNumberValue(value, "total");
+  const step = getNumberValue(value, "step");
+
+  if (summary === undefined && total === undefined && step === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(summary ? { summary } : {}),
+    ...(typeof total === "number" ? { total } : {}),
+    ...(typeof step === "number" ? { step } : {}),
+  };
+};
+
+const parseTodoToolCardItems = (value: unknown): TodoToolCardItem[] => {
+  if (!Array.isArray(value)) return [];
+
+  const parsed: TodoToolCardItem[] = [];
+  for (const rawItem of value) {
+    if (!isRecordValue(rawItem)) continue;
+    const title = getStringValue(rawItem, "title");
+    const status = normalizeTodoItemStatus(rawItem.status);
+    if (!title || !status) continue;
+    const id = getNumberValue(rawItem, "id");
+    const markRaw = getStringValue(rawItem, "mark");
+    const mark = markRaw === "✓" || markRaw === "☐" ? markRaw : status === "done" ? "✓" : "☐";
+    parsed.push({
+      ...(typeof id === "number" ? { id } : {}),
+      title,
+      status,
+      mark,
+    });
+  }
+
+  return parsed;
+};
+
+const getTodoToolCardModel = (
+  item: Extract<ChatMessageCardInput, { role: "tool" }>,
+): TodoToolCardModel | undefined => {
+  if (!isTodoToolName(item.toolName)) return undefined;
+
+  const displayEnvelope = item.resultDisplay ?? item.callDisplay;
+  const displayData = isRecordValue(displayEnvelope?.data) ? displayEnvelope.data : undefined;
+  const todoId = getStringValue(displayData, "todo_id") ?? "workspace";
+  const progress = parseTodoToolCardProgress(displayData?.progress);
+  const items = parseTodoToolCardItems(displayData?.items);
+  const dataSummary = getStringValue(displayData, "summary");
+  const summary =
+    progress?.summary ??
+    dataSummary ??
+    item.resultSummary ??
+    item.callSummary ??
+    item.errorMessage ??
+    (item.status === "running"
+      ? "TODO operation running"
+      : item.status === "error"
+        ? "TODO operation failed"
+        : "TODO operation completed");
+
+  return {
+    todoId,
+    actionLabel: formatTodoActionLabel(item.toolName),
+    summary,
+    progress,
+    items,
+  };
+};
+
+const getTodoToolCardGroupKey = (item: Extract<ChatMessageCardInput, { role: "tool" }>): string | undefined => {
+  const model = getTodoToolCardModel(item);
+  if (!model) return undefined;
+  const taskPrefix = item.taskId && item.taskId.trim().length > 0 ? item.taskId.trim() : "no-task";
+  return `${taskPrefix}:${model.todoId}`;
+};
+
+const isTodoItemsSnapshotMessage = (
+  item: Extract<ChatMessageCardInput, { role: "tool" }>,
+): boolean => {
+  if (item.toolName !== "todo_list") return false;
+  if (item.status === "running") return false;
+  const model = getTodoToolCardModel(item);
+  return Boolean(model && Array.isArray(model.items));
+};
+
+export const collapseTodoToolCards = (
+  items: readonly MessagePaneRenderItem[],
+): MessagePaneRenderItem[] => {
+  const collapsed: MessagePaneRenderItem[] = [];
+  let index = 0;
+
+  while (index < items.length) {
+    const current = items[index];
+    if (!current || current.role !== "tool") {
+      if (current) collapsed.push(current);
+      index += 1;
+      continue;
+    }
+
+    const currentGroupKey = getTodoToolCardGroupKey(current);
+    if (!currentGroupKey) {
+      collapsed.push(current);
+      index += 1;
+      continue;
+    }
+
+    const groupMessages: Array<Extract<ChatMessageCardInput, { role: "tool" }>> = [current];
+    let cursor = index + 1;
+    while (cursor < items.length) {
+      const candidate = items[cursor];
+      if (!candidate || candidate.role !== "tool") break;
+      const candidateGroupKey = getTodoToolCardGroupKey(candidate);
+      if (candidateGroupKey !== currentGroupKey) break;
+      groupMessages.push(candidate);
+      cursor += 1;
+    }
+
+    const latestSnapshot = [...groupMessages].reverse().find(isTodoItemsSnapshotMessage);
+    if (!latestSnapshot) {
+      index = cursor;
+      continue;
+    }
+
+    const status = groupMessages.some((msg) => msg.status === "running")
+      ? "running"
+      : groupMessages.some((msg) => msg.status === "error")
+        ? "error"
+        : "done";
+    const numericSteps = groupMessages
+      .map((tool) => (typeof tool.step === "number" && Number.isFinite(tool.step) ? tool.step : undefined))
+      .filter((step): step is number => step !== undefined);
+    const step = numericSteps.length > 0 ? numericSteps[numericSteps.length - 1] : undefined;
+    const latest = groupMessages[groupMessages.length - 1]!;
+    const todoModel = getTodoToolCardModel(latestSnapshot);
+    collapsed.push({
+      role: "todo_card_group",
+      groupKey: currentGroupKey,
+      todoId: todoModel?.todoId ?? "workspace",
+      taskId: latest.taskId,
+      step,
+      createdAt: groupMessages[0]?.createdAt,
+      status,
+      messages: groupMessages,
+    });
+
+    index = cursor;
+  }
+
+  return collapsed;
+};
+
+const clampNumber = (value: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, value));
+
+const buildTodoProgressBar = (args: {
+  total?: number;
+  step?: number;
+  summary?: string;
+  width?: number;
+}): string | undefined => {
+  const total = typeof args.total === "number" && args.total > 0 ? Math.floor(args.total) : undefined;
+  if (!total) return undefined;
+
+  const rawStep = typeof args.step === "number" ? Math.floor(args.step) : 0;
+  const clampedStep = clampNumber(rawStep, 0, total);
+  const estimatedCompleted = args.summary?.startsWith("已完成")
+    ? total
+    : clampNumber(clampedStep > 0 ? clampedStep - 1 : 0, 0, total);
+  const width = clampNumber(Math.floor(args.width ?? 18), 8, 32);
+  const fill = Math.round((estimatedCompleted / total) * width);
+  const filled = "█".repeat(fill);
+  const empty = "░".repeat(Math.max(0, width - fill));
+  return `${filled}${empty}`;
+};
+
+const appendTodoToolCardBody = (args: {
+  renderer: CliRenderer;
+  bodyWrap: BoxRenderable;
+  item: Extract<ChatMessageCardInput, { role: "tool" }>;
+  model: TodoToolCardModel;
+  cardTitleOverride?: string;
+  processMessages?: Array<Extract<ChatMessageCardInput, { role: "tool" }>>;
+}) => {
+  const { renderer, bodyWrap, item, model, cardTitleOverride, processMessages: _processMessages } = args;
+  const isCollapsed = item.collapsed;
+  const statusColor = getToolStatusColor(item.status);
+  const headerFg = item.status === "done" ? NORD.nord5 : item.status === "error" ? NORD.nord6 : NORD.nord5;
+  const progress = model.progress;
+  const progressTotal =
+    typeof progress?.total === "number" ? Math.max(0, Math.floor(progress.total)) : undefined;
+  const progressStep =
+    typeof progress?.step === "number" ? Math.max(0, Math.floor(progress.step)) : undefined;
+  const progressBar = buildTodoProgressBar({
+    total: progressTotal,
+    step: progressStep,
+    summary: progress?.summary ?? model.summary,
+    width: 18,
+  });
+  const itemsCount = model.items.length;
+  const visibleItems = isCollapsed ? [] : model.items;
+  const hiddenItemCount = isCollapsed ? itemsCount : 0;
+  const titleText = cardTitleOverride ?? `TODO ${model.actionLabel}`;
+  const progressText =
+    typeof progressStep === "number" || typeof progressTotal === "number"
+      ? `${typeof progressStep === "number" ? progressStep : "-"}/${typeof progressTotal === "number" ? progressTotal : "-"}`
+      : "-/-";
+  const statusText =
+    item.status === "running" ? "RUN" : item.status === "error" ? "ERR" : "DONE";
+  const hasNoItems = itemsCount === 0;
+  const TODO_TITLE_CELL_WIDTH = 16;
+  const TODO_STEP_BADGE_WIDTH = 15;
+  const TODO_ITEMS_BADGE_WIDTH = 13;
+  const TODO_STATUS_BADGE_WIDTH = 8;
+  const makeTodoHeaderCell = (content: string, fg: string, width: number) =>
+    new TextRenderable(renderer, {
+      content,
+      fg,
+      width,
+      truncate: true,
+    });
+
+  const frame = new BoxRenderable(renderer, {
+    width: "100%",
+    flexDirection: "column",
+    backgroundColor: NORD.nord1,
+  });
+
+  if (isCollapsed) {
+    const collapsedMetaParts = [
+      `step ${progressText}`,
+      `${itemsCount} item${itemsCount === 1 ? "" : "s"}`,
+      statusText,
+    ];
+    const collapsedHeader = new BoxRenderable(renderer, {
+      width: "100%",
+      flexDirection: "row",
+      backgroundColor: NORD.nord2,
+      paddingLeft: 1,
+      paddingRight: 1,
+    });
+    collapsedHeader.add(new TextRenderable(renderer, { content: "▸", fg: NORD.nord8 }));
+    collapsedHeader.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+    collapsedHeader.add(new TextRenderable(renderer, { content: "●", fg: statusColor }));
+    collapsedHeader.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+    collapsedHeader.add(makeTodoHeaderCell(titleText, headerFg, TODO_TITLE_CELL_WIDTH));
+    collapsedHeader.add(new TextRenderable(renderer, { content: " ", fg: NORD.nord3 }));
+    collapsedHeader.add(makeTodoHeaderCell(`[${collapsedMetaParts[0] ?? ""}]`, NORD.nord8, TODO_STEP_BADGE_WIDTH));
+    collapsedHeader.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+    collapsedHeader.add(makeTodoHeaderCell(`[${collapsedMetaParts[1] ?? ""}]`, NORD.nord4, TODO_ITEMS_BADGE_WIDTH));
+    collapsedHeader.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+    collapsedHeader.add(makeTodoHeaderCell(`[${collapsedMetaParts[2] ?? ""}]`, statusColor, TODO_STATUS_BADGE_WIDTH));
+    collapsedHeader.add(
+      new TextRenderable(renderer, {
+        content: `  —  ${model.summary}`,
+        fg: NORD.nord3,
+        width: "100%",
+        truncate: true,
+      }),
+    );
+    frame.add(collapsedHeader);
+
+    if (progressBar) {
+      const barRow = new BoxRenderable(renderer, {
+        width: "100%",
+        flexDirection: "row",
+        backgroundColor: NORD.nord1,
+        paddingLeft: 1,
+        paddingRight: 1,
+      });
+      barRow.add(
+        new TextRenderable(renderer, {
+          content: progressBar,
+          fg: NORD.nord8,
+          width: "100%",
+          truncate: true,
+        }),
+      );
+      frame.add(barRow);
+    }
+
+    const hintRow = new BoxRenderable(renderer, {
+      width: "100%",
+      flexDirection: "row",
+      backgroundColor: NORD.nord1,
+      paddingLeft: 1,
+      paddingRight: 1,
+    });
+    hintRow.add(
+      new TextRenderable(renderer, {
+        content:
+          itemsCount > 0
+            ? `点击展开查看 ${itemsCount} 个 TODO 项`
+            : "点击展开查看详情",
+        fg: NORD.nord3,
+        width: "100%",
+        truncate: true,
+      }),
+    );
+    frame.add(hintRow);
+
+    bodyWrap.add(frame);
+    return;
+  }
+
+  const expandedMetaParts = [
+    { text: `step ${progressText}`, fg: NORD.nord8 },
+    { text: `${itemsCount} item${itemsCount === 1 ? "" : "s"}`, fg: NORD.nord4 },
+    { text: statusText, fg: statusColor },
+  ] as const;
+  const headerRow = new BoxRenderable(renderer, {
+    width: "100%",
+    flexDirection: "row",
+    backgroundColor: NORD.nord2,
+    paddingLeft: 1,
+    paddingRight: 1,
+  });
+  headerRow.add(new TextRenderable(renderer, { content: "▾", fg: NORD.nord8 }));
+  headerRow.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+  headerRow.add(new TextRenderable(renderer, { content: "●", fg: statusColor }));
+  headerRow.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+  headerRow.add(makeTodoHeaderCell(titleText, headerFg, TODO_TITLE_CELL_WIDTH));
+  headerRow.add(new TextRenderable(renderer, { content: " ", fg: NORD.nord3 }));
+  headerRow.add(makeTodoHeaderCell(`[${expandedMetaParts[0].text}]`, expandedMetaParts[0].fg, TODO_STEP_BADGE_WIDTH));
+  headerRow.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+  headerRow.add(makeTodoHeaderCell(`[${expandedMetaParts[1].text}]`, expandedMetaParts[1].fg, TODO_ITEMS_BADGE_WIDTH));
+  headerRow.add(new TextRenderable(renderer, { content: "  ", fg: NORD.nord3 }));
+  headerRow.add(makeTodoHeaderCell(`[${expandedMetaParts[2].text}]`, expandedMetaParts[2].fg, TODO_STATUS_BADGE_WIDTH));
+  headerRow.add(
+    new TextRenderable(renderer, {
+      content: `  —  ${model.summary}`,
+      fg: item.status === "error" ? NORD.nord11 : NORD.nord4,
+      width: "100%",
+      truncate: true,
+    }),
+  );
+  frame.add(headerRow);
+
+  if (hasNoItems) {
+    const compactWrap = new BoxRenderable(renderer, {
+      width: "100%",
+      flexDirection: "column",
+      backgroundColor: NORD.nord1,
+      paddingLeft: 1,
+      paddingRight: 1,
+      paddingTop: 1,
+      paddingBottom: 1,
+    });
+
+    const metaRow = new BoxRenderable(renderer, {
+      width: "100%",
+      flexDirection: "row",
+      backgroundColor: NORD.nord1,
+    });
+    metaRow.add(new TextRenderable(renderer, { content: "TODO Items", fg: NORD.nord9 }));
+    metaRow.add(
+      new TextRenderable(renderer, {
+        content: "  0",
+        fg: NORD.nord4,
+        width: "100%",
+        truncate: true,
+      }),
+    );
+    compactWrap.add(metaRow);
+
+    compactWrap.add(
+      new TextRenderable(renderer, {
+        content: "No TODO items yet",
+        fg: NORD.nord3,
+        width: "100%",
+        truncate: true,
+      }),
+    );
+
+    frame.add(compactWrap);
+    bodyWrap.add(frame);
+    return;
+  }
+
+  const contentColumn = new BoxRenderable(renderer, {
+    width: "100%",
+    flexDirection: "column",
+    backgroundColor: NORD.nord1,
+  });
+
+  const itemsSection = new BoxRenderable(renderer, {
+    width: "100%",
+    flexDirection: "column",
+    backgroundColor: NORD.nord1,
+    paddingLeft: 2,
+    paddingRight: 2,
+    paddingTop: 1,
+    paddingBottom: 1,
+  });
+  const itemsHeader = new BoxRenderable(renderer, {
+    width: "100%",
+    flexDirection: "row",
+    backgroundColor: NORD.nord1,
+  });
+  itemsHeader.add(new TextRenderable(renderer, { content: "Items", fg: NORD.nord9 }));
+  itemsHeader.add(
+    new TextRenderable(renderer, {
+      content: itemsCount > 0 ? `  ${itemsCount}` : "  0",
+      fg: NORD.nord4,
+      width: "100%",
+      truncate: true,
+    }),
+  );
+  itemsSection.add(itemsHeader);
+
+  if (visibleItems.length === 0) {
+    itemsSection.add(
+      new TextRenderable(renderer, {
+        content: hiddenItemCount > 0 ? `… 还有 ${hiddenItemCount} 项` : "暂无可显示的 TODO 项",
+        fg: NORD.nord3,
+        width: "100%",
+        truncate: true,
+      }),
+    );
+  } else {
+    for (const todoItem of visibleItems) {
+      const itemRow = new BoxRenderable(renderer, {
+        width: "100%",
+        flexDirection: "row",
+        backgroundColor: NORD.nord1,
+      });
+      itemRow.add(
+        new TextRenderable(renderer, {
+          content: `${todoItem.mark} `,
+          fg: todoItem.status === "done" ? NORD.nord14 : NORD.nord8,
+        }),
+      );
+      if (typeof todoItem.id === "number") {
+        itemRow.add(
+          new TextRenderable(renderer, {
+            content: `#${todoItem.id} `,
+            fg: NORD.nord3,
+          }),
+        );
+      }
+      itemRow.add(
+        new TextRenderable(renderer, {
+          content: todoItem.title,
+          fg: todoItem.status === "done" ? NORD.nord4 : NORD.nord6,
+          width: "100%",
+          wrapMode: "char",
+        }),
+      );
+      itemsSection.add(itemRow);
+    }
+  }
+  contentColumn.add(itemsSection);
+
+  frame.add(contentColumn);
+  bodyWrap.add(frame);
 };
 
 const getToolLineTextColor = (line: ToolCardStyledLine): string => {
@@ -496,6 +1029,16 @@ export const buildChatMessageCardViewState = (
     };
   }
 
+  if (item.role === "todo_card_group") {
+    return {
+      role: "todo_card_group",
+      titleText: "TODO",
+      toolCollapsed: true,
+      toolStatus: item.status,
+      metaText: `todo${item.taskId ? ` : ${item.taskId}` : ""}${typeof item.step === "number" ? ` step ${item.step}` : ""}`,
+    };
+  }
+
   if (item.role === "tool") {
     return {
       role: "tool",
@@ -530,9 +1073,12 @@ export const renderMessageStreamContent = (
   }
 
   const expandedToolGroupKeys = getExpandedToolGroupKeysForListBox(input.listBox);
-  const renderItems = collapseCompletedToolGroups(input.items, {
-    expandedGroupKeys: expandedToolGroupKeys,
-  });
+  const expandedTodoCardKeys = getExpandedTodoCardKeysForListBox(input.listBox);
+  const renderItems = collapseTodoToolCards(
+    collapseCompletedToolGroups(input.items, {
+      expandedGroupKeys: expandedToolGroupKeys,
+    }),
+  );
 
   if (renderItems.length === 0) {
     const emptyWrap = new BoxRenderable(input.renderer, {
@@ -557,39 +1103,52 @@ export const renderMessageStreamContent = (
     const isSystem = cardState.role === "system";
     const isAssistant = cardState.role === "assistant";
     const isTool = cardState.role === "tool";
+    const isTodoCardGroup = cardState.role === "todo_card_group";
+    const todoCardGroup = isTodoCardGroup ? (item as TodoCardGroupRenderItem) : undefined;
+    const toolItem = isTool ? (item as Extract<ChatMessageCardInput, { role: "tool" }>) : undefined;
+    const todoToolCardModel = toolItem ? getTodoToolCardModel(toolItem) : undefined;
+    const isTodoToolCard = Boolean(todoToolCardModel);
     const isToolGroupSummary = cardState.role === "tool_group_summary";
     const isToolGroupToggle = cardState.role === "tool_group_toggle";
-    const isToolLike = isTool || isToolGroupSummary || isToolGroupToggle;
+    const isToolLike = isTool || isToolGroupSummary || isToolGroupToggle || isTodoCardGroup;
     const previousItem = index > 0 ? renderItems[index - 1] : undefined;
     const previousRole = previousItem?.role;
     const previousIsToolLike =
       previousRole === "tool" ||
+      previousRole === "todo_card_group" ||
       previousRole === "tool_group_summary" ||
       previousRole === "tool_group_toggle";
     const groupedPlainText =
       (isAssistant || isSystem) && previousRole === cardState.role;
     const toolMarginTop =
-      isToolLike && previousItem ? (previousIsToolLike ? 0 : 1) : 0;
-    const isCompactTool = isToolLike;
-    const toolBorderEnabled = false;
-    const cardBackgroundColor = isCompactTool
+      isToolLike && previousItem
+        ? isTodoToolCard
+          ? 1
+          : previousIsToolLike
+            ? 0
+            : 1
+        : 0;
+    const isTodoCardLike = isTodoToolCard || isTodoCardGroup;
+    const isCompactTool = isToolLike && !isTodoCardLike;
+    const toolBorderEnabled = isTodoCardLike;
+    const cardBackgroundColor = isTodoCardLike
+      ? NORD.nord1
+      : isCompactTool
       ? NORD.nord0
       : isUser
         ? NORD.nord1
         : NORD.nord0;
     const card = new BoxRenderable(input.renderer, {
       width: "100%",
-      flexDirection: "row",
+      flexDirection: isTodoCardLike ? "column" : "row",
       marginTop:
         index === 0 ? 1 : isToolLike ? toolMarginTop : groupedPlainText ? 0 : 1,
       border: toolBorderEnabled,
       borderStyle: toolBorderEnabled ? "single" : undefined,
       borderColor:
-        toolBorderEnabled && cardState.toolStatus === "error"
-          ? NORD.nord11
-          : toolBorderEnabled
-            ? NORD.nord2
-            : undefined,
+        toolBorderEnabled
+          ? getToolStatusColor(cardState.toolStatus ?? "done")
+          : undefined,
       backgroundColor: cardBackgroundColor,
     });
     if (isToolGroupSummary) {
@@ -614,14 +1173,41 @@ export const renderMessageStreamContent = (
         input.renderer.requestRender();
       };
     }
+    if (
+      isTool &&
+      isTodoToolCard &&
+      typeof toolItem?.id === "number" &&
+      typeof input.onToggleToolCardCollapse === "function"
+    ) {
+      card.onMouseUp = (event) => {
+        if (event.button !== 0) return;
+        event.stopPropagation();
+        event.preventDefault();
+        input.onToggleToolCardCollapse!(toolItem.id!, !toolItem.collapsed);
+      };
+    }
+    if (isTodoCardGroup && todoCardGroup) {
+      card.onMouseUp = (event) => {
+        if (event.button !== 0) return;
+        if (expandedTodoCardKeys.has(todoCardGroup.groupKey)) {
+          expandedTodoCardKeys.delete(todoCardGroup.groupKey);
+        } else {
+          expandedTodoCardKeys.add(todoCardGroup.groupKey);
+        }
+        event.stopPropagation();
+        event.preventDefault();
+        renderMessageStreamContent(input);
+        input.renderer.requestRender();
+      };
+    }
 
     const bodyWrap = new BoxRenderable(input.renderer, {
       width: "100%",
       flexDirection: "column",
-      paddingLeft: isToolLike ? 0 : 1,
-      paddingRight: 1,
-      paddingTop: isToolLike ? 0 : isUser ? 1 : 0,
-      paddingBottom: isToolLike ? 0 : isUser ? 1 : 0,
+      paddingLeft: isTodoCardLike ? 0 : isToolLike ? 0 : 1,
+      paddingRight: isTodoCardLike ? 0 : 1,
+      paddingTop: isTodoCardLike ? 0 : isToolLike ? 0 : isUser ? 1 : 0,
+      paddingBottom: isTodoCardLike ? 0 : isToolLike ? 0 : isUser ? 1 : 0,
       backgroundColor: cardBackgroundColor,
     });
 
@@ -634,7 +1220,41 @@ export const renderMessageStreamContent = (
         })
       : undefined;
 
-    if (isToolLike) {
+    if (isTodoCardGroup && todoCardGroup) {
+      const latestMessage = [...todoCardGroup.messages]
+        .reverse()
+        .find((message) => Boolean(getTodoToolCardModel(message))) ?? todoCardGroup.messages[todoCardGroup.messages.length - 1];
+      const latestSnapshotMessage = [...todoCardGroup.messages]
+        .reverse()
+        .find(isTodoItemsSnapshotMessage);
+      const latestModel = latestMessage ? getTodoToolCardModel(latestMessage) : undefined;
+      const snapshotModel = latestSnapshotMessage ? getTodoToolCardModel(latestSnapshotMessage) : undefined;
+      if (latestMessage && latestModel && snapshotModel) {
+        const mergedTodoModel: TodoToolCardModel = {
+          ...snapshotModel,
+          summary: latestModel.summary,
+          progress: latestModel.progress ?? snapshotModel.progress,
+        };
+        appendTodoToolCardBody({
+          renderer: input.renderer,
+          bodyWrap,
+          item: {
+            ...latestMessage,
+            collapsed: !expandedTodoCardKeys.has(todoCardGroup.groupKey),
+            status: todoCardGroup.status,
+          },
+          model: mergedTodoModel,
+          cardTitleOverride: "TODO Workflow",
+        });
+      }
+    } else if (isTool && isTodoToolCard && toolItem && todoToolCardModel) {
+      appendTodoToolCardBody({
+        renderer: input.renderer,
+        bodyWrap,
+        item: toolItem,
+        model: todoToolCardModel,
+      });
+    } else if (isToolLike) {
       const toolStatus = cardState.toolStatus ?? "done";
       // Compact tool row format contract:
       // "<status> [<toolName>] | <collapsed summary>"

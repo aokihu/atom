@@ -19,6 +19,7 @@ import { AgentRuntimeService } from "./libs/runtime";
 import { HttpGatewayClient, startHttpGateway } from "./libs/channel";
 import { startTuiClient } from "./clients";
 import { cleanupInvalidBackgroundBashSessionsOnStartup } from "./libs/agent/tools/background_sessions";
+import { cleanupTodoDbOnStartup } from "./libs/agent/tools/todo_store";
 
 const DEFAULT_AGENT_NAME = "Atom";
 
@@ -224,6 +225,15 @@ const main = async () => {
   logStage("checking workspace...");
   await workspace_check(cliOptions.workspace);
   logStage("workspace ready");
+
+  const todoCleanupResult = await cleanupTodoDbOnStartup({
+    workspace: cliOptions.workspace,
+  });
+  if (todoCleanupResult.skipped) {
+    logStage("todo cleanup skipped (no existing todo db)");
+  } else {
+    logStage(`todo cleanup removed ${todoCleanupResult.removed} file(s)`);
+  }
 
   try {
     const cleanupResult = await cleanupInvalidBackgroundBashSessionsOnStartup({

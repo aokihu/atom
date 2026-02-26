@@ -5,6 +5,7 @@ import {
   buildInjectedContextProjection,
   compactRawContextForStorage,
   mergeContextWithMemoryPolicy,
+  sanitizeIncomingContextPatch,
   sanitizeIncomingContextPatchHard,
 } from "./context_sanitizer";
 
@@ -456,5 +457,137 @@ describe("context_sanitizer", () => {
       remaining: 39,
     });
     expect(merged.active_task_meta?.execution?.model_steps?.task_limit).toBe(80);
+  });
+
+  test("model source may update todo.cursor but cannot overwrite todo progress fields", () => {
+    const current = {
+      ...createBaseContext(),
+      todo: {
+        summary: "进行中 1/3（当前第2步）",
+        total: 3,
+        step: 2,
+      },
+    } as AgentContext;
+
+    const patch = sanitizeIncomingContextPatchHard(
+      {
+        todo: {
+          summary: "hack",
+          total: 999,
+          step: 999,
+          cursor: {
+            v: 1,
+            phase: "doing",
+            next: "todo_complete",
+            targetId: 2,
+            note: " next ",
+          },
+        },
+      },
+      current,
+      { source: "model" },
+    );
+
+    expect(patch.todo).toEqual({
+      cursor: {
+        v: 1,
+        phase: "doing",
+        next: "todo_complete",
+        targetId: 2,
+        note: "next",
+      },
+    });
+
+    const merged = mergeContextWithMemoryPolicy(current, patch);
+    expect(merged.todo).toEqual({
+      summary: "进行中 1/3（当前第2步）",
+      total: 3,
+      step: 2,
+      cursor: {
+        v: 1,
+        phase: "doing",
+        next: "todo_complete",
+        targetId: 2,
+        note: "next",
+      },
+    });
+  });
+
+  test("invalid model todo cursor patch is discarded and existing cursor is preserved", () => {
+    const current = {
+      ...createBaseContext(),
+      todo: {
+        summary: "进行中 0/1（当前第1步）",
+        total: 1,
+        step: 1,
+        cursor: {
+          v: 1,
+          phase: "planning",
+          next: "todo_list",
+          targetId: null,
+        },
+      },
+    } as AgentContext;
+
+    const patch = sanitizeIncomingContextPatchHard(
+      {
+        todo: {
+          cursor: {
+            v: 1,
+            phase: "doing",
+            next: "todo_complete",
+            targetId: null,
+          },
+        },
+      },
+      current,
+      { source: "model" },
+    );
+
+    expect((patch as any).todo).toBeUndefined();
+    const merged = mergeContextWithMemoryPolicy(current, patch);
+    expect((merged.todo as any)?.cursor).toEqual((current.todo as any)?.cursor);
+  });
+
+  test("system source may update todo progress while preserving existing cursor", () => {
+    const current = {
+      ...createBaseContext(),
+      todo: {
+        summary: "进行中 0/2（当前第1步）",
+        total: 2,
+        step: 1,
+        cursor: {
+          v: 1,
+          phase: "doing",
+          next: "todo_complete",
+          targetId: 1,
+        },
+      },
+    } as AgentContext;
+
+    const patch = sanitizeIncomingContextPatchHard(
+      {
+        todo: {
+          summary: "进行中 1/2（当前第2步）",
+          total: 2,
+          step: 2,
+        },
+      },
+      current,
+      { source: "system" },
+    );
+
+    const merged = mergeContextWithMemoryPolicy(current, patch);
+    expect(merged.todo).toEqual({
+      summary: "进行中 1/2（当前第2步）",
+      total: 2,
+      step: 2,
+      cursor: {
+        v: 1,
+        phase: "doing",
+        next: "todo_complete",
+        targetId: 1,
+      },
+    });
   });
 });

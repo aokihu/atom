@@ -394,6 +394,13 @@ class CoreTuiClientApp {
       listBox: this.messageListBox,
       agentName: this.state.agentName,
       items: this.state.chatStream,
+      onToggleToolCardCollapse: (toolMessageId, nextCollapsed) => {
+        const updated = this.updateToolChatMessage(toolMessageId, {
+          collapsed: nextCollapsed,
+        });
+        if (!updated) return;
+        this.refreshAll();
+      },
     });
   }
 

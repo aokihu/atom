@@ -38,6 +38,11 @@ const createInitialContext = (
     working: [],
     ephemeral: [],
   },
+  todo: {
+    summary: "暂无TODO",
+    total: 0,
+    step: 0,
+  },
 });
 
 export class AgentContextState {

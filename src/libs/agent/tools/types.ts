@@ -8,7 +8,13 @@ export const BUILTIN_TOOL_NAMES = [
   "tree",
   "ripgrep",
   "write",
-  "todo",
+  "todo_list",
+  "todo_add",
+  "todo_update",
+  "todo_complete",
+  "todo_reopen",
+  "todo_remove",
+  "todo_clear_done",
   "cp",
   "mv",
   "git",
@@ -43,12 +49,21 @@ export type ToolBudgetController = {
   tryConsume: (toolName: string) => ToolBudgetConsumeResult;
 };
 
+export type ToolExecutionSettledEvent = {
+  toolName: string;
+  input: unknown;
+  ok: boolean;
+  result?: unknown;
+  error?: unknown;
+};
+
 export type ToolExecutionContext = {
   permissions?: ToolPermissionSource;
   workspace?: string;
   onOutputMessage?: AgentOutputMessageSink;
   toolBudget?: ToolBudgetController;
   toolOutputMessageSource?: "registry" | "sdk_hooks";
+  onToolExecutionSettled?: (event: ToolExecutionSettledEvent) => void | Promise<void>;
 };
 
 export type ToolDefinition = ToolSet[string];

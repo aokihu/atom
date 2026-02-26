@@ -148,7 +148,15 @@ export class AgentSession {
   }
 
   mergeExtractedContext(context: Partial<AgentContext>) {
-    this.applyContextPatch(context);
+    this.mergeModelExtractedContext(context);
+  }
+
+  mergeModelExtractedContext(context: Partial<AgentContext>) {
+    this.applyContextPatch(context, "model");
+  }
+
+  mergeSystemContextPatch(context: Partial<AgentContext>) {
+    this.applyContextPatch(context, "system");
   }
 
   recordRuntimeTokenUsageFromSDK(usage: unknown) {
@@ -208,7 +216,7 @@ export class AgentSession {
       };
     }
 
-    this.applyContextPatch(patch);
+    this.applyContextPatch(patch, "system");
   }
 
   finishTaskContext(task: AgentTaskContextFinish, options?: AgentTaskContextFinishOptions) {
@@ -237,7 +245,7 @@ export class AgentSession {
       memory: {
         working: markedWorkingMemory,
       },
-    });
+    }, "system");
   }
 
   private getTaskCheckpoint(): AgentTaskCheckpoint | null {
@@ -354,10 +362,11 @@ export class AgentSession {
     return changed ? nextWorking : [];
   }
 
-  private applyContextPatch(context: unknown) {
+  private applyContextPatch(context: unknown, source: "model" | "system") {
     const sanitizedPatch = sanitizeIncomingContextPatchHard(
       context,
       this.contextState.getCurrentContext(),
+      { source },
     );
     this.contextState.merge(sanitizedPatch);
   }

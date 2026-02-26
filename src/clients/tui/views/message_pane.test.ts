@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   collapseCompletedToolGroups,
+  collapseTodoToolCards,
   type ChatMessageCardInput,
 } from "./message_pane";
 
@@ -227,5 +228,79 @@ describe("collapseCompletedToolGroups", () => {
     if (result[4]?.role === "tool_group_toggle") {
       expect(result[4].groupKey).toBe("task-1:0");
     }
+  });
+
+  test("does not collapse todo tool rows into tool group summaries", () => {
+    const result = collapseCompletedToolGroups([
+      makeTool({ toolName: "todo_list" }),
+      makeTool({ toolName: "todo_add", createdAt: 2 }),
+      makeTool({ toolName: "todo_complete", createdAt: 3 }),
+      makeTool({ toolName: "todo_list", createdAt: 4 }),
+    ]);
+
+    expect(result).toHaveLength(4);
+    expect(result.every((item) => item.role === "tool")).toBe(true);
+  });
+
+  test("collapses consecutive todo tool rows with same todo_id into one todo card group", () => {
+    const result = collapseTodoToolCards([
+      makeTool({
+        toolName: "todo_list",
+        resultDisplay: {
+          version: 1,
+          toolName: "todo_list",
+          phase: "result",
+          templateKey: "builtin.todo_list.result",
+          data: { todo_id: "workspace", summary: "TODO list" },
+        },
+      }),
+      makeTool({
+        toolName: "todo_add",
+        createdAt: 2,
+        resultDisplay: {
+          version: 1,
+          toolName: "todo_add",
+          phase: "result",
+          templateKey: "builtin.todo_add.result",
+          data: { todo_id: "workspace", summary: "Added item" },
+        },
+      }),
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.role).toBe("todo_card_group");
+    if (result[0]?.role === "todo_card_group") {
+      expect(result[0].messages).toHaveLength(2);
+      expect(result[0].todoId).toBe("workspace");
+      expect(result[0].taskId).toBe("task-1");
+    }
+  });
+
+  test("does not render todo card group before a todo_list snapshot exists", () => {
+    const result = collapseTodoToolCards([
+      makeTool({
+        toolName: "todo_add",
+        resultDisplay: {
+          version: 1,
+          toolName: "todo_add",
+          phase: "result",
+          templateKey: "builtin.todo_add.result",
+          data: { todo_id: "workspace", summary: "Added item", items: [{ id: 1, title: "a", status: "open", mark: "☐" }] },
+        },
+      }),
+      makeTool({
+        toolName: "todo_complete",
+        createdAt: 2,
+        resultDisplay: {
+          version: 1,
+          toolName: "todo_complete",
+          phase: "result",
+          templateKey: "builtin.todo_complete.result",
+          data: { todo_id: "workspace", summary: "Done", items: [{ id: 1, title: "a", status: "done", mark: "✓" }] },
+        },
+      }),
+    ]);
+
+    expect(result).toHaveLength(0);
   });
 });

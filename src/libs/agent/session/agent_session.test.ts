@@ -119,6 +119,87 @@ describe("AgentSession", () => {
     expect(context.project?.name).toBe("atom");
   });
 
+  test("mergeModelExtractedContext only allows todo.cursor and keeps system todo progress", () => {
+    const session = new AgentSession({
+      workspace: "/tmp/workspace",
+      systemPrompt: "system prompt",
+      contextClock: createClock(),
+    });
+
+    session.mergeSystemContextPatch({
+      todo: {
+        summary: "进行中 1/2（当前第2步）",
+        total: 2,
+        step: 2,
+      },
+    } as any);
+
+    session.mergeModelExtractedContext({
+      todo: {
+        summary: "hack",
+        total: 99,
+        step: 99,
+        cursor: {
+          v: 1,
+          phase: "doing",
+          next: "todo_complete",
+          targetId: 2,
+        },
+      },
+    } as any);
+
+    const context = session.getContextSnapshot() as any;
+    expect(context.todo.summary).toBe("进行中 1/2（当前第2步）");
+    expect(context.todo.total).toBe(2);
+    expect(context.todo.step).toBe(2);
+    expect(context.todo.cursor).toEqual({
+      v: 1,
+      phase: "doing",
+      next: "todo_complete",
+      targetId: 2,
+    });
+  });
+
+  test("mergeSystemContextPatch updates todo progress while preserving valid cursor", () => {
+    const session = new AgentSession({
+      workspace: "/tmp/workspace",
+      systemPrompt: "system prompt",
+      contextClock: createClock(),
+    });
+
+    session.mergeModelExtractedContext({
+      todo: {
+        cursor: {
+          v: 1,
+          phase: "planning",
+          next: "todo_list",
+          targetId: null,
+        },
+      },
+    } as any);
+
+    session.mergeSystemContextPatch({
+      todo: {
+        summary: "进行中 0/1（当前第1步）",
+        total: 1,
+        step: 1,
+      },
+    } as any);
+
+    const context = session.getContextSnapshot() as any;
+    expect(context.todo).toEqual({
+      summary: "进行中 0/1（当前第1步）",
+      total: 1,
+      step: 1,
+      cursor: {
+        v: 1,
+        phase: "planning",
+        next: "todo_list",
+        targetId: null,
+      },
+    });
+  });
+
   test("records SDK token usage into runtime.token_usage and accumulates total tokens", () => {
     const session = new AgentSession({
       workspace: "/tmp/workspace",

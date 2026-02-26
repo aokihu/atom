@@ -20,7 +20,7 @@ export type RawContextRetentionPolicy = {
 };
 
 export const CONTEXT_POLICY = {
-  version: 2.3,
+  version: 2.4,
   projectionPolicyVersion: "v2.3-projection",
   defaultConfidence: 0.5,
   contentMaxLength: 512,

@@ -7,7 +7,15 @@ import { mvTool } from "./mv";
 import { readTool } from "./read";
 import { ripgrepTool } from "./ripgrep";
 import { treeTool } from "./tree";
-import { todoTool } from "./todo";
+import {
+  todoAddTool,
+  todoClearDoneTool,
+  todoCompleteTool,
+  todoListTool,
+  todoRemoveTool,
+  todoReopenTool,
+  todoUpdateTool,
+} from "./todo_tools";
 import { webfetchTool } from "./webfetch";
 import { writeTool } from "./write";
 import {
@@ -28,7 +36,13 @@ const BUILTIN_TOOL_FACTORIES: Record<BuiltinToolName, ToolFactory> = {
   tree: treeTool,
   ripgrep: ripgrepTool,
   write: writeTool,
-  todo: todoTool,
+  todo_list: todoListTool,
+  todo_add: todoAddTool,
+  todo_update: todoUpdateTool,
+  todo_complete: todoCompleteTool,
+  todo_reopen: todoReopenTool,
+  todo_remove: todoRemoveTool,
+  todo_clear_done: todoClearDoneTool,
   cp: cpTool,
   mv: mvTool,
   git: gitTool,
@@ -73,6 +87,23 @@ const wrapToolDefinition = (
       const emitToolMessages = context.toolOutputMessageSource !== "sdk_hooks";
       const toolCallId = getToolCallId(args);
       const input = args[0];
+      const emitToolSettled = async (event: {
+        ok: boolean;
+        result?: unknown;
+        error?: unknown;
+      }) => {
+        try {
+          await context.onToolExecutionSettled?.({
+            toolName,
+            input,
+            ok: event.ok,
+            result: event.result,
+            error: event.error,
+          });
+        } catch {
+          // Context sync hooks must not break tool execution.
+        }
+      };
       const budgetResult = context.toolBudget?.tryConsume(toolName);
       if (budgetResult && !budgetResult.ok) {
         throw new ToolBudgetExceededError({
@@ -97,6 +128,11 @@ const wrapToolDefinition = (
       try {
         const result = await execute.apply(definition, args);
         const errorMessage = getToolErrorMessageFromOutput(result);
+        await emitToolSettled({
+          ok: errorMessage === undefined,
+          result,
+          ...(errorMessage ? { error: errorMessage } : {}),
+        });
 
         if (emitToolMessages) {
           emitOutputMessage(context.onOutputMessage, {
@@ -113,6 +149,10 @@ const wrapToolDefinition = (
 
         return result;
       } catch (error) {
+        await emitToolSettled({
+          ok: false,
+          error,
+        });
         if (emitToolMessages) {
           emitOutputMessage(context.onOutputMessage, {
             category: "tool",
@@ -140,7 +180,7 @@ const wrapToolRegistryWithOutput = (
   const emitsToolMessages =
     context.toolOutputMessageSource !== "sdk_hooks" && context.onOutputMessage !== undefined;
 
-  if (!emitsToolMessages && !context.toolBudget) {
+  if (!emitsToolMessages && !context.toolBudget && !context.onToolExecutionSettled) {
     return registry;
   }
 

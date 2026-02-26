@@ -1,6 +1,6 @@
 import { parse, resolve } from "node:path";
 import type { AgentConfig } from "../../../types/agent";
-import { BUILTIN_TOOL_CONFIG_SECTIONS } from "./constants";
+import { BUILTIN_TOOL_PERMISSION_SECTIONS } from "./constants";
 
 export type NormalizedAgentConfig = AgentConfig;
 
@@ -25,7 +25,7 @@ export const expandPathVariables = (
   const workspaceRegexText = escapeRegexText(workspacePath);
   const rootRegexText = escapeRegexText(rootPath);
 
-  for (const section of BUILTIN_TOOL_CONFIG_SECTIONS) {
+  for (const section of BUILTIN_TOOL_PERMISSION_SECTIONS) {
     const rule = permissions[section];
     if (!rule) continue;
 

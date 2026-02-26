@@ -1,6 +1,6 @@
 # Context Protocol --- Hybrid Mode (Text + JSON Snapshot)
 
-Version: 2.3
+Version: 2.4
 
 ------------------------------------------------------------------------
 
@@ -30,8 +30,13 @@ If contextMode = disabled:
    - `runtime.workspace`
    - `runtime.datetime`
    - `runtime.startup_at`
-9. Memory blocks MUST be emitted only under `memory.core`, `memory.working`, or `memory.ephemeral`.
-10. Every memory block MUST contain all required fields:
+   - `todo.summary`
+   - `todo.total`
+   - `todo.step`
+9. `todo.cursor` is the ONLY `todo` subfield the model may update (optional).
+   - If emitting `todo.cursor`, it MUST follow the strict schema defined below.
+10. Memory blocks MUST be emitted only under `memory.core`, `memory.working`, or `memory.ephemeral`.
+11. Every memory block MUST contain all required fields:
     - `id`
     - `type`
     - `decay`
@@ -39,12 +44,12 @@ If contextMode = disabled:
     - `round`
     - `tags`
     - `content`
-11. `decay` MUST be a floating point number between 0 and 1.
-12. `confidence` MUST be a floating point number between 0 and 1.
-13. Low-quality memory blocks SHOULD be omitted proactively.
+12. `decay` MUST be a floating point number between 0 and 1.
+13. `confidence` MUST be a floating point number between 0 and 1.
+14. Low-quality memory blocks SHOULD be omitted proactively.
     - If `decay` is too high OR `confidence` is too low, do not emit the block.
-14. Prefer updating existing memory blocks by stable `id` instead of creating duplicate IDs.
-15. Within each memory tier, keep higher-quality blocks first and avoid redundant entries.
+15. Prefer updating existing memory blocks by stable `id` instead of creating duplicate IDs.
+16. Within each memory tier, keep higher-quality blocks first and avoid redundant entries.
 
 ------------------------------------------------------------------------
 
@@ -61,7 +66,7 @@ No markdown wrapping around JSON. No XML tags. No comments inside JSON.
 ## Context JSON Template
 
 {
-  "version": 2.3,
+  "version": 2.4,
   "runtime": {
     "round": 1,
     "workspace": "/workspace/path/",
@@ -103,6 +108,18 @@ No markdown wrapping around JSON. No XML tags. No comments inside JSON.
       }
     ]
   },
+  "todo": {
+    "summary": "进行中 1/3（当前第2步）",
+    "total": 3,
+    "step": 2,
+    "cursor": {
+      "v": 1,
+      "phase": "doing",
+      "next": "todo_complete",
+      "targetId": 2,
+      "note": "完成当前步骤后继续验证"
+    }
+  },
   "capabilities": [{ "name": "memory", "scope": "write_once" }],
   "active_task": "当前执行任务摘要"
 }
@@ -119,6 +136,28 @@ No markdown wrapping around JSON. No XML tags. No comments inside JSON.
 - `startup_at`: session start time (Unix epoch milliseconds)
 
 The model may read but MUST NOT modify runtime fields.
+
+### todo (Split Ownership Domain)
+
+- `todo.summary` / `todo.total` / `todo.step`: system-computed progress projection (read-only for model)
+- `todo.cursor`: agent intent cursor (optional, model-writable)
+
+If emitting `todo.cursor`, use the strict shape:
+
+```json
+{
+  "v": 1,
+  "phase": "planning|doing|verifying|blocked",
+  "next": "none|todo_list|todo_add|todo_update|todo_complete|todo_reopen|todo_remove|todo_clear_done",
+  "targetId": 1,
+  "note": "optional short note"
+}
+```
+
+Rules:
+- `targetId` MUST be `null` for `none`, `todo_list`, `todo_add`, `todo_clear_done`
+- `targetId` MUST be a positive integer for `todo_update`, `todo_complete`, `todo_reopen`, `todo_remove`
+- Do NOT manually modify `todo.summary`, `todo.total`, or `todo.step`
 
 ### memory (Model Evolution Domain)
 

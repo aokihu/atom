@@ -74,4 +74,42 @@ describe("agent_runner internals", () => {
       stopReason: "model_step_budget_exhausted",
     });
   });
+
+  test("extracts todo progress snapshot from tool output", () => {
+    const progress = __agentRunnerInternals.getTodoProgressContextFromToolOutput({
+      success: true,
+      todo: {
+        summary: "进行中 1/2（当前第2步）",
+        total: 2,
+        step: 2,
+      },
+    });
+
+    expect(progress).toEqual({
+      summary: "进行中 1/2（当前第2步）",
+      total: 2,
+      step: 2,
+    });
+    expect(__agentRunnerInternals.getTodoProgressContextFromToolOutput({ success: true })).toBeNull();
+  });
+
+  test("reconciles stale or consumed todo cursor without blocking", () => {
+    const missing = __agentRunnerInternals.reconcileTodoCursor(
+      { next: "todo_complete", targetId: 99 },
+      [{ id: 1, status: "open" }],
+    );
+    expect(missing).toEqual({ kind: "clear", reason: "target_missing" });
+
+    const consumedComplete = __agentRunnerInternals.reconcileTodoCursor(
+      { next: "todo_complete", targetId: 1 },
+      [{ id: 1, status: "done" }],
+    );
+    expect(consumedComplete).toEqual({ kind: "clear", reason: "consumed_complete" });
+
+    const keep = __agentRunnerInternals.reconcileTodoCursor(
+      { next: "todo_update", targetId: 1 },
+      [{ id: 1, status: "open" }],
+    );
+    expect(keep).toEqual({ kind: "keep" });
+  });
 });

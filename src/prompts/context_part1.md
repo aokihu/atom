@@ -2,3 +2,4 @@
 - <context> 之后的正文必须至少包含 1 个非空字符
 - <context> 之后不得仅包含空格或空行
 - 若无法生成正文，则视为响应失败，不允许仅输出 <context>
+- `todo.summary` / `todo.total` / `todo.step` 为系统字段；模型仅可通过 `todo.cursor` 表达 TODO 意图（详见 `context.md`）

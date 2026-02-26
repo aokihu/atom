@@ -18,8 +18,10 @@ import {
   ToolBudgetExceededError,
   type ToolDefinitionMap,
   type ToolBudgetController,
+  type ToolExecutionSettledEvent,
   type ToolExecutionContext,
 } from "../tools";
+import { readTodoProgressStateForWorkspace } from "../tools/todo_store";
 import { AgentSession } from "../session/agent_session";
 import { AISDKModelExecutor } from "./model_executor";
 import {
@@ -157,7 +159,7 @@ export class AgentRunner {
     let finalFinishReason = "unknown";
 
     const model = this.createContextAwareModel((context) => {
-      session.mergeExtractedContext(context);
+      session.mergeModelExtractedContext(context);
     });
 
     const abortController = this.createAbortController();
@@ -172,6 +174,7 @@ export class AgentRunner {
           totalModelSteps,
           toolBudget,
         });
+        this.refreshTodoProgressContext(session);
 
         if (segmentCount === 0) {
           session.prepareUserTurn(question);
@@ -196,7 +199,7 @@ export class AgentRunner {
             messages: session.getMessages(),
             modelParams: this.modelParams,
             abortSignal: abortController.signal,
-            tools: this.createToolRegistryForRun(options, { toolBudget }),
+            tools: this.createToolRegistryForRun(session, options, { toolBudget }),
             stopWhen: stepCountIs(this.executionConfig.maxModelStepsPerRun),
             onOutputMessage: options?.onOutputMessage,
             onUsage: (usage) => {
@@ -207,6 +210,7 @@ export class AgentRunner {
           });
         } catch (error) {
           if (error instanceof ToolBudgetExceededError) {
+            this.refreshTodoProgressContext(session);
             this.writeExecutionBudgetContext(session, {
               segmentIndex: nextSegmentIndex,
               continuationRuns,
@@ -233,6 +237,7 @@ export class AgentRunner {
         totalModelSteps += segmentResult.stepCount;
         finalText = segmentResult.text;
         finalFinishReason = segmentResult.finishReason;
+        this.refreshTodoProgressContext(session);
 
         this.writeExecutionBudgetContext(session, {
           segmentIndex: segmentCount,
@@ -289,10 +294,11 @@ export class AgentRunner {
   }
 
   runTaskStream(session: AgentSession, question: string, options?: AgentRunOptions) {
+    this.refreshTodoProgressContext(session);
     session.prepareUserTurn(question);
 
     const model = this.createContextAwareModel((context) => {
-      session.mergeExtractedContext(context);
+      session.mergeModelExtractedContext(context);
     });
 
     const abortController = this.createAbortController();
@@ -303,7 +309,7 @@ export class AgentRunner {
       messages: session.getMessages(),
       modelParams: this.modelParams,
       abortSignal: abortController.signal,
-      tools: this.createToolRegistryForRun(options),
+      tools: this.createToolRegistryForRun(session, options),
       stopWhen: stepCountIs(this.executionConfig.maxModelStepsPerRun),
       onOutputMessage: options?.onOutputMessage,
       onUsage: (usage) => {
@@ -320,6 +326,7 @@ export class AgentRunner {
           yield part;
         }
       } finally {
+        self.refreshTodoProgressContext(session);
         if (self.currentAbortController === abortController) {
           self.currentAbortController = null;
         }
@@ -333,6 +340,7 @@ export class AgentRunner {
   }
 
   private createToolRegistryForRun(
+    session: AgentSession,
     options?: AgentRunOptions,
     extras?: { toolBudget?: ToolBudgetController },
   ): ToolDefinitionMap {
@@ -342,6 +350,9 @@ export class AgentRunner {
         onOutputMessage: options?.onOutputMessage,
         toolBudget: extras?.toolBudget,
         toolOutputMessageSource: "sdk_hooks",
+        onToolExecutionSettled: async (event) => {
+          await this.handleToolExecutionSettledForContext(session, event);
+        },
       },
       mcpTools: this.mcpTools,
     });
@@ -367,6 +378,53 @@ export class AgentRunner {
     });
   }
 
+  private async handleToolExecutionSettledForContext(
+    session: AgentSession,
+    event: ToolExecutionSettledEvent,
+  ) {
+    if (!isTodoToolName(event.toolName)) {
+      return;
+    }
+
+    if (!event.ok) {
+      return;
+    }
+
+    this.refreshTodoProgressContext(session, {
+      todoOverride: getTodoProgressContextFromToolOutput(event.result),
+    });
+  }
+
+  private refreshTodoProgressContext(
+    session: AgentSession,
+    options?: { todoOverride?: { summary: string; total: number; step: number } | null },
+  ) {
+    const workspace = this.baseToolContext.workspace;
+    if (typeof workspace !== "string" || workspace.trim() === "") {
+      return;
+    }
+
+    try {
+      const todoState = readTodoProgressStateForWorkspace(workspace);
+      const progress = options?.todoOverride ?? todoState.progress;
+      const currentTodo = (session.getContextSnapshot().todo ?? {}) as Record<string, unknown>;
+      const nextTodoPatch: Record<string, unknown> = {
+        summary: progress.summary,
+        total: progress.total,
+        step: progress.step,
+      };
+
+      const reconciledCursor = reconcileTodoCursor(currentTodo.cursor, todoState.items);
+      if (reconciledCursor.kind === "clear") {
+        nextTodoPatch.cursor = null;
+      }
+
+      session.mergeSystemContextPatch({ todo: nextTodoPatch } as Partial<AgentContext>);
+    } catch {
+      // Best-effort context enrichment; do not fail task execution on TODO progress read errors.
+    }
+  }
+
   private writeExecutionBudgetContext(
     session: AgentSession,
     state: {
@@ -376,7 +434,7 @@ export class AgentRunner {
       toolBudget: TaskToolBudget;
     },
   ) {
-    session.mergeExtractedContext({
+    session.mergeSystemContextPatch({
       active_task_meta: {
         execution: {
           segment_index: state.segmentIndex,
@@ -435,6 +493,74 @@ export class AgentRunner {
     });
   }
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isTodoToolName = (toolName: string) => /^todo_/.test(toolName);
+
+const getTodoProgressContextFromToolOutput = (
+  value: unknown,
+): { summary: string; total: number; step: number } | null => {
+  if (!isRecord(value)) return null;
+  const todo = value.todo;
+  if (!isRecord(todo)) return null;
+  const summary = typeof todo.summary === "string" ? todo.summary : null;
+  const total =
+    typeof todo.total === "number" && Number.isFinite(todo.total) ? Math.max(0, Math.trunc(todo.total)) : null;
+  const step =
+    typeof todo.step === "number" && Number.isFinite(todo.step) ? Math.max(0, Math.trunc(todo.step)) : null;
+  if (summary === null || total === null || step === null) return null;
+  return {
+    summary,
+    total,
+    step: Math.min(step, total),
+  };
+};
+
+type TodoCursorReconcileResult =
+  | { kind: "keep" }
+  | { kind: "clear"; reason: "target_missing" | "consumed_complete" | "consumed_reopen" | "consumed_remove" };
+
+const reconcileTodoCursor = (
+  rawCursor: unknown,
+  items: ReadonlyArray<{ id: number; status: "open" | "done" }>,
+): TodoCursorReconcileResult => {
+  if (!isRecord(rawCursor)) return { kind: "keep" };
+  const next = typeof rawCursor.next === "string" ? rawCursor.next : null;
+  const targetId =
+    typeof rawCursor.targetId === "number" && Number.isFinite(rawCursor.targetId)
+      ? Math.trunc(rawCursor.targetId)
+      : rawCursor.targetId === null
+        ? null
+        : undefined;
+
+  if (next === null || targetId === undefined) {
+    return { kind: "keep" };
+  }
+
+  if (targetId === null) {
+    return { kind: "keep" };
+  }
+
+  const target = items.find((item) => item.id === targetId);
+  if (!target) {
+    if (next === "todo_remove") {
+      return { kind: "clear", reason: "consumed_remove" };
+    }
+    return { kind: "clear", reason: "target_missing" };
+  }
+
+  if (next === "todo_complete" && target.status === "done") {
+    return { kind: "clear", reason: "consumed_complete" };
+  }
+
+  if (next === "todo_reopen" && target.status === "open") {
+    return { kind: "clear", reason: "consumed_reopen" };
+  }
+
+  return { kind: "keep" };
+};
 
 const resolveExecutionConfig = (args: {
   config?: AgentExecutionConfig;
@@ -566,4 +692,6 @@ export const __agentRunnerInternals = {
   didHitPerRunStepLimit,
   shouldAutoContinue,
   classifySegmentOutcome,
+  getTodoProgressContextFromToolOutput,
+  reconcileTodoCursor,
 };

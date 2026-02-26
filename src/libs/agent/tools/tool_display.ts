@@ -18,6 +18,7 @@ type DisplayPreview = {
 };
 
 type DisplayData = {
+  [key: string]: unknown;
   summary?: string;
   fields?: DisplayField[];
   previews?: DisplayPreview[];
@@ -736,6 +737,168 @@ const buildWebfetchResultDisplay = (
   });
 };
 
+const isTodoStatus = (value: unknown): value is "open" | "done" =>
+  value === "open" || value === "done";
+
+const formatTodoMark = (status: unknown) => (status === "done" ? "✓" : "☐");
+
+const buildTodoItemPreviewLines = (items: unknown): string[] => {
+  if (!Array.isArray(items)) return [];
+
+  const lines: string[] = [];
+  for (const item of items.slice(0, MAX_PREVIEW_ARRAY_ITEMS)) {
+    if (!isRecord(item)) continue;
+    const id = getNumber(item, "id");
+    const title = getString(item, "title");
+    const status = getString(item, "status");
+    if (title === undefined || !isTodoStatus(status)) continue;
+    const prefix = formatTodoMark(status);
+    const idPrefix = id !== undefined ? `#${id} ` : "";
+    lines.push(`${prefix} ${idPrefix}${clipLine(title, 120)}`);
+  }
+  return lines;
+};
+
+const buildTodoItemsData = (args: {
+  items: unknown;
+  fallbackItem?: Record<string, unknown>;
+}): Array<Record<string, unknown>> => {
+  const normalized: Array<Record<string, unknown>> = [];
+
+  const appendItem = (raw: unknown) => {
+    if (!isRecord(raw)) return;
+    const id = getNumber(raw, "id");
+    const title = getString(raw, "title");
+    const status = getString(raw, "status");
+    if (title === undefined || !isTodoStatus(status)) return;
+    normalized.push({
+      ...(id !== undefined ? { id } : {}),
+      title,
+      status,
+      mark: formatTodoMark(status),
+    });
+  };
+
+  if (Array.isArray(args.items)) {
+    for (const item of args.items.slice(0, MAX_PREVIEW_ARRAY_ITEMS)) {
+      appendItem(item);
+    }
+  } else if (args.fallbackItem) {
+    appendItem(args.fallbackItem);
+  }
+
+  return normalized;
+};
+
+const buildTodoCallDisplay = (toolName: string, input: Record<string, unknown>) =>
+  makeEnvelope(toolName, "call", `builtin.${toolName}.call`, {
+    todo_id: "workspace",
+    summary: `TODO ${toolName.replace(/^todo_/, "")}`,
+    fields: compactFields([
+      createField("id", getNumber(input, "id")),
+      createField("status", getString(input, "status")),
+      createField("limit", getNumber(input, "limit")),
+      createField("title", getString(input, "title")),
+    ]),
+  });
+
+const buildTodoResultDisplay = (
+  toolName: string,
+  input: Record<string, unknown> | undefined,
+  result: Record<string, unknown>,
+  errorMessage?: string,
+) => {
+  if (errorMessage) {
+    return buildGenericErrorResult(toolName, `builtin.${toolName}.result`, errorMessage, [
+      createField("id", getNumber(result, "id") ?? (input ? getNumber(input, "id") : undefined)),
+    ]);
+  }
+
+  const item = isRecord(result.item) ? result.item : undefined;
+  const todoMeta = isRecord(result.todo) ? result.todo : undefined;
+  const itemStatus = item ? getString(item, "status") : undefined;
+  const itemTitle = item ? getString(item, "title") : undefined;
+  const itemId = item ? getNumber(item, "id") : undefined;
+  const listPreviewLines = buildTodoItemPreviewLines(result.items);
+  const todoSummary = todoMeta ? getString(todoMeta, "summary") : undefined;
+  const todoTotal = todoMeta ? getNumber(todoMeta, "total") : undefined;
+  const todoStep = todoMeta ? getNumber(todoMeta, "step") : undefined;
+  const itemPreviewLine =
+    itemTitle && isTodoStatus(itemStatus)
+      ? `${formatTodoMark(itemStatus)} ${itemId !== undefined ? `#${itemId} ` : ""}${clipLine(itemTitle, 120)}`
+      : undefined;
+  const todoItemsData = buildTodoItemsData({
+    items: result.items,
+    fallbackItem: item,
+  });
+  const progressPreviewLines = [
+    todoSummary,
+    todoTotal !== undefined || todoStep !== undefined
+      ? `Step ${todoStep ?? "-"} / ${todoTotal ?? "-"}`
+      : undefined,
+  ].filter((line): line is string => typeof line === "string" && line.length > 0);
+  const itemPreviewBlock = listPreviewLines.length > 0
+    ? {
+        title: "TODO Items",
+        lines: listPreviewLines,
+        truncated: Array.isArray(result.items) && result.items.length > listPreviewLines.length,
+      }
+    : itemPreviewLine
+      ? {
+          title: "TODO Item",
+          lines: [itemPreviewLine],
+        }
+      : undefined;
+
+  let summary = "TODO operation completed";
+  if (toolName === "todo_list") {
+    const count = Array.isArray(result.items) ? result.items.length : getNumber(result, "count");
+    summary = `TODO list (${typeof count === "number" ? count : 0} items)`;
+  }
+
+  if (todoSummary) {
+    summary = todoSummary;
+  } else if (itemPreviewLine) {
+    summary = itemPreviewLine;
+  } else if (toolName === "todo_clear_done") {
+    summary = "Cleared completed TODO items";
+  } else if (toolName === "todo_remove") {
+    summary = "Removed TODO item";
+  }
+
+  return makeEnvelope(toolName, "result", `builtin.${toolName}.result`, {
+    todo_id: "workspace",
+    summary,
+    progress: todoSummary || todoTotal !== undefined || todoStep !== undefined
+      ? {
+          ...(todoSummary ? { summary: todoSummary } : {}),
+          ...(todoTotal !== undefined ? { total: todoTotal } : {}),
+          ...(todoStep !== undefined ? { step: todoStep } : {}),
+        }
+      : undefined,
+    items: todoItemsData,
+    fields: compactFields([
+      createField("success", toYesNo(getBoolean(result, "success"))),
+      createField("count", getNumber(result, "count")),
+      createField("deletedCount", getNumber(result, "deletedCount")),
+      createField("id", getNumber(result, "id") ?? itemId),
+      createField("status", getString(result, "status") ?? (input ? getString(input, "status") : undefined) ?? itemStatus),
+      createField("limit", getNumber(result, "limit") ?? (input ? getNumber(input, "limit") : undefined)),
+      createField("total", todoTotal ?? getNumber(result, "total")),
+      createField("step", todoStep ?? getNumber(result, "step")),
+    ]),
+    previews: compactPreviews([
+      progressPreviewLines.length > 0
+        ? {
+            title: "TODO Progress",
+            lines: progressPreviewLines,
+          }
+        : undefined,
+      itemPreviewBlock,
+    ]),
+  });
+};
+
 export const buildToolCallDisplay = (
   toolName: string,
   input: unknown,
@@ -761,6 +924,14 @@ export const buildToolCallDisplay = (
       return buildGitCallDisplay(toolName, input);
     case "bash":
       return buildBashCallDisplay(toolName, input);
+    case "todo_list":
+    case "todo_add":
+    case "todo_update":
+    case "todo_complete":
+    case "todo_reopen":
+    case "todo_remove":
+    case "todo_clear_done":
+      return buildTodoCallDisplay(toolName, input);
     case "webfetch":
       return buildWebfetchCallDisplay(toolName, input);
     default:
@@ -803,8 +974,15 @@ export const buildToolResultDisplay = (
       return buildGitResultDisplay(toolName, inputRecord, result, errorMessage);
     case "bash":
       return buildBashResultDisplay(toolName, inputRecord, result, errorMessage);
+    case "todo_list":
+    case "todo_add":
+    case "todo_update":
+    case "todo_complete":
+    case "todo_reopen":
+    case "todo_remove":
+    case "todo_clear_done":
+      return buildTodoResultDisplay(toolName, inputRecord, result, errorMessage);
     default:
       return undefined;
   }
 };
-

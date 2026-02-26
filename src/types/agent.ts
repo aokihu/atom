@@ -153,11 +153,43 @@ export type AgentContextRuntime = {
   [key: string]: unknown;
 };
 
+export type AgentContextTodoProgress = {
+  summary: string;
+  total: number;
+  step: number;
+  cursor?: AgentContextTodoCursor | null;
+};
+
+export type AgentContextTodoCursorPhase =
+  | "planning"
+  | "doing"
+  | "verifying"
+  | "blocked";
+
+export type AgentContextTodoCursorNext =
+  | "none"
+  | "todo_list"
+  | "todo_add"
+  | "todo_update"
+  | "todo_complete"
+  | "todo_reopen"
+  | "todo_remove"
+  | "todo_clear_done";
+
+export type AgentContextTodoCursor = {
+  v: 1;
+  phase: AgentContextTodoCursorPhase;
+  next: AgentContextTodoCursorNext;
+  targetId: number | null;
+  note?: string;
+};
+
 export type AgentContext = {
   [key: string]: unknown;
   version: number;
   runtime: AgentContextRuntime;
   memory: AgentContextMemory;
+  todo?: AgentContextTodoProgress;
 };
 
 export type ContextProjectionDropReason =
