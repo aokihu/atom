@@ -1,4 +1,5 @@
 import { sleep } from "bun";
+import { signal } from "@preact/signals-core";
 import {
   BoxRenderable,
   ScrollBoxRenderable,
@@ -41,7 +42,10 @@ import {
   renderMessageStreamContent,
 } from "./views/message_pane";
 import { buildSlashModalLayoutState } from "./views/slash_modal";
-import { buildStatusStripRows } from "./views/status_strip";
+import {
+  bindStatusStripViewModel,
+  type StatusStripViewInput,
+} from "./views/status_strip";
 
 type StartTuiClientOptions = {
   client: GatewayClient;
@@ -113,6 +117,8 @@ class CoreTuiClientApp {
 
   private destroyed = false;
   private readonly state: TuiClientState;
+  private readonly statusStripInputSignal = signal<StatusStripViewInput | null>(null);
+  private readonly disposeStatusStripSyncEffect: () => void;
 
   private spinnerTimer: ReturnType<typeof setInterval> | undefined;
   private deferredUiSyncTimer: ReturnType<typeof setTimeout> | undefined;
@@ -129,9 +135,6 @@ class CoreTuiClientApp {
   private readonly messageSubHeaderText: TextRenderable;
   private readonly messageScroll: ScrollBoxRenderable;
   private readonly messageListBox: BoxRenderable;
-
-  private readonly statusBox: BoxRenderable;
-  private readonly statusRowTexts: [TextRenderable, TextRenderable];
 
   private readonly inputBox: BoxRenderable;
   private readonly inputRailBox: BoxRenderable;
@@ -240,8 +243,6 @@ class CoreTuiClientApp {
     this.messageSubHeaderText = this.ui.messageSubHeaderText;
     this.messageScroll = this.ui.messageScroll;
     this.messageListBox = this.ui.messageListBox;
-    this.statusBox = this.ui.statusBox;
-    this.statusRowTexts = this.ui.statusRowTexts;
     this.inputBox = this.ui.inputBox;
     this.inputRailBox = this.ui.inputRailBox;
     this.inputRailAccent = this.ui.inputRailAccent;
@@ -268,6 +269,18 @@ class CoreTuiClientApp {
     this.contextModalContentBox = this.ui.contextModalContentBox;
     this.contextModalBodyText = this.ui.contextModalBodyText;
 
+    // Signal-driven status strip update:
+    // index.ts 只生成输入模型，组件内部完成视图同步。
+    this.disposeStatusStripSyncEffect = bindStatusStripViewModel({
+      view: {
+        box: this.ui.statusBox,
+        rowTexts: this.ui.statusRowTexts,
+      },
+      theme: this.theme,
+      inputSignal: this.statusStripInputSignal,
+      isDestroyed: () => this.destroyed,
+    });
+
     this.mountViews();
     this.bindRendererEvents();
 
@@ -279,6 +292,7 @@ class CoreTuiClientApp {
     if (this.destroyed) return;
     this.destroyed = true;
 
+    this.disposeStatusStripSyncEffect();
     this.stopSpinner();
     if (this.deferredUiSyncTimer) {
       clearTimeout(this.deferredUiSyncTimer);
@@ -415,15 +429,7 @@ class CoreTuiClientApp {
   private syncStatusStrip(layout?: LayoutMetrics): void {
     const activeLayout = layout ?? this.getLayout();
     const rowWidth = Math.max(1, this.state.terminal.columns - PANEL_INNER_HORIZONTAL_OVERHEAD);
-    const effectiveFocus = this.getEffectiveFocus();
-
-    this.statusBox.visible = activeLayout.showStatusStrip;
-    this.statusBox.height = activeLayout.showStatusStrip ? activeLayout.statusHeight : 0;
-    this.statusBox.borderColor = effectiveFocus === "answer"
-      ? this.theme.colors.borderDefault
-      : this.theme.colors.borderDefault;
-
-    const rows = buildStatusStripRows({
+    this.statusStripInputSignal.value = {
       layout: activeLayout,
       terminal: this.state.terminal,
       rowWidth,
@@ -437,13 +443,7 @@ class CoreTuiClientApp {
       activeTaskId: this.state.activeTaskId,
       serverUrl: this.serverUrl,
       statusNotice: this.state.statusNotice,
-    });
-
-    for (let index = 0; index < this.statusRowTexts.length; index += 1) {
-      const rowText = this.statusRowTexts[index]!;
-      rowText.visible = activeLayout.showStatusStrip && index < activeLayout.statusRows;
-      rowText.content = rows[index] && rows[index]!.length > 0 ? rows[index]! : " ";
-    }
+    };
   }
 
   private syncInputPane(layout: LayoutMetrics): void {

@@ -11,6 +11,8 @@
  */
 import { Box, Text, instantiate } from "@opentui/core";
 import type { BoxRenderable, CliRenderer, TextRenderable } from "@opentui/core";
+import { effect } from "@preact/signals-core";
+import type { ReadonlySignal } from "@preact/signals-core";
 
 import type { LayoutMetrics, TerminalSize } from "../layout/metrics";
 import type { TuiTheme } from "../theme";
@@ -116,29 +118,68 @@ export const buildStatusStripRows = (input: StatusStripViewInput): string[] => {
 
 export const createStatusStripView = (ctx: CliRenderer, theme: TuiTheme): StatusStripView => {
   const C = theme.colors;
-  // 部件说明：状态条根容器（边框 + 双行文本）。
-  // 这里直接在 Constructs 中内联创建两个 Text 子节点，后续再从 children 中取回引用。
-  const box = instantiate(
-    ctx,
-    Box(
-      {
-        border: true,
-        borderStyle: "single",
-        borderColor: C.borderDefault,
-        backgroundColor: C.panelBackground,
-        paddingX: 1,
-        width: "100%",
-        flexDirection: "column",
-      },
-      Text({ content: " ", fg: C.textSecondary, width: "100%", truncate: true }),
-      Text({ content: " ", fg: C.textMuted, width: "100%", truncate: true }),
-    ),
-  ) as unknown as BoxRenderable;
+  // 部件说明：状态条根容器（边框 + 双行文本），使用先构建 VNode 再实例化的 Constructs 风格。
+  const container = Box(
+    {
+      border: true,
+      borderStyle: "single",
+      borderColor: C.borderDefault,
+      backgroundColor: C.panelBackground,
+      paddingX: 1,
+      width: "100%",
+      flexDirection: "column",
+    },
+    Text({ content: " ", fg: C.textSecondary, width: "100%", truncate: true }),
+    Text({ content: " ", fg: C.textMuted, width: "100%", truncate: true }),
+  );
+
+  const box = instantiate(ctx, container) as unknown as BoxRenderable;
 
   // 部件说明：第 1 行显示主状态；第 2 行预留为辅助状态行（当前通常为空）。
   const [row1, row2] = box.getChildren() as [TextRenderable, TextRenderable];
-  return {
+  const view: StatusStripView = {
     box,
     rowTexts: [row1, row2],
   };
+
+  return view;
 };
+
+// ================================
+// 运行时注入区（将实时状态数据注入组件）
+// ================================
+
+export const updateStatusStripView = (
+  view: StatusStripView,
+  input: StatusStripViewInput,
+): void => {
+  view.box.visible = input.layout.showStatusStrip;
+  view.box.height = input.layout.showStatusStrip ? input.layout.statusHeight : 0;
+
+  const rows = buildStatusStripRows(input);
+  for (let index = 0; index < view.rowTexts.length; index += 1) {
+    const rowText = view.rowTexts[index]!;
+    rowText.visible = input.layout.showStatusStrip && index < input.layout.statusRows;
+    rowText.content = rows[index] && rows[index]!.length > 0 ? rows[index]! : " ";
+  }
+};
+
+// ================================
+// 响应式绑定区（Signal -> 视图同步）
+// ================================
+
+export const bindStatusStripViewModel = (
+  args: {
+    view: StatusStripView;
+    theme: TuiTheme;
+    inputSignal: ReadonlySignal<StatusStripViewInput | null>;
+    isDestroyed?: () => boolean;
+  },
+): (() => void) => effect(() => {
+  if (args.isDestroyed?.()) return;
+  const input = args.inputSignal.value;
+  if (!input) return;
+
+  args.view.box.borderColor = args.theme.colors.borderDefault;
+  updateStatusStripView(args.view, input);
+});

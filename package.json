@@ -22,6 +22,7 @@
     "@ai-sdk/openai-compatible": "^2.0.30",
     "@openrouter/ai-sdk-provider": "^2.2.3",
     "@opentui/core": "^0.1.83",
+    "@preact/signals-core": "^1.8.0",
     "@toon-format/toon": "^2.1.0",
     "ai": "^6.0.101",
     "openai": "^6.25.0",

@@ -42,9 +42,10 @@ describe("tui theme registry", () => {
   });
 
   test("builtin theme names match registry keys", () => {
-    expect([...BUILTIN_TUI_THEME_NAMES].sort()).toEqual(
-      Object.keys(BUILTIN_TUI_THEMES).sort(),
-    );
+    const registryKeys = Object.keys(
+      BUILTIN_TUI_THEMES,
+    ) as Array<keyof typeof BUILTIN_TUI_THEMES>;
+    expect([...BUILTIN_TUI_THEME_NAMES].sort()).toEqual([...registryKeys].sort());
   });
 
   test("builtin themes expose non-empty names and palettes", () => {
