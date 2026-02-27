@@ -1,4 +1,9 @@
-import type { AgentConfig, AgentProviderConfig } from "../../../types/agent";
+import {
+  AGENT_INTENT_GUARD_INTENT_KINDS,
+  AGENT_INTENT_GUARD_TOOL_FAMILIES,
+  type AgentConfig,
+  type AgentProviderConfig,
+} from "../../../types/agent";
 import { BUILTIN_TOOL_PERMISSION_SECTIONS } from "./constants";
 
 const ensureStringArray = (value: unknown, keyPath: string) => {
@@ -195,6 +200,67 @@ const validateAgentExecutionConfig = (value: unknown, keyPath: string) => {
         browserPolicy.failTaskIfUnmet,
         `${keyPath}.intentGuard.browser.failTaskIfUnmet`,
       );
+    }
+
+    const intents = intentGuardConfig.intents;
+    if (intents !== undefined) {
+      if (typeof intents !== "object" || intents === null || Array.isArray(intents)) {
+        throw new Error(`${keyPath}.intentGuard.intents must be a JSON object`);
+      }
+
+      for (const [intentKey, intentPolicy] of Object.entries(intents)) {
+        if (!AGENT_INTENT_GUARD_INTENT_KINDS.includes(intentKey as any)) {
+          throw new Error(
+            `${keyPath}.intentGuard.intents.${intentKey} is unsupported; allowed: ${AGENT_INTENT_GUARD_INTENT_KINDS.join(", ")}`,
+          );
+        }
+
+        if (
+          intentPolicy === undefined ||
+          intentPolicy === null ||
+          typeof intentPolicy !== "object" ||
+          Array.isArray(intentPolicy)
+        ) {
+          throw new Error(`${keyPath}.intentGuard.intents.${intentKey} must be a JSON object`);
+        }
+
+        const policy = intentPolicy as Record<string, unknown>;
+        ensureBoolean(policy.enabled, `${keyPath}.intentGuard.intents.${intentKey}.enabled`);
+        ensureIntegerInRange(
+          policy.softBlockAfter,
+          `${keyPath}.intentGuard.intents.${intentKey}.softBlockAfter`,
+          { min: 0, max: 12 },
+        );
+        ensureBoolean(policy.noFallback, `${keyPath}.intentGuard.intents.${intentKey}.noFallback`);
+        ensureBoolean(
+          policy.failTaskIfUnmet,
+          `${keyPath}.intentGuard.intents.${intentKey}.failTaskIfUnmet`,
+        );
+        ensureStringArray(
+          policy.allowedFamilies,
+          `${keyPath}.intentGuard.intents.${intentKey}.allowedFamilies`,
+        );
+        ensureStringArray(
+          policy.softAllowedFamilies,
+          `${keyPath}.intentGuard.intents.${intentKey}.softAllowedFamilies`,
+        );
+        ensureStringArray(
+          policy.requiredSuccessFamilies,
+          `${keyPath}.intentGuard.intents.${intentKey}.requiredSuccessFamilies`,
+        );
+
+        for (const family of [
+          ...(Array.isArray(policy.allowedFamilies) ? policy.allowedFamilies : []),
+          ...(Array.isArray(policy.softAllowedFamilies) ? policy.softAllowedFamilies : []),
+          ...(Array.isArray(policy.requiredSuccessFamilies) ? policy.requiredSuccessFamilies : []),
+        ]) {
+          if (!AGENT_INTENT_GUARD_TOOL_FAMILIES.includes(family as any)) {
+            throw new Error(
+              `${keyPath}.intentGuard.intents.${intentKey} has unsupported family "${family}"; allowed: ${AGENT_INTENT_GUARD_TOOL_FAMILIES.join(", ")}`,
+            );
+          }
+        }
+      }
     }
   }
 };

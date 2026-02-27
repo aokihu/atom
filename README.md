@@ -115,18 +115,22 @@ bun run src/index.ts --mode telegram --workspace ./Playground
 - 当记忆低活跃但仍有较高复用概率时，系统会优先标签化而不是直接删除；后续可通过 `memory_tag_resolve` 恢复。
 - 新工作区模板默认开启 `memory.persistent.enabled = true`。
 
-## 任务意图护栏（Browser-first）
+## 任务意图护栏（通用策略引擎）
 
 - `agent.execution.intentGuard` 默认开启。
-- 当任务明确要求“使用浏览器访问”时：
-  - 优先要求浏览器能力工具（如 browser/playwright 类 MCP 工具）
-  - 仅允许有限次数的网络邻近工具偏航（默认 2 次），超过后拦截
-  - 若最终没有任何浏览器能力工具成功执行，任务标记为 `intent_execution_failed`
+- 护栏已支持多意图策略（`general` / `browser_access` / `network_research` / `filesystem_ops` / `code_edit` / `memory_ops`）。
+- 每个意图可独立配置工具族约束（`allowedFamilies` / `softAllowedFamilies` / `softBlockAfter` / `requiredSuccessFamilies`）。
+- 默认启用的策略是 `browser_access`，用于保证“用浏览器访问网站”任务不会偏航为无关工具调用。
 - 关键开关位于 `agent.execution.intentGuard`：
   - `enabled`
   - `detector` (`model` / `heuristic`)
-  - `softBlockAfter`
-  - `browser.noFallback` / `browser.networkAdjacentOnly` / `browser.failTaskIfUnmet`
+  - `softBlockAfter`（全局默认值，可被意图级覆盖）
+  - `intents.<intent>.enabled`
+  - `intents.<intent>.allowedFamilies`
+  - `intents.<intent>.softAllowedFamilies`
+  - `intents.<intent>.requiredSuccessFamilies`
+  - `intents.<intent>.noFallback` / `intents.<intent>.failTaskIfUnmet`
+- 旧版 `browser.*` 配置仍兼容，会自动映射到 `intents.browser_access`。
 - 设计、执行时序与故障场景见：[docs/INTENT_GUARD.md](./docs/INTENT_GUARD.md)
 
 ## 配置说明（agent.config.json）

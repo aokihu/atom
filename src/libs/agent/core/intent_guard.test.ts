@@ -14,6 +14,62 @@ const DEFAULT_GUARD_CONFIG: ResolvedAgentIntentGuardConfig = {
     networkAdjacentOnly: true,
     failTaskIfUnmet: true,
   },
+  intents: {
+    general: {
+      enabled: false,
+      allowedFamilies: [],
+      softAllowedFamilies: [],
+      softBlockAfter: 2,
+      noFallback: false,
+      failTaskIfUnmet: false,
+      requiredSuccessFamilies: [],
+    },
+    browser_access: {
+      enabled: true,
+      allowedFamilies: ["browser"],
+      softAllowedFamilies: ["network"],
+      softBlockAfter: 2,
+      noFallback: true,
+      failTaskIfUnmet: true,
+      requiredSuccessFamilies: ["browser"],
+    },
+    network_research: {
+      enabled: false,
+      allowedFamilies: ["network", "browser"],
+      softAllowedFamilies: [],
+      softBlockAfter: 2,
+      noFallback: false,
+      failTaskIfUnmet: false,
+      requiredSuccessFamilies: [],
+    },
+    filesystem_ops: {
+      enabled: false,
+      allowedFamilies: ["filesystem"],
+      softAllowedFamilies: ["shell"],
+      softBlockAfter: 2,
+      noFallback: false,
+      failTaskIfUnmet: false,
+      requiredSuccessFamilies: [],
+    },
+    code_edit: {
+      enabled: false,
+      allowedFamilies: ["filesystem", "vcs"],
+      softAllowedFamilies: ["shell"],
+      softBlockAfter: 2,
+      noFallback: false,
+      failTaskIfUnmet: false,
+      requiredSuccessFamilies: [],
+    },
+    memory_ops: {
+      enabled: false,
+      allowedFamilies: ["memory"],
+      softAllowedFamilies: [],
+      softBlockAfter: 2,
+      noFallback: false,
+      failTaskIfUnmet: false,
+      requiredSuccessFamilies: [],
+    },
+  },
 };
 
 describe("intent_guard", () => {
@@ -21,6 +77,11 @@ describe("intent_guard", () => {
     const intent = __intentGuardInternals.detectHeuristicIntent("请用浏览器访问 www.19lou.com");
     expect(intent.kind).toBe("browser_access");
     expect(intent.source).toBe("heuristic");
+  });
+
+  test("heuristic detects code edit task", () => {
+    const intent = __intentGuardInternals.detectHeuristicIntent("请帮我重构这个模块并补测试");
+    expect(intent.kind).toBe("code_edit");
   });
 
   test("preflight fails when browser task has no browser-capable tool", () => {
@@ -90,6 +151,45 @@ describe("intent_guard", () => {
     });
 
     guard.onToolSettled({ toolName: "playwright_browser_navigate", ok: true });
+    expect(guard.getCompletionFailure()).toBeNull();
+  });
+
+  test("generic intent policy restricts tool families", () => {
+    const guard = createTaskIntentGuard({
+      intent: {
+        kind: "code_edit",
+        confidence: 0.86,
+        source: "heuristic",
+        reason: "test",
+      },
+      config: {
+        ...DEFAULT_GUARD_CONFIG,
+        intents: {
+          ...DEFAULT_GUARD_CONFIG.intents,
+          code_edit: {
+            enabled: true,
+            allowedFamilies: ["filesystem", "vcs"],
+            softAllowedFamilies: ["shell"],
+            softBlockAfter: 1,
+            noFallback: false,
+            failTaskIfUnmet: true,
+            requiredSuccessFamilies: ["filesystem"],
+          },
+        },
+      },
+      availableToolNames: ["read", "git", "bash"],
+    });
+
+    expect(guard.beforeToolExecution("read")).toEqual({ allow: true });
+    expect(guard.beforeToolExecution("bash")).toEqual({ allow: true });
+    const blocked = guard.beforeToolExecution("bash");
+    expect(blocked.allow).toBe(false);
+    expect(blocked.allow ? "" : blocked.stopReason).toBe("tool_policy_blocked");
+    const blockedOutOfScope = guard.beforeToolExecution("webfetch");
+    expect(blockedOutOfScope.allow).toBe(false);
+
+    expect(guard.getCompletionFailure()?.stopReason).toBe("intent_execution_failed");
+    guard.onToolSettled({ toolName: "read", ok: true });
     expect(guard.getCompletionFailure()).toBeNull();
   });
 });

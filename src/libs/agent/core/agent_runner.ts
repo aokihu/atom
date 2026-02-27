@@ -6,11 +6,15 @@ import type { LanguageModelV3, LanguageModelV3Middleware } from "@ai-sdk/provide
 
 import { extractContextMiddleware } from "../../utils/ai-sdk/middlewares/extractContextMiddleware";
 import {
+  AGENT_INTENT_GUARD_INTENT_KINDS,
   DEFAULT_AGENT_EXECUTION_CONFIG,
   type AgentContext,
   type AgentExecutionConfig,
   type AgentModelParams,
+  type AgentIntentGuardIntentKind,
+  type AgentIntentGuardIntentPolicyConfig,
   type ResolvedAgentIntentGuardConfig,
+  type ResolvedAgentIntentGuardIntentPolicyConfig,
   type ResolvedAgentExecutionConfig,
 } from "../../../types/agent";
 import type { TaskExecutionStopReason } from "../../../types/task";
@@ -791,13 +795,61 @@ const resolveExecutionConfig = (args: {
 }): ResolvedAgentExecutionConfig => {
   const config = args.config ?? {};
   const legacyMaxSteps = args.legacyMaxSteps;
+  const baseIntentConfig = DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard;
+  const userIntentConfig = config.intentGuard ?? {};
+
+  const resolveIntentPolicy = (
+    intent: AgentIntentGuardIntentKind,
+  ): ResolvedAgentIntentGuardIntentPolicyConfig => {
+    const basePolicy = baseIntentConfig.intents[intent];
+    const userPolicy = userIntentConfig.intents?.[intent] as AgentIntentGuardIntentPolicyConfig | undefined;
+    return {
+      ...basePolicy,
+      ...(userPolicy ?? {}),
+      allowedFamilies: userPolicy?.allowedFamilies ?? basePolicy.allowedFamilies,
+      softAllowedFamilies: userPolicy?.softAllowedFamilies ?? basePolicy.softAllowedFamilies,
+      requiredSuccessFamilies:
+        userPolicy?.requiredSuccessFamilies ?? basePolicy.requiredSuccessFamilies,
+      softBlockAfter:
+        userPolicy?.softBlockAfter ??
+        userIntentConfig.softBlockAfter ??
+        basePolicy.softBlockAfter,
+    };
+  };
+
+  const mergedIntentPolicies = AGENT_INTENT_GUARD_INTENT_KINDS.reduce<
+    Record<AgentIntentGuardIntentKind, ResolvedAgentIntentGuardIntentPolicyConfig>
+  >((acc, intent) => {
+    acc[intent] = resolveIntentPolicy(intent);
+    return acc;
+  }, {} as Record<AgentIntentGuardIntentKind, ResolvedAgentIntentGuardIntentPolicyConfig>);
+
+  // Backward compatibility: map legacy browser config onto browser_access intent policy.
+  if (userIntentConfig.browser) {
+    const browserPolicy = mergedIntentPolicies.browser_access;
+    mergedIntentPolicies.browser_access = {
+      ...browserPolicy,
+      noFallback:
+        userIntentConfig.browser.noFallback ??
+        browserPolicy.noFallback,
+      failTaskIfUnmet:
+        userIntentConfig.browser.failTaskIfUnmet ??
+        browserPolicy.failTaskIfUnmet,
+      softAllowedFamilies:
+        userIntentConfig.browser.networkAdjacentOnly === false
+          ? []
+          : browserPolicy.softAllowedFamilies,
+    };
+  }
+
   const mergedIntentGuard: ResolvedAgentIntentGuardConfig = {
-    ...DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard,
-    ...(config.intentGuard ?? {}),
+    ...baseIntentConfig,
+    ...(userIntentConfig ?? {}),
     browser: {
-      ...DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard.browser,
-      ...(config.intentGuard?.browser ?? {}),
+      ...baseIntentConfig.browser,
+      ...(userIntentConfig.browser ?? {}),
     },
+    intents: mergedIntentPolicies,
   };
 
   return {

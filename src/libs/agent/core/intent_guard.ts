@@ -1,9 +1,15 @@
 import { generateText } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import type { ResolvedAgentIntentGuardConfig } from "../../../types/agent";
+import {
+  AGENT_INTENT_GUARD_INTENT_KINDS,
+  AGENT_INTENT_GUARD_TOOL_FAMILIES,
+  type AgentIntentGuardIntentKind,
+  type AgentIntentGuardToolFamily,
+  type ResolvedAgentIntentGuardConfig,
+} from "../../../types/agent";
 import type { TaskExecutionStopReason } from "../../../types/task";
 
-export type TaskIntentKind = "general" | "browser_access";
+export type TaskIntentKind = AgentIntentGuardIntentKind;
 
 export type TaskIntent = {
   kind: TaskIntentKind;
@@ -12,7 +18,7 @@ export type TaskIntent = {
   reason: string;
 };
 
-export type ToolIntentScope = "browser" | "network_adjacent" | "out_of_scope";
+export type ToolIntentFamily = AgentIntentGuardToolFamily;
 
 export type TaskIntentGuardDecision =
   | { allow: true }
@@ -20,9 +26,11 @@ export type TaskIntentGuardDecision =
 
 export type TaskIntentGuardState = {
   intent: TaskIntent;
-  browserToolAvailable: boolean;
-  adjacentAttempts: number;
-  successfulBrowserCalls: number;
+  policyEnabled: boolean;
+  availableFamilyCounts: Record<ToolIntentFamily, number>;
+  softAttempts: number;
+  requiredSuccessFamilies: ToolIntentFamily[];
+  successfulRequiredFamilyHits: number;
 };
 
 export type TaskIntentGuard = {
@@ -44,26 +52,88 @@ const BROWSER_TASK_PATTERNS = [
   /访问(?:网页|网站)/,
 ];
 
-const BROWSER_TOOL_PATTERNS = [
-  /browser/i,
-  /playwright/i,
-  /puppeteer/i,
-  /selenium/i,
-  /chrom(e|ium)/i,
-  /webdriver/i,
+const MEMORY_TASK_PATTERNS = [
+  /记住/,
+  /记忆/,
+  /回忆/,
+  /召回/,
+  /\bmemory\b/i,
+  /tag_ref/i,
+  /memory_(write|search|get|update|delete|feedback|tag_resolve|compact|list_recent)/i,
 ];
 
-const NETWORK_ADJACENT_TOOL_PATTERNS = [
-  ...BROWSER_TOOL_PATTERNS,
-  /webfetch/i,
-  /fetch/i,
-  /http/i,
-  /https/i,
-  /navigate/i,
-  /page/i,
-  /url/i,
-  /web/i,
+const CODE_EDIT_TASK_PATTERNS = [
+  /重构/,
+  /修复/,
+  /实现/,
+  /写代码/,
+  /改代码/,
+  /\b(refactor|implement|fix|patch|code)\b/i,
 ];
+
+const FILESYSTEM_TASK_PATTERNS = [
+  /读取文件/,
+  /查看文件/,
+  /列出目录/,
+  /目录结构/,
+  /\b(ls|tree|ripgrep|grep|read file)\b/i,
+];
+
+const NETWORK_RESEARCH_TASK_PATTERNS = [
+  /联网/,
+  /上网/,
+  /搜索/,
+  /查一下/,
+  /最新/,
+  /\b(search|lookup|research|latest|news)\b/i,
+];
+
+const TOOL_FAMILY_PATTERNS: Record<ToolIntentFamily, RegExp[]> = {
+  browser: [
+    /browser/i,
+    /playwright/i,
+    /puppeteer/i,
+    /selenium/i,
+    /chrom(e|ium)/i,
+    /webdriver/i,
+  ],
+  network: [
+    /webfetch/i,
+    /\bfetch\b/i,
+    /\bhttp(s)?\b/i,
+    /\burl\b/i,
+    /\bpage\b/i,
+    /\bcrawl\b/i,
+  ],
+  filesystem: [
+    /^read$/,
+    /^write$/,
+    /^ls$/,
+    /^tree$/,
+    /^ripgrep$/,
+    /^cp$/,
+    /^mv$/,
+  ],
+  memory: [
+    /^memory_/,
+    /\bmemory\b/i,
+  ],
+  vcs: [
+    /^git$/,
+    /(^|[_:])git($|[_:])/i,
+  ],
+  task: [
+    /^todo_/,
+    /\btodo\b/i,
+  ],
+  shell: [
+    /^bash$/,
+    /^background$/,
+    /\bshell\b/i,
+    /\bterminal\b/i,
+  ],
+  unknown: [],
+};
 
 const clamp01 = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
@@ -74,8 +144,9 @@ const clamp01 = (value: number): number => {
 
 const normalizeLabel = (value: string): TaskIntentKind | null => {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "browser_access") return "browser_access";
-  if (normalized === "general") return "general";
+  if ((AGENT_INTENT_GUARD_INTENT_KINDS as readonly string[]).includes(normalized)) {
+    return normalized as TaskIntentKind;
+  }
   return null;
 };
 
@@ -89,7 +160,43 @@ const detectHeuristicIntent = (question: string): TaskIntent => {
       kind: "browser_access",
       confidence: 0.98,
       source: "heuristic",
-      reason: "matched_explicit_browser_phrase",
+      reason: "matched_browser_phrase",
+    };
+  }
+
+  if (matchAnyPattern(normalizedQuestion, MEMORY_TASK_PATTERNS)) {
+    return {
+      kind: "memory_ops",
+      confidence: 0.88,
+      source: "heuristic",
+      reason: "matched_memory_phrase",
+    };
+  }
+
+  if (matchAnyPattern(normalizedQuestion, CODE_EDIT_TASK_PATTERNS)) {
+    return {
+      kind: "code_edit",
+      confidence: 0.82,
+      source: "heuristic",
+      reason: "matched_code_phrase",
+    };
+  }
+
+  if (matchAnyPattern(normalizedQuestion, FILESYSTEM_TASK_PATTERNS)) {
+    return {
+      kind: "filesystem_ops",
+      confidence: 0.8,
+      source: "heuristic",
+      reason: "matched_filesystem_phrase",
+    };
+  }
+
+  if (matchAnyPattern(normalizedQuestion, NETWORK_RESEARCH_TASK_PATTERNS)) {
+    return {
+      kind: "network_research",
+      confidence: 0.76,
+      source: "heuristic",
+      reason: "matched_network_phrase",
     };
   }
 
@@ -97,7 +204,7 @@ const detectHeuristicIntent = (question: string): TaskIntent => {
     kind: "general",
     confidence: 0.6,
     source: "heuristic",
-    reason: "no_browser_phrase_matched",
+    reason: "no_specific_phrase_matched",
   };
 };
 
@@ -148,11 +255,12 @@ export const detectTaskIntent = async (args: {
       model: args.model,
       abortSignal: args.abortSignal,
       temperature: 0,
-      maxOutputTokens: 80,
+      maxOutputTokens: 120,
       prompt: [
         "Classify the user task intent with strict JSON only.",
-        'Return: {"label":"browser_access|general","confidence":0..1,"reason":"short"}',
-        "Label browser_access only when user explicitly requires browser-driven website interaction.",
+        `Return: {"label":"${AGENT_INTENT_GUARD_INTENT_KINDS.join("|")}","confidence":0..1,"reason":"short"}`,
+        "Prefer browser_access only when browser-driven website interaction is explicitly required.",
+        "Prefer general when intent is unclear.",
         `USER_TASK: ${args.question}`,
       ].join("\n"),
     });
@@ -165,83 +273,112 @@ export const detectTaskIntent = async (args: {
   }
 };
 
-const classifyToolIntentScope = (toolName: string): ToolIntentScope => {
-  if (matchAnyPattern(toolName, BROWSER_TOOL_PATTERNS)) {
-    return "browser";
+const classifyToolIntentFamily = (toolName: string): ToolIntentFamily => {
+  for (const family of AGENT_INTENT_GUARD_TOOL_FAMILIES) {
+    if (family === "unknown") continue;
+    if (matchAnyPattern(toolName, TOOL_FAMILY_PATTERNS[family])) {
+      return family;
+    }
   }
-
-  if (matchAnyPattern(toolName, NETWORK_ADJACENT_TOOL_PATTERNS)) {
-    return "network_adjacent";
-  }
-
-  return "out_of_scope";
+  return "unknown";
 };
+
+const createFamilyCounter = (): Record<ToolIntentFamily, number> =>
+  AGENT_INTENT_GUARD_TOOL_FAMILIES.reduce<Record<ToolIntentFamily, number>>((acc, family) => {
+    acc[family] = 0;
+    return acc;
+  }, {} as Record<ToolIntentFamily, number>);
 
 export const createTaskIntentGuard = (args: {
   intent: TaskIntent;
   config: ResolvedAgentIntentGuardConfig;
   availableToolNames: string[];
 }): TaskIntentGuard => {
-  const browserToolAvailable = args.availableToolNames.some((toolName) =>
-    classifyToolIntentScope(toolName) === "browser"
-  );
-  let adjacentAttempts = 0;
-  let successfulBrowserCalls = 0;
+  const policy = args.config.intents[args.intent.kind];
+  const policyEnabled = args.config.enabled && policy.enabled;
+  const availableFamilyCounts = createFamilyCounter();
+
+  for (const toolName of args.availableToolNames) {
+    const family = classifyToolIntentFamily(toolName);
+    availableFamilyCounts[family] += 1;
+  }
+
+  const requiredSuccessFamilies = [...policy.requiredSuccessFamilies];
+  const successfulRequiredFamilyHits = createFamilyCounter();
+  let softAttempts = 0;
+
+  const isAnyFamilyAvailable = (families: ToolIntentFamily[]) =>
+    families.some((family) => availableFamilyCounts[family] > 0);
 
   const getPreflightFailure = () => {
-    if (args.intent.kind !== "browser_access") return null;
-    if (!args.config.browser.noFallback) return null;
-    if (browserToolAvailable) return null;
+    if (!policyEnabled) return null;
+    if (!policy.noFallback) return null;
+
+    const requiredFamilies =
+      requiredSuccessFamilies.length > 0
+        ? requiredSuccessFamilies
+        : policy.allowedFamilies;
+    if (requiredFamilies.length === 0) return null;
+    if (isAnyFamilyAvailable(requiredFamilies)) return null;
+
     return {
       stopReason: "intent_execution_failed" as const,
-      message: "No browser-capable tool is available for this browser-required task.",
+      message: `No tool family available for intent "${args.intent.kind}" (required: ${requiredFamilies.join(", ")}).`,
     };
   };
 
   const beforeToolExecution = (toolName: string): TaskIntentGuardDecision => {
-    if (args.intent.kind !== "browser_access") {
+    if (!policyEnabled) {
       return { allow: true };
     }
 
-    const scope = classifyToolIntentScope(toolName);
-    if (scope === "browser") {
+    const family = classifyToolIntentFamily(toolName);
+    if (policy.allowedFamilies.includes(family)) {
       return { allow: true };
     }
 
-    if (scope === "network_adjacent" && args.config.browser.networkAdjacentOnly) {
-      adjacentAttempts += 1;
-      if (adjacentAttempts <= args.config.softBlockAfter) {
+    if (policy.softAllowedFamilies.includes(family)) {
+      softAttempts += 1;
+      if (softAttempts <= policy.softBlockAfter) {
         return { allow: true };
       }
       return {
         allow: false,
         stopReason: "tool_policy_blocked",
-        reason: `Browser task drifted to non-browser tools too many times (${adjacentAttempts}/${args.config.softBlockAfter}).`,
+        reason:
+          `Intent "${args.intent.kind}" drifted to soft-allowed family "${family}" too many times ` +
+          `(${softAttempts}/${policy.softBlockAfter}).`,
       };
     }
 
     return {
       allow: false,
       stopReason: "tool_policy_blocked",
-      reason: "This task requires browser-oriented tools; non-network tools are blocked.",
+      reason: `Tool family "${family}" is out of scope for intent "${args.intent.kind}".`,
     };
   };
 
   const onToolSettled = (event: { toolName: string; ok: boolean }) => {
-    if (!event.ok) return;
-    if (args.intent.kind !== "browser_access") return;
-    if (classifyToolIntentScope(event.toolName) === "browser") {
-      successfulBrowserCalls += 1;
+    if (!policyEnabled || !event.ok) return;
+    const family = classifyToolIntentFamily(event.toolName);
+    if (requiredSuccessFamilies.includes(family)) {
+      successfulRequiredFamilyHits[family] += 1;
     }
   };
 
   const getCompletionFailure = () => {
-    if (args.intent.kind !== "browser_access") return null;
-    if (!args.config.browser.failTaskIfUnmet) return null;
-    if (successfulBrowserCalls > 0) return null;
+    if (!policyEnabled) return null;
+    if (!policy.failTaskIfUnmet) return null;
+    if (requiredSuccessFamilies.length === 0) return null;
+
+    const hit = requiredSuccessFamilies.some((family) => successfulRequiredFamilyHits[family] > 0);
+    if (hit) return null;
+
     return {
       stopReason: "intent_execution_failed" as const,
-      message: "Task requested browser access but no browser-capable tool completed successfully.",
+      message:
+        `Intent "${args.intent.kind}" requires successful tool execution in family: ` +
+        `${requiredSuccessFamilies.join(", ")}, but none succeeded.`,
     };
   };
 
@@ -253,9 +390,14 @@ export const createTaskIntentGuard = (args: {
     getCompletionFailure,
     getState: () => ({
       intent: args.intent,
-      browserToolAvailable,
-      adjacentAttempts,
-      successfulBrowserCalls,
+      policyEnabled,
+      availableFamilyCounts,
+      softAttempts,
+      requiredSuccessFamilies,
+      successfulRequiredFamilyHits: requiredSuccessFamilies.reduce(
+        (sum, family) => sum + successfulRequiredFamilyHits[family],
+        0,
+      ),
     }),
   };
 };
@@ -263,5 +405,5 @@ export const createTaskIntentGuard = (args: {
 export const __intentGuardInternals = {
   detectHeuristicIntent,
   parseIntentResponseFromText,
-  classifyToolIntentScope,
+  classifyToolIntentFamily,
 };

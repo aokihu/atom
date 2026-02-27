@@ -17,10 +17,16 @@
         "enabled": true,
         "detector": "model",
         "softBlockAfter": 2,
-        "browser": {
-          "noFallback": true,
-          "networkAdjacentOnly": true,
-          "failTaskIfUnmet": true
+        "intents": {
+          "browser_access": {
+            "enabled": true,
+            "allowedFamilies": ["browser"],
+            "softAllowedFamilies": ["network"],
+            "softBlockAfter": 2,
+            "noFallback": true,
+            "failTaskIfUnmet": true,
+            "requiredSuccessFamilies": ["browser"]
+          }
         }
       }
     }

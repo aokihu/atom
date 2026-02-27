@@ -102,7 +102,7 @@ docs/
   - 标签化冷记忆：低重要性且 `P(reuse) > threshold` 时写入 tag payload，原位保留 `tag_id + tag_summary`
 - 任务意图护栏由 `libs/agent/core` 驱动：
   - 启动阶段识别任务 intent（`model` 或 `heuristic`）
-  - 对工具调用执行 Browser-first 作用域约束
+  - 对工具调用执行“意图 -> 工具族”策略约束（可按意图配置）
   - 不满足浏览器任务达成条件时返回受控停止（如 `intent_execution_failed` / `tool_policy_blocked`）
 
 ### `src/types`

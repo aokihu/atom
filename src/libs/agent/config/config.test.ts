@@ -168,6 +168,33 @@ describe("agent config", () => {
               enabled: true,
               detector: "model",
               softBlockAfter: 2,
+              intents: {
+                browser_access: {
+                  enabled: true,
+                  allowedFamilies: ["browser"],
+                  softAllowedFamilies: ["network"],
+                  softBlockAfter: 2,
+                  noFallback: true,
+                  failTaskIfUnmet: true,
+                  requiredSuccessFamilies: ["browser"],
+                },
+              },
+            },
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  test("validateAgentConfig accepts agent.execution.intentGuard legacy browser config", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        agent: {
+          name: "Atom",
+          model: "deepseek/deepseek-chat",
+          execution: {
+            intentGuard: {
               browser: {
                 noFallback: true,
                 networkAdjacentOnly: true,
@@ -195,6 +222,29 @@ describe("agent config", () => {
         },
       }),
     ).toThrow("agent.execution.intentGuard.softBlockAfter must be an integer in range 0..12");
+  });
+
+  test("validateAgentConfig rejects invalid intentGuard tool family", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        agent: {
+          name: "Atom",
+          model: "deepseek/deepseek-chat",
+          execution: {
+            intentGuard: {
+              intents: {
+                code_edit: {
+                  allowedFamilies: ["not_a_family"] as any,
+                },
+              },
+            },
+          },
+        },
+      }),
+    ).toThrow(
+      'agent.execution.intentGuard.intents.code_edit has unsupported family "not_a_family"',
+    );
   });
 
   test("validateAgentConfig rejects invalid agent.execution.maxToolCallsPerTask", () => {

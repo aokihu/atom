@@ -12,10 +12,44 @@ export type AgentRuntimeConfig = {
 
 export type AgentIntentGuardDetector = "model" | "heuristic";
 
+export const AGENT_INTENT_GUARD_INTENT_KINDS = [
+  "general",
+  "browser_access",
+  "network_research",
+  "filesystem_ops",
+  "code_edit",
+  "memory_ops",
+] as const;
+
+export type AgentIntentGuardIntentKind = (typeof AGENT_INTENT_GUARD_INTENT_KINDS)[number];
+
+export const AGENT_INTENT_GUARD_TOOL_FAMILIES = [
+  "browser",
+  "network",
+  "filesystem",
+  "memory",
+  "vcs",
+  "task",
+  "shell",
+  "unknown",
+] as const;
+
+export type AgentIntentGuardToolFamily = (typeof AGENT_INTENT_GUARD_TOOL_FAMILIES)[number];
+
 export type AgentIntentGuardBrowserPolicyConfig = {
   noFallback?: boolean;
   networkAdjacentOnly?: boolean;
   failTaskIfUnmet?: boolean;
+};
+
+export type AgentIntentGuardIntentPolicyConfig = {
+  enabled?: boolean;
+  allowedFamilies?: AgentIntentGuardToolFamily[];
+  softAllowedFamilies?: AgentIntentGuardToolFamily[];
+  softBlockAfter?: number;
+  noFallback?: boolean;
+  failTaskIfUnmet?: boolean;
+  requiredSuccessFamilies?: AgentIntentGuardToolFamily[];
 };
 
 export type AgentIntentGuardConfig = {
@@ -23,6 +57,7 @@ export type AgentIntentGuardConfig = {
   detector?: AgentIntentGuardDetector;
   softBlockAfter?: number;
   browser?: AgentIntentGuardBrowserPolicyConfig;
+  intents?: Partial<Record<AgentIntentGuardIntentKind, AgentIntentGuardIntentPolicyConfig>>;
 };
 
 export type AgentExecutionConfig = {
@@ -41,11 +76,22 @@ export type ResolvedAgentIntentGuardBrowserPolicyConfig = {
   failTaskIfUnmet: boolean;
 };
 
+export type ResolvedAgentIntentGuardIntentPolicyConfig = {
+  enabled: boolean;
+  allowedFamilies: AgentIntentGuardToolFamily[];
+  softAllowedFamilies: AgentIntentGuardToolFamily[];
+  softBlockAfter: number;
+  noFallback: boolean;
+  failTaskIfUnmet: boolean;
+  requiredSuccessFamilies: AgentIntentGuardToolFamily[];
+};
+
 export type ResolvedAgentIntentGuardConfig = {
   enabled: boolean;
   detector: AgentIntentGuardDetector;
   softBlockAfter: number;
   browser: ResolvedAgentIntentGuardBrowserPolicyConfig;
+  intents: Record<AgentIntentGuardIntentKind, ResolvedAgentIntentGuardIntentPolicyConfig>;
 };
 
 export type ResolvedAgentExecutionConfig = {
@@ -73,6 +119,62 @@ export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
       noFallback: true,
       networkAdjacentOnly: true,
       failTaskIfUnmet: true,
+    },
+    intents: {
+      general: {
+        enabled: false,
+        allowedFamilies: [],
+        softAllowedFamilies: [],
+        softBlockAfter: 2,
+        noFallback: false,
+        failTaskIfUnmet: false,
+        requiredSuccessFamilies: [],
+      },
+      browser_access: {
+        enabled: true,
+        allowedFamilies: ["browser"],
+        softAllowedFamilies: ["network"],
+        softBlockAfter: 2,
+        noFallback: true,
+        failTaskIfUnmet: true,
+        requiredSuccessFamilies: ["browser"],
+      },
+      network_research: {
+        enabled: false,
+        allowedFamilies: ["network", "browser"],
+        softAllowedFamilies: ["filesystem"],
+        softBlockAfter: 2,
+        noFallback: false,
+        failTaskIfUnmet: false,
+        requiredSuccessFamilies: [],
+      },
+      filesystem_ops: {
+        enabled: false,
+        allowedFamilies: ["filesystem", "vcs", "task"],
+        softAllowedFamilies: ["shell"],
+        softBlockAfter: 2,
+        noFallback: false,
+        failTaskIfUnmet: false,
+        requiredSuccessFamilies: [],
+      },
+      code_edit: {
+        enabled: false,
+        allowedFamilies: ["filesystem", "vcs", "task"],
+        softAllowedFamilies: ["shell"],
+        softBlockAfter: 2,
+        noFallback: false,
+        failTaskIfUnmet: false,
+        requiredSuccessFamilies: [],
+      },
+      memory_ops: {
+        enabled: false,
+        allowedFamilies: ["memory", "task"],
+        softAllowedFamilies: [],
+        softBlockAfter: 2,
+        noFallback: false,
+        failTaskIfUnmet: false,
+        requiredSuccessFamilies: [],
+      },
     },
   },
 };
