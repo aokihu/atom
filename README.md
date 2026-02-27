@@ -4,9 +4,9 @@ Atom 是一个基于 Bun 的 Agent Runtime，支持本地 TUI 与 Telegram 客�
 
 ## 项目现状（2026-02-27）
 
-- 当前版本：`0.11.0`
+- 当前版本：`0.14.0`
 - 代码健康：`bun run typecheck` 通过
-- 测试状态：`bun run test` 通过（`272` 项）
+- 测试状态：`bun run test` 通过（`314` 项）
 - 启动验证：使用 `Playground` 工作区，`server` 模式可正常返回 `/healthz`
 
 ## 快速开始
@@ -36,6 +36,9 @@ bun run typecheck
 
 # 测试
 bun run test
+
+# 启动服务并执行对话回归（Playground）
+bun run test:server-chat
 ```
 
 ## 运行模式
@@ -124,6 +127,7 @@ bun run src/index.ts --mode telegram --workspace ./Playground
   - `detector` (`model` / `heuristic`)
   - `softBlockAfter`
   - `browser.noFallback` / `browser.networkAdjacentOnly` / `browser.failTaskIfUnmet`
+- 设计、执行时序与故障场景见：[docs/INTENT_GUARD.md](./docs/INTENT_GUARD.md)
 
 ## 配置说明（agent.config.json）
 
@@ -187,3 +191,4 @@ docs/
 
 - 架构文档：[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 - 改良计划：[docs/IMPROVEMENTS.md](./docs/IMPROVEMENTS.md)
+- 意图护栏模块文档：[docs/INTENT_GUARD.md](./docs/INTENT_GUARD.md)

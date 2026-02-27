@@ -146,6 +146,7 @@ index.ts 负责装配（composition root）
 
 - `README.md` 保持“快速开始 + 常用命令 + API 概览”。
 - 复杂设计说明放 `docs/`，避免 README 膨胀。
+- 意图检测与工具作用域护栏的专项文档见 `docs/INTENT_GUARD.md`。
 - 涉及公共接口（CLI 参数、HTTP API、DTO）变更时，必须同步更新：
   - `README.md`
   - `src/types/*.ts`
