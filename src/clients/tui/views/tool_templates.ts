@@ -303,6 +303,27 @@ const buildLsCollapsedSummary = (input: ToolCardTemplateInput): string | undefin
   return collapseInlineText(parts.join("  "), 120);
 };
 
+const buildBashCollapsedSummary = (input: ToolCardTemplateInput): string | undefined => {
+  const callFields = parseDisplayFields(input.callDisplay);
+  const resultFields = parseDisplayFields(input.resultDisplay);
+  const command = getFieldValue(resultFields, "command") ?? getFieldValue(callFields, "command");
+  const action = getFieldValue(callFields, "action");
+  const mode = getFieldValue(resultFields, "mode") ?? getFieldValue(callFields, "mode");
+  const exitCode = getFieldValue(resultFields, "exitCode");
+  const status = getFieldValue(resultFields, "status");
+
+  const parts = [
+    command,
+    action ? `action=${action}` : undefined,
+    mode ? `mode=${mode}` : undefined,
+    status ? `status=${status}` : undefined,
+    exitCode ? `exit=${exitCode}` : undefined,
+  ].filter((part): part is string => Boolean(part));
+
+  if (parts.length === 0) return undefined;
+  return collapseInlineText(parts.join("  "), 120);
+};
+
 const buildGenericCollapsedSummary = (input: ToolCardTemplateInput): string | undefined => {
   if (input.status === "error" && input.errorMessage?.trim()) {
     return collapseInlineText(`error=${input.errorMessage.trim()}`);
@@ -361,6 +382,9 @@ const buildGenericCollapsedSummary = (input: ToolCardTemplateInput): string | un
 export const buildToolCardCollapsedSummary = (input: ToolCardTemplateInput): string | undefined => {
   if (input.toolName === "ls") {
     return buildLsCollapsedSummary(input) ?? buildGenericCollapsedSummary(input);
+  }
+  if (input.toolName === "bash") {
+    return buildBashCollapsedSummary(input) ?? buildGenericCollapsedSummary(input);
   }
   return buildGenericCollapsedSummary(input);
 };

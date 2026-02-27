@@ -952,79 +952,258 @@ const getToolLineTextColor = (theme: TuiTheme, line: ToolCardStyledLine): string
   return NORD.nord6;
 };
 
-const getToolFieldColorsByTone = (
-  theme: TuiTheme,
-  tone: Extract<ToolCardStyledLine, { kind: "field" }>["tone"],
-): { label: string; value: string } => {
-  const NORD = getMessagePaneCompatColors(theme);
-  switch (tone) {
-    case "error":
-      return { label: NORD.nord11, value: NORD.nord11 };
-    case "warning":
-      return { label: NORD.nord8, value: NORD.nord6 };
-    case "accent":
-      return { label: NORD.nord9, value: NORD.nord8 };
-    case "muted":
-      return { label: NORD.nord3, value: NORD.nord4 };
-    default:
-      return { label: NORD.nord9, value: NORD.nord6 };
-  }
+type ToolDisplayField = {
+  label: string;
+  value: string;
 };
 
-const appendToolStyledBody = (
-  renderer: CliRenderer,
-  theme: TuiTheme,
-  bodyWrap: BoxRenderable,
+const getToolDisplayFields = (display?: ToolDisplayEnvelope): ToolDisplayField[] => {
+  if (!isRecordValue(display?.data)) return [];
+  const fieldsRaw = display.data.fields;
+  if (!Array.isArray(fieldsRaw)) return [];
+
+  const fields: ToolDisplayField[] = [];
+  for (const rawField of fieldsRaw) {
+    if (!isRecordValue(rawField)) continue;
+    const label = getStringValue(rawField, "label");
+    const value = getStringValue(rawField, "value");
+    if (!label || value === undefined) continue;
+    fields.push({ label, value });
+  }
+  return fields;
+};
+
+const getToolDisplayFieldValue = (fields: ToolDisplayField[], label: string): string | undefined =>
+  fields.find((field) => field.label === label)?.value;
+
+const getBashDisplayFieldValue = (
   item: Extract<ChatMessageCardInput, { role: "tool" }>,
-) => {
-  // UI 渲染区：工具输出详情（结构化字段 + 预览 + 文本行）
+  label: string,
+): string | undefined => {
+  const resultFields = getToolDisplayFields(item.resultDisplay);
+  const callFields = getToolDisplayFields(item.callDisplay);
+  return getToolDisplayFieldValue(resultFields, label) ?? getToolDisplayFieldValue(callFields, label);
+};
+
+const getBashToolCommandText = (item: Extract<ChatMessageCardInput, { role: "tool" }>): string => {
+  const command = getBashDisplayFieldValue(item, "command");
+
+  if (command && command.trim().length > 0) {
+    return command;
+  }
+  if (item.callSummary?.trim()) return item.callSummary.trim();
+  if (item.resultSummary?.trim()) return item.resultSummary.trim();
+  return "bash";
+};
+
+const getBashToolCwdText = (item: Extract<ChatMessageCardInput, { role: "tool" }>): string => {
+  const cwd = getBashDisplayFieldValue(item, "cwd");
+  if (cwd && cwd.trim().length > 0) return cwd;
+  return getBashToolCommandText(item);
+};
+
+const getBashToolTitleText = (item: Extract<ChatMessageCardInput, { role: "tool" }>): string => {
+  const cwd = getBashToolCwdText(item).trim();
+  const command = getBashToolCommandText(item).trim();
+  if (cwd.length > 0 && command.length > 0) return `${cwd} | ${command}`;
+  if (cwd.length > 0) return cwd;
+  if (command.length > 0) return command;
+  return "bash";
+};
+
+const stringifyToolStyledLine = (line: ToolCardStyledLine): string => {
+  if (line.kind === "spacer") return "";
+  if (line.kind === "field") return `${line.label}: ${line.value}`;
+  return line.text;
+};
+
+const appendBashToolCardBody = (args: {
+  renderer: CliRenderer;
+  theme: TuiTheme;
+  bodyWrap: BoxRenderable;
+  item: Extract<ChatMessageCardInput, { role: "tool" }>;
+}) => {
+  const { renderer, theme, bodyWrap, item } = args;
   const NORD = getMessagePaneCompatColors(theme);
+  const statusColor = getToolStatusColor(theme, item.status);
+  const commandText = getBashToolCommandText(item);
+  const titleText = item.collapsed ? getBashToolTitleText(item) : getBashToolCwdText(item);
   const lines = buildToolCardStyledLines(item);
+  const outputLines = lines.filter((line) => line.kind === "previewLine");
+  const runtimeHintRows = item.status === "running" && outputLines.length === 0 ? 1 : 0;
+  const contentRows = 1 + (outputLines.length > 0 ? 1 + outputLines.length : runtimeHintRows);
+  const lineHeight = Math.max(2, Math.min(5, contentRows));
 
-  for (const line of lines) {
-    if (line.kind === "spacer") {
-      bodyWrap.add(
-        mountText(renderer, {
-          content: " ",
-          fg: NORD.nord3,
-          width: "100%",
-        }),
-      );
-      continue;
-    }
+  const frame = mountBox(renderer, {
+    width: "100%",
+    flexDirection: "column",
+    backgroundColor: NORD.nord2,
+    paddingLeft: 1,
+    paddingRight: 1,
+    paddingTop: 0,
+    paddingBottom: 0,
+  });
+  frame.add(
+    mountText(renderer, {
+      content: " ",
+      fg: NORD.nord2,
+      width: "100%",
+      truncate: true,
+    }),
+  );
 
-    if (line.kind === "field") {
-      const colors = getToolFieldColorsByTone(theme, line.tone);
-      const row = mountBox(renderer, {
-        width: "100%",
-        flexDirection: "row",
-        backgroundColor: NORD.nord0,
-      });
-      const labelText = mountText(renderer, {
-        content: `${line.label}: `,
-        fg: colors.label,
-      });
-      const valueText = mountText(renderer, {
-        content: line.value,
-        fg: colors.value,
-        width: "100%",
-        wrapMode: "char",
-      });
-      row.add(labelText);
-      row.add(valueText);
-      bodyWrap.add(row);
-      continue;
-    }
+  const headerRow = mountBox(renderer, {
+    width: "100%",
+    height: 1,
+    flexDirection: "row",
+    backgroundColor: NORD.nord2,
+    paddingLeft: 0,
+    paddingRight: 1,
+  });
+  const bashBadge = mountBox(renderer, {
+    flexDirection: "row",
+    height: 1,
+    width: 6,
+    backgroundColor: NORD.nord14,
+    paddingLeft: 1,
+    paddingRight: 1,
+  });
+  bashBadge.add(
+    mountText(renderer, {
+      content: "BASH",
+      fg: NORD.nord0,
+      width: "100%",
+      truncate: true,
+    }),
+  );
+  headerRow.add(bashBadge);
+  headerRow.add(
+    mountText(renderer, {
+      content: "  ",
+      fg: NORD.nord3,
+    }),
+  );
+  headerRow.add(
+    mountText(renderer, {
+      content: titleText,
+      fg: NORD.nord6,
+      width: "100%",
+      truncate: true,
+    }),
+  );
+  frame.add(headerRow);
 
-    bodyWrap.add(
+  if (item.collapsed) {
+    frame.add(
       mountText(renderer, {
-        content: line.text,
+        content: " ",
+        fg: NORD.nord2,
+        width: "100%",
+        truncate: true,
+      }),
+    );
+    frame.add(
+      mountText(renderer, {
+        content: "[ + 展开 ]",
+        fg: statusColor,
+      }),
+    );
+    frame.add(
+      mountText(renderer, {
+        content: " ",
+        fg: NORD.nord2,
+        width: "100%",
+        truncate: true,
+      }),
+    );
+    bodyWrap.add(frame);
+    return;
+  }
+
+  const panelBox = mountBox(renderer, {
+    width: "100%",
+    height: lineHeight,
+    flexDirection: "column",
+    backgroundColor: NORD.nord2,
+    marginTop: 1,
+    paddingLeft: 0,
+    paddingRight: 1,
+    paddingTop: 0,
+    paddingBottom: 0,
+  });
+  const panelContent = mountBox(renderer, {
+    width: "100%",
+    height: "100%",
+    flexDirection: "column",
+    backgroundColor: NORD.nord2,
+  });
+  panelBox.add(panelContent);
+  frame.add(panelBox);
+  const contentRowsToRender: Array<{ text: string; fg: string }> = [
+    { text: `$ ${commandText}`, fg: NORD.nord8 },
+  ];
+  if (outputLines.length > 0) {
+    contentRowsToRender.push({ text: "", fg: NORD.nord3 });
+    for (const line of outputLines) {
+      contentRowsToRender.push({
+        text: stringifyToolStyledLine(line),
         fg: getToolLineTextColor(theme, line),
+      });
+    }
+  } else if (item.status === "running") {
+    contentRowsToRender.push({ text: "Running...", fg: NORD.nord4 });
+  }
+
+  const visibleRows = contentRowsToRender.length > lineHeight
+    ? [
+        contentRowsToRender[0]!,
+        ...contentRowsToRender.slice(-(lineHeight - 1)),
+      ]
+    : contentRowsToRender;
+
+  for (const row of visibleRows) {
+    panelContent.add(
+      mountText(renderer, {
+        content: row.text,
+        fg: row.fg,
         width: "100%",
         wrapMode: "char",
       }),
     );
   }
+
+  for (let index = visibleRows.length; index < lineHeight; index += 1) {
+    panelContent.add(
+      mountText(renderer, {
+        content: "",
+        fg: NORD.nord3,
+        width: "100%",
+      }),
+    );
+  }
+
+  frame.add(
+    mountText(renderer, {
+      content: "",
+      fg: NORD.nord3,
+      width: "100%",
+    }),
+  );
+  frame.add(
+    mountText(renderer, {
+      content: "[ - 折叠 ]",
+      fg: statusColor,
+    }),
+  );
+  frame.add(
+    mountText(renderer, {
+      content: " ",
+      fg: NORD.nord2,
+      width: "100%",
+      truncate: true,
+    }),
+  );
+  bodyWrap.add(frame);
 };
 
 export const createMessagePaneView = (ctx: CliRenderer, theme: TuiTheme): MessagePaneView => {
@@ -1346,6 +1525,7 @@ export const renderMessageStreamContent = (
     const isTodoCardGroup = cardState.role === "todo_card_group";
     const todoCardGroup = isTodoCardGroup ? (item as TodoCardGroupRenderItem) : undefined;
     const toolItem = isTool ? (item as Extract<ChatMessageCardInput, { role: "tool" }>) : undefined;
+    const isBashToolCard = Boolean(toolItem && toolItem.toolName === "bash");
     const todoToolCardModel = toolItem ? getTodoToolCardModel(toolItem) : undefined;
     const isTodoToolCard = Boolean(todoToolCardModel);
     const isToolGroupSummary = cardState.role === "tool_group_summary";
@@ -1369,10 +1549,12 @@ export const renderMessageStreamContent = (
             : 1
         : 0;
     const isTodoCardLike = isTodoToolCard || isTodoCardGroup;
-    const isCompactTool = isToolLike && !isTodoCardLike;
+    const isCompactTool = isToolLike && !isTodoCardLike && !isBashToolCard;
     const toolBorderEnabled = isTodoCardLike;
     const cardBackgroundColor = isTodoCardLike
       ? NORD.nord1
+      : isBashToolCard
+        ? NORD.nord2
       : isCompactTool
       ? NORD.nord0
       : isUser
@@ -1381,7 +1563,7 @@ export const renderMessageStreamContent = (
     // 部件说明：单条消息/工具卡片根容器，负责边框、背景和外边距。
     const card = mountBox(input.renderer, {
       width: "100%",
-      flexDirection: isTodoCardLike ? "column" : "row",
+      flexDirection: isTodoCardLike || isBashToolCard ? "column" : "row",
       marginTop:
         index === 0 ? 1 : isToolLike ? toolMarginTop : groupedPlainText ? 0 : 1,
       border: toolBorderEnabled,
@@ -1419,6 +1601,19 @@ export const renderMessageStreamContent = (
     if (
       isTool &&
       isTodoToolCard &&
+      typeof toolItem?.id === "number" &&
+      typeof input.onToggleToolCardCollapse === "function"
+    ) {
+      card.onMouseUp = (event) => {
+        if (event.button !== 0) return;
+        event.stopPropagation();
+        event.preventDefault();
+        input.onToggleToolCardCollapse!(toolItem.id!, !toolItem.collapsed);
+      };
+    }
+    if (
+      isTool &&
+      isBashToolCard &&
       typeof toolItem?.id === "number" &&
       typeof input.onToggleToolCardCollapse === "function"
     ) {
@@ -1501,6 +1696,13 @@ export const renderMessageStreamContent = (
         bodyWrap,
         item: toolItem,
         model: todoToolCardModel,
+      });
+    } else if (isTool && isBashToolCard && toolItem) {
+      appendBashToolCardBody({
+        renderer: input.renderer,
+        theme: input.theme,
+        bodyWrap,
+        item: toolItem,
       });
     } else if (isToolLike) {
       // UI 渲染区：紧凑工具行（状态标记 + [toolName] + 摘要）

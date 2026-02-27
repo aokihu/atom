@@ -155,4 +155,38 @@ describe("tool template rendering", () => {
     expect(collapsed).toContain("all=yes");
     expect(collapsed).toContain("long=no");
   });
+
+  test("includes bash command in collapsed summary", () => {
+    const collapsed = buildToolCardCollapsedSummary({
+      toolName: "bash",
+      status: "done",
+      callDisplay: {
+        version: 1,
+        toolName: "bash",
+        phase: "call",
+        templateKey: "builtin.bash.start.call",
+        data: {
+          fields: [
+            { label: "action", value: "start" },
+            { label: "mode", value: "once" },
+            { label: "command", value: "ls | grep foo > /dev/null" },
+          ],
+        },
+      },
+      resultDisplay: {
+        version: 1,
+        toolName: "bash",
+        phase: "result",
+        templateKey: "builtin.bash.once.result",
+        data: {
+          fields: [{ label: "exitCode", value: "0" }],
+        },
+      },
+    });
+
+    expect(collapsed).toContain("ls | grep foo > /dev/null");
+    expect(collapsed).toContain("action=start");
+    expect(collapsed).toContain("mode=once");
+    expect(collapsed).toContain("exit=0");
+  });
 });

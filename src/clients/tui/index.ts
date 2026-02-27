@@ -62,6 +62,7 @@ const PANEL_INNER_HORIZONTAL_OVERHEAD = 4; // border(2) + paddingX(2)
 const DEFAULT_AGENT_NAME = "Atom";
 const WAITING_SPINNER_FRAMES = ["-", "\\", "|", "/"] as const;
 const WAITING_SPINNER_INTERVAL_MS = 120;
+const STREAM_UI_REFRESH_DEBOUNCE_MS = 48;
 const CTRL_C_EXIT_CONFIRM_MS = 1500;
 const TEXTAREA_SUBMIT_KEY_BINDINGS = [
   { name: "return", action: "submit" as const },
@@ -126,6 +127,7 @@ class CoreTuiClientApp {
 
   private spinnerTimer: ReturnType<typeof setInterval> | undefined;
   private deferredUiSyncTimer: ReturnType<typeof setTimeout> | undefined;
+  private streamUiRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   private ctrlCExitConfirmTimer: ReturnType<typeof setTimeout> | undefined;
   private lastCtrlCPressAt = 0;
   private escForceAbortConfirmTimer: ReturnType<typeof setTimeout> | undefined;
@@ -229,6 +231,10 @@ class CoreTuiClientApp {
     if (this.deferredUiSyncTimer) {
       clearTimeout(this.deferredUiSyncTimer);
       this.deferredUiSyncTimer = undefined;
+    }
+    if (this.streamUiRefreshTimer) {
+      clearTimeout(this.streamUiRefreshTimer);
+      this.streamUiRefreshTimer = undefined;
     }
     if (this.ctrlCExitConfirmTimer) {
       clearTimeout(this.ctrlCExitConfirmTimer);
@@ -422,6 +428,21 @@ class CoreTuiClientApp {
       if (this.destroyed) return;
       this.refreshAll();
     }, 0);
+  }
+
+  private scheduleStreamUiRefresh(): void {
+    if (this.streamUiRefreshTimer) return;
+    this.streamUiRefreshTimer = setTimeout(() => {
+      this.streamUiRefreshTimer = undefined;
+      if (this.destroyed) return;
+      this.refreshAll();
+    }, STREAM_UI_REFRESH_DEBOUNCE_MS);
+  }
+
+  private flushStreamUiRefresh(): void {
+    if (!this.streamUiRefreshTimer) return;
+    clearTimeout(this.streamUiRefreshTimer);
+    this.streamUiRefreshTimer = undefined;
   }
 
   private handleSlashModalKeyPress(key: KeyEvent): boolean {
@@ -654,7 +675,8 @@ class CoreTuiClientApp {
 
       this.state.busySpinnerIndex = (this.state.busySpinnerIndex + 1) % WAITING_SPINNER_FRAMES.length;
       this.state.busyAnimationTick += 1;
-      this.refreshAll();
+      this.syncStatusStrip();
+      this.renderer.requestRender();
     }, WAITING_SPINNER_INTERVAL_MS);
   }
 
@@ -975,7 +997,7 @@ class CoreTuiClientApp {
                   step: message.step,
                   callSummary: message.inputSummary,
                   callDisplay: message.inputDisplay,
-                  collapsed: true,
+                  collapsed: message.toolName === "bash" ? false : true,
                   status: "running",
                 });
               } else {
@@ -984,7 +1006,7 @@ class CoreTuiClientApp {
                   step: message.step,
                   callSummary: message.inputSummary,
                   callDisplay: message.inputDisplay,
-                  collapsed: true,
+                  collapsed: message.toolName === "bash" ? false : true,
                   status: "running",
                   taskId,
                 });
@@ -1012,7 +1034,7 @@ class CoreTuiClientApp {
                 resultSummary: message.outputSummary,
                 errorMessage: message.errorMessage,
                 resultDisplay: message.outputDisplay,
-                collapsed: true,
+                collapsed: message.toolName === "bash" ? false : true,
                 status,
               });
               activeToolMessageIds.delete(key);
@@ -1023,7 +1045,7 @@ class CoreTuiClientApp {
                 resultSummary: message.outputSummary,
                 errorMessage: message.errorMessage,
                 resultDisplay: message.outputDisplay,
-                collapsed: true,
+                collapsed: message.toolName === "bash" ? false : true,
                 status,
                 taskId,
               });
@@ -1032,10 +1054,11 @@ class CoreTuiClientApp {
           }
 
           if (hasUiUpdate) {
-            this.refreshAll();
+            this.scheduleStreamUiRefresh();
           }
         },
         onTaskCompleted: (taskId, summary) => {
+          this.flushStreamUiRefresh();
           if (summary.kind === "assistant_reply" && !hasStructuredFinalAssistant) {
             this.appendChatMessage("assistant", summary.replyText, taskId);
           }
