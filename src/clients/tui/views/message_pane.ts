@@ -27,8 +27,11 @@ import {
   instantiate,
 } from "@opentui/core";
 import type { CliRenderer } from "@opentui/core";
+import { effect, signal } from "@preact/signals-core";
+import type { ReadonlySignal } from "@preact/signals-core";
 import type { ToolDisplayEnvelope } from "../../../types/http";
 
+import type { LayoutMetrics } from "../layout/metrics";
 import type { TuiTheme } from "../theme";
 import { truncateToDisplayWidth } from "../utils/text";
 import {
@@ -38,6 +41,8 @@ import {
 } from "./tool_templates";
 
 const ASSISTANT_MARKDOWN_SYNTAX_STYLE = SyntaxStyle.create();
+const PANEL_INNER_HORIZONTAL_OVERHEAD = 4; // border(2) + paddingX(2)
+const MESSAGE_PANEL_VERTICAL_OVERHEAD = 3; // top inset + header row + divider row
 
 // ================================
 // 主题兼容层（语义主题 -> 旧布局色位）
@@ -194,6 +199,27 @@ export type RenderMessageStreamInput = {
   agentName: string;
   items: ChatMessageCardInput[];
   onToggleToolCardCollapse?: (toolMessageId: number, nextCollapsed: boolean) => void;
+};
+
+export type MessagePaneRenderInput = {
+  layout: LayoutMetrics;
+  terminalColumns: number;
+  answerFocused: boolean;
+  phase: MessagePaneSubHeaderInput["phase"];
+  connection: MessagePaneSubHeaderInput["connection"];
+  taskId?: string;
+  agentName: string;
+  spinnerFrame: string;
+  items: ChatMessageCardInput[];
+  onToggleToolCardCollapse?: (toolMessageId: number, nextCollapsed: boolean) => void;
+};
+
+export type MessagePaneViewController = {
+  readonly view: MessagePaneView;
+  syncFromAppState: (input: MessagePaneRenderInput) => void;
+  focus: () => void;
+  blur: () => void;
+  dispose: () => void;
 };
 
 export type CollapseCompletedToolGroupsOptions = {
@@ -1108,6 +1134,111 @@ export const buildMessageSubHeaderLine = (
 ): string => {
   void args;
   return " ";
+};
+
+// ================================
+// 运行时注入区（将实时状态数据注入组件）
+// ================================
+
+export const updateMessagePaneView = (
+  args: {
+    renderer: CliRenderer;
+    view: MessagePaneView;
+    theme: TuiTheme;
+    input: MessagePaneRenderInput;
+  },
+): void => {
+  const { renderer, view, theme, input } = args;
+  const headerWidth = Math.max(1, input.terminalColumns - PANEL_INNER_HORIZONTAL_OVERHEAD);
+
+  view.box.height = input.layout.messageHeight;
+  view.box.borderColor = input.answerFocused
+    ? theme.colors.borderAccentSecondary
+    : theme.colors.borderDefault;
+  view.headerText.visible = true;
+  view.subHeaderText.visible = false;
+
+  view.headerText.content = buildMessageHeaderLine(
+    input.agentName,
+    input.items.length,
+    headerWidth,
+  );
+  view.subHeaderText.content = buildMessageSubHeaderLine({
+    phase: input.phase,
+    connection: input.connection,
+    taskId: input.taskId,
+    agentName: input.agentName,
+    spinnerFrame: input.spinnerFrame,
+    width: headerWidth,
+  });
+
+  view.scroll.height = Math.max(1, input.layout.messageHeight - MESSAGE_PANEL_VERTICAL_OVERHEAD);
+  renderMessageStreamContent({
+    renderer,
+    theme,
+    listBox: view.listBox,
+    agentName: input.agentName,
+    items: input.items,
+    onToggleToolCardCollapse: input.onToggleToolCardCollapse,
+  });
+};
+
+// ================================
+// 响应式绑定区（Signal -> 视图同步）
+// ================================
+
+export const bindMessagePaneViewModel = (
+  args: {
+    renderer: CliRenderer;
+    view: MessagePaneView;
+    theme: TuiTheme;
+    inputSignal: ReadonlySignal<MessagePaneRenderInput | null>;
+    isDestroyed?: () => boolean;
+  },
+): (() => void) => effect(() => {
+  if (args.isDestroyed?.()) return;
+  const input = args.inputSignal.value;
+  if (!input) return;
+  updateMessagePaneView({
+    renderer: args.renderer,
+    view: args.view,
+    theme: args.theme,
+    input,
+  });
+});
+
+export const createMessagePaneViewController = (
+  args: {
+    renderer: CliRenderer;
+    theme: TuiTheme;
+    isDestroyed?: () => boolean;
+  },
+): MessagePaneViewController => {
+  const view = createMessagePaneView(args.renderer, args.theme);
+  const renderInputSignal = signal<MessagePaneRenderInput | null>(null);
+  const disposeSync = bindMessagePaneViewModel({
+    renderer: args.renderer,
+    view,
+    theme: args.theme,
+    inputSignal: renderInputSignal,
+    isDestroyed: args.isDestroyed,
+  });
+
+  return {
+    view,
+    syncFromAppState: (input) => {
+      renderInputSignal.value = input;
+    },
+    focus: () => {
+      view.scroll.focus();
+    },
+    blur: () => {
+      view.scroll.blur();
+    },
+    dispose: () => {
+      disposeSync();
+    },
+  };
 };
 
 export const buildChatMessageCardViewState = (

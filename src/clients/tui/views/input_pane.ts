@@ -20,7 +20,10 @@ import type {
   TextRenderable,
   TextareaRenderable as TextareaRenderableType,
 } from "@opentui/core";
+import { effect, signal } from "@preact/signals-core";
+import type { ReadonlySignal } from "@preact/signals-core";
 
+import type { LayoutMetrics } from "../layout/metrics";
 import type { TuiTheme } from "../theme";
 
 // ================================
@@ -33,6 +36,10 @@ export type InputPaneViewInput = {
   busyIndicator?: string;
   agentName: string;
   noticeText?: string;
+};
+
+export type InputPaneRenderInput = InputPaneViewInput & {
+  layout: LayoutMetrics;
 };
 
 export type InputPaneViewState = {
@@ -53,6 +60,26 @@ export type InputPaneView = {
   hintText: TextRenderable;
   editorHost: BoxRenderable;
   textarea: TextareaRenderableType;
+};
+
+export type InputPaneViewController = {
+  readonly view: InputPaneView;
+  setInputNotice: (text: string) => void;
+  syncFromAppState: (input: Omit<InputPaneRenderInput, "noticeText">) => void;
+  focus: () => void;
+  blur: () => void;
+  getValue: () => string;
+  setValue: (value: string) => void;
+  clear: () => void;
+  dispose: () => void;
+};
+
+const INPUT_EDITOR_ROWS = 5;
+const INPUT_RAIL_GLYPH_CHAR = "▎";
+const INPUT_RAIL_INNER_VERTICAL_PADDING = 2;
+const buildInputRailGlyphContent = (height: number): string => {
+  const lines = Math.max(1, Math.floor(height));
+  return Array.from({ length: lines }, () => INPUT_RAIL_GLYPH_CHAR).join("\n");
 };
 
 // ================================
@@ -229,5 +256,131 @@ export const buildInputPaneViewState = (
     hintText,
     showHint: hintText.length > 0,
     railAccentColor: input.inputFocused ? "focused" : "idle",
+  };
+};
+
+// ================================
+// 运行时注入区（将实时状态数据注入组件）
+// ================================
+
+export const updateInputPaneView = (
+  args: {
+    view: InputPaneView;
+    theme: TuiTheme;
+    input: InputPaneRenderInput;
+  },
+): void => {
+  const { view, theme, input } = args;
+  const C = theme.colors;
+  const viewState = buildInputPaneViewState(input);
+
+  view.box.height = input.layout.inputHeight;
+  view.box.backgroundColor = C.panelBackgroundAlt;
+
+  view.railBox.width = input.layout.railWidth;
+  view.railBox.backgroundColor = C.panelBackgroundAlt;
+  view.railAccent.backgroundColor = C.panelBackgroundAlt;
+  view.railAccentGlyph.fg = viewState.railAccentColor === "focused"
+    ? C.accentPrimary
+    : C.accentSecondary;
+  view.railAccentGlyph.content = buildInputRailGlyphContent(
+    input.layout.inputHeight - INPUT_RAIL_INNER_VERTICAL_PADDING,
+  );
+
+  view.hintText.visible = viewState.showHint;
+  view.hintText.content = viewState.hintText;
+
+  view.editorHost.height = INPUT_EDITOR_ROWS;
+  view.textarea.height = "100%";
+  view.textarea.width = "100%";
+  view.textarea.placeholder = viewState.placeholderText;
+  view.textarea.backgroundColor = input.inputFocused
+    ? C.selectionBackground
+    : C.panelBackgroundAlt;
+  view.textarea.focusedBackgroundColor = C.selectionBackground;
+};
+
+// ================================
+// 响应式绑定区（Signal -> 视图同步）
+// ================================
+
+export const bindInputPaneViewModel = (
+  args: {
+    view: InputPaneView;
+    theme: TuiTheme;
+    inputSignal: ReadonlySignal<InputPaneRenderInput | null>;
+    isDestroyed?: () => boolean;
+  },
+): (() => void) => effect(() => {
+  if (args.isDestroyed?.()) return;
+  const input = args.inputSignal.value;
+  if (!input) return;
+  updateInputPaneView({
+    view: args.view,
+    theme: args.theme,
+    input,
+  });
+});
+
+export const createInputPaneViewController = (
+  args: {
+    ctx: CliRenderer;
+    theme: TuiTheme;
+    keyBindings: any[];
+    onSubmit: () => void;
+    isDestroyed?: () => boolean;
+  },
+): InputPaneViewController => {
+  const view = createInputPaneView(args.ctx, args.theme, {
+    keyBindings: args.keyBindings,
+    onSubmit: args.onSubmit,
+  });
+  const appStateSignal = signal<Omit<InputPaneRenderInput, "noticeText"> | null>(null);
+  const noticeTextSignal = signal("");
+  const renderInputSignal = signal<InputPaneRenderInput | null>(null);
+
+  const disposeModelMerge = effect(() => {
+    const appState = appStateSignal.value;
+    if (!appState) {
+      renderInputSignal.value = null;
+      return;
+    }
+    renderInputSignal.value = {
+      ...appState,
+      noticeText: noticeTextSignal.value,
+    };
+  });
+  const disposeSync = bindInputPaneViewModel({
+    view,
+    theme: args.theme,
+    inputSignal: renderInputSignal,
+    isDestroyed: args.isDestroyed,
+  });
+
+  return {
+    view,
+    setInputNotice: (text) => {
+      noticeTextSignal.value = text.trim();
+    },
+    syncFromAppState: (input) => {
+      appStateSignal.value = input;
+    },
+    focus: () => {
+      view.textarea.focus();
+    },
+    blur: () => {
+      view.textarea.blur();
+    },
+    getValue: () => view.textarea.plainText,
+    setValue: (value) => {
+      view.textarea.replaceText(value);
+    },
+    clear: () => {
+      view.textarea.replaceText("");
+    },
+    dispose: () => {
+      disposeSync();
+      disposeModelMerge();
+    },
   };
 };

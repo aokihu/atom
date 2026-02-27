@@ -20,9 +20,12 @@ import { Box, ScrollBox, Text, instantiate } from "@opentui/core";
 import type {
   BoxRenderable,
   CliRenderer,
+  KeyEvent,
   ScrollBoxRenderable,
   TextRenderable,
 } from "@opentui/core";
+import { effect, signal } from "@preact/signals-core";
+import type { ReadonlySignal } from "@preact/signals-core";
 
 import type { TerminalSize } from "../layout/metrics";
 import type { TuiTheme } from "../theme";
@@ -59,6 +62,26 @@ export type ContextModalView = {
   scroll: ScrollBoxRenderable;
   contentBox: BoxRenderable;
   bodyText: TextRenderable;
+};
+
+export type ContextModalRenderInput = {
+  open: boolean;
+  terminal: TerminalSize;
+  title: string;
+  body: string;
+};
+
+export type ContextModalViewController = {
+  readonly view: ContextModalView;
+  syncFromAppState: (input: ContextModalRenderInput) => void;
+  open: (args: { terminal: TerminalSize; title: string; body: string }) => void;
+  close: () => void;
+  isOpen: () => boolean;
+  handleKey: (key: KeyEvent) => boolean;
+  scrollTop: () => void;
+  focus: () => void;
+  blur: () => void;
+  dispose: () => void;
 };
 
 // ================================
@@ -230,5 +253,126 @@ export const createContextModalView = (
     scroll,
     contentBox,
     bodyText,
+  };
+};
+
+// ================================
+// 运行时注入区（将实时状态数据注入组件）
+// ================================
+
+export const updateContextModalView = (
+  args: {
+    view: ContextModalView;
+    input: ContextModalRenderInput;
+  },
+): void => {
+  const { view, input } = args;
+  view.overlay.visible = input.open;
+  if (!input.open) return;
+
+  const viewState = buildContextModalLayoutState({
+    terminal: input.terminal,
+    title: input.title,
+    body: input.body,
+  });
+
+  view.modalBox.width = viewState.width;
+  view.modalBox.height = viewState.height;
+  view.modalBox.top = viewState.top;
+  view.modalBox.left = viewState.left;
+  view.titleText.content = viewState.titleText;
+  view.hintText.content = viewState.hintText;
+  view.scroll.height = viewState.scrollHeight;
+  view.bodyText.content = viewState.bodyText;
+};
+
+// ================================
+// 响应式绑定区（Signal -> 视图同步）
+// ================================
+
+export const bindContextModalViewModel = (
+  args: {
+    view: ContextModalView;
+    inputSignal: ReadonlySignal<ContextModalRenderInput | null>;
+    isDestroyed?: () => boolean;
+  },
+): (() => void) => effect(() => {
+  if (args.isDestroyed?.()) return;
+  const input = args.inputSignal.value;
+  if (!input) return;
+  updateContextModalView({
+    view: args.view,
+    input,
+  });
+});
+
+const isEscapeKey = (key: KeyEvent): boolean => {
+  if (key.name === "escape" || key.name === "esc") return true;
+  if (key.code === "Escape") return true;
+  if (key.baseCode === 27) return true;
+  if (key.raw === "\u001b" || key.sequence === "\u001b") return true;
+  return false;
+};
+
+export const createContextModalViewController = (
+  args: {
+    ctx?: CliRenderer;
+    theme: TuiTheme;
+    view?: ContextModalView;
+    isDestroyed?: () => boolean;
+  },
+): ContextModalViewController => {
+  const view = args.view ?? (() => {
+    if (!args.ctx) {
+      throw new Error("createContextModalViewController requires args.ctx when args.view is not provided");
+    }
+    return createContextModalView(args.ctx, args.theme);
+  })();
+  const renderInputSignal = signal<ContextModalRenderInput | null>(null);
+  const disposeSync = bindContextModalViewModel({
+    view,
+    inputSignal: renderInputSignal,
+    isDestroyed: args.isDestroyed,
+  });
+
+  return {
+    view,
+    syncFromAppState: (input) => {
+      renderInputSignal.value = input;
+    },
+    open: ({ terminal, title, body }) => {
+      renderInputSignal.value = {
+        open: true,
+        terminal,
+        title,
+        body,
+      };
+    },
+    close: () => {
+      const current = renderInputSignal.value;
+      if (!current) return;
+      renderInputSignal.value = {
+        ...current,
+        open: false,
+      };
+    },
+    isOpen: () => Boolean(renderInputSignal.value?.open),
+    handleKey: (key) => isEscapeKey(key),
+    scrollTop: () => {
+      try {
+        view.scroll.scrollTo(0);
+      } catch {
+        // noop
+      }
+    },
+    focus: () => {
+      view.scroll.focus();
+    },
+    blur: () => {
+      view.scroll.blur();
+    },
+    dispose: () => {
+      disposeSync();
+    },
   };
 };

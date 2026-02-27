@@ -11,7 +11,7 @@
  */
 import { Box, Text, instantiate } from "@opentui/core";
 import type { BoxRenderable, CliRenderer, TextRenderable } from "@opentui/core";
-import { effect } from "@preact/signals-core";
+import { effect, signal } from "@preact/signals-core";
 import type { ReadonlySignal } from "@preact/signals-core";
 
 import type { LayoutMetrics, TerminalSize } from "../layout/metrics";
@@ -41,6 +41,12 @@ export type StatusStripViewInput = {
 export type StatusStripView = {
   box: BoxRenderable;
   rowTexts: [TextRenderable, TextRenderable];
+};
+
+export type StatusStripViewController = {
+  readonly view: StatusStripView;
+  syncFromAppState: (input: StatusStripViewInput) => void;
+  dispose: () => void;
 };
 
 // ================================
@@ -183,3 +189,30 @@ export const bindStatusStripViewModel = (
   args.view.box.borderColor = args.theme.colors.borderDefault;
   updateStatusStripView(args.view, input);
 });
+
+export const createStatusStripViewController = (
+  args: {
+    ctx: CliRenderer;
+    theme: TuiTheme;
+    isDestroyed?: () => boolean;
+  },
+): StatusStripViewController => {
+  const view = createStatusStripView(args.ctx, args.theme);
+  const inputSignal = signal<StatusStripViewInput | null>(null);
+  const disposeSync = bindStatusStripViewModel({
+    view,
+    theme: args.theme,
+    inputSignal,
+    isDestroyed: args.isDestroyed,
+  });
+
+  return {
+    view,
+    syncFromAppState: (input) => {
+      inputSignal.value = input;
+    },
+    dispose: () => {
+      disposeSync();
+    },
+  };
+};

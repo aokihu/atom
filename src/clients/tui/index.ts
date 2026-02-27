@@ -1,13 +1,5 @@
 import { sleep } from "bun";
-import { signal } from "@preact/signals-core";
-import {
-  BoxRenderable,
-  ScrollBoxRenderable,
-  SelectRenderable,
-  TextRenderable,
-  TextareaRenderable,
-  createCliRenderer,
-} from "@opentui/core";
+import { BoxRenderable, createCliRenderer } from "@opentui/core";
 import type { CliRenderer, KeyEvent } from "@opentui/core";
 
 import type { GatewayClient } from "../../libs/channel/channel";
@@ -24,28 +16,19 @@ import {
 import {
   type ChatMessageRole,
   type ClientPhase,
-  type ConnectionState,
   type FocusTarget,
   type LogKind,
-  type SlashModalState,
   TuiClientState,
 } from "./runtime/state";
 import { createTuiClientUiBundle, type TuiClientUiBundle } from "./runtime/ui";
-import { filterEnabledSlashCommands, type SlashCommandOption } from "./state/slash_commands";
+import { filterEnabledSlashCommands } from "./state/slash_commands";
 import { resolveTuiTheme, type TuiTheme } from "./theme";
 import { summarizeEventText, truncateToDisplayWidth } from "./utils/text";
-import { buildContextModalLayoutState } from "./views/context_modal";
-import { buildInputPaneViewState } from "./views/input_pane";
-import {
-  buildMessageHeaderLine,
-  buildMessageSubHeaderLine,
-  renderMessageStreamContent,
-} from "./views/message_pane";
-import { buildSlashModalLayoutState } from "./views/slash_modal";
-import {
-  bindStatusStripViewModel,
-  type StatusStripViewInput,
-} from "./views/status_strip";
+import type { ContextModalRenderInput } from "./views/context_modal";
+import type { InputPaneRenderInput } from "./views/input_pane";
+import type { MessagePaneRenderInput } from "./views/message_pane";
+import type { SlashModalRenderInput } from "./views/slash_modal";
+import type { StatusStripViewInput } from "./views/status_strip";
 
 type StartTuiClientOptions = {
   client: GatewayClient;
@@ -66,8 +49,6 @@ type CoreTuiClientOptions = {
 };
 
 const PANEL_INNER_HORIZONTAL_OVERHEAD = 4; // border(2) + paddingX(2)
-const MESSAGE_PANEL_VERTICAL_OVERHEAD = 3; // top inset + header row + divider row
-const INPUT_EDITOR_ROWS = 5;
 const DEFAULT_AGENT_NAME = "Atom";
 const WAITING_SPINNER_FRAMES = ["-", "\\", "|", "/"] as const;
 const WAITING_SPINNER_INTERVAL_MS = 120;
@@ -80,12 +61,6 @@ const TEXTAREA_SUBMIT_KEY_BINDINGS = [
   { name: "return", meta: true, action: "newline" as const },
   { name: "linefeed", meta: true, action: "newline" as const },
 ];
-const INPUT_RAIL_GLYPH_CHAR = "▎";
-const INPUT_RAIL_INNER_VERTICAL_PADDING = 2;
-const buildInputRailGlyphContent = (height: number): string => {
-  const lines = Math.max(1, Math.floor(height));
-  return Array.from({ length: lines }, () => INPUT_RAIL_GLYPH_CHAR).join("\n");
-};
 const formatErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 const isEscapeKey = (key: KeyEvent): boolean => {
@@ -117,8 +92,6 @@ class CoreTuiClientApp {
 
   private destroyed = false;
   private readonly state: TuiClientState;
-  private readonly statusStripInputSignal = signal<StatusStripViewInput | null>(null);
-  private readonly disposeStatusStripSyncEffect: () => void;
 
   private spinnerTimer: ReturnType<typeof setInterval> | undefined;
   private deferredUiSyncTimer: ReturnType<typeof setTimeout> | undefined;
@@ -129,40 +102,6 @@ class CoreTuiClientApp {
   private inputNoticeText = "";
 
   private readonly appRoot: BoxRenderable;
-
-  private readonly messageBox: BoxRenderable;
-  private readonly messageHeaderText: TextRenderable;
-  private readonly messageSubHeaderText: TextRenderable;
-  private readonly messageScroll: ScrollBoxRenderable;
-  private readonly messageListBox: BoxRenderable;
-
-  private readonly inputBox: BoxRenderable;
-  private readonly inputRailBox: BoxRenderable;
-  private readonly inputRailAccent: BoxRenderable;
-  private readonly inputRailAccentGlyph: TextRenderable;
-  private readonly inputRailTextUser: TextRenderable;
-  private readonly inputRailTextInput: TextRenderable;
-  private readonly inputMainBox: BoxRenderable;
-  private readonly inputHintText: TextRenderable;
-  private readonly inputEditorHost: BoxRenderable;
-  private readonly inputTextarea: TextareaRenderable;
-
-  private readonly slashOverlay: BoxRenderable;
-  private readonly slashBackdrop: BoxRenderable;
-  private readonly slashModalBox: BoxRenderable;
-  private readonly slashModalTitleText: TextRenderable;
-  private readonly slashModalQueryText: TextRenderable;
-  private readonly slashModalEmptyText: TextRenderable;
-  private readonly slashModalSelect: SelectRenderable;
-
-  private readonly contextOverlay: BoxRenderable;
-  private readonly contextBackdrop: BoxRenderable;
-  private readonly contextModalBox: BoxRenderable;
-  private readonly contextModalTitleText: TextRenderable;
-  private readonly contextModalHintText: TextRenderable;
-  private readonly contextModalScroll: ScrollBoxRenderable;
-  private readonly contextModalContentBox: BoxRenderable;
-  private readonly contextModalBodyText: TextRenderable;
 
   private readonly onResize = () => {
     if (this.destroyed) return;
@@ -227,8 +166,8 @@ class CoreTuiClientApp {
       theme: this.theme,
       textareaKeyBindings: TEXTAREA_SUBMIT_KEY_BINDINGS,
       onInputSubmit: () => {
-        if (this.handleSubmit(this.inputTextarea.plainText)) {
-          this.inputTextarea.replaceText("");
+        if (this.handleSubmit(this.ui.input.getValue())) {
+          this.ui.input.clear();
           this.syncSlashModalStateFromInput();
           this.refreshAll();
         }
@@ -238,48 +177,6 @@ class CoreTuiClientApp {
       },
     });
     this.appRoot = this.ui.appRoot;
-    this.messageBox = this.ui.messageBox;
-    this.messageHeaderText = this.ui.messageHeaderText;
-    this.messageSubHeaderText = this.ui.messageSubHeaderText;
-    this.messageScroll = this.ui.messageScroll;
-    this.messageListBox = this.ui.messageListBox;
-    this.inputBox = this.ui.inputBox;
-    this.inputRailBox = this.ui.inputRailBox;
-    this.inputRailAccent = this.ui.inputRailAccent;
-    this.inputRailAccentGlyph = this.ui.inputRailAccentGlyph;
-    this.inputRailTextUser = this.ui.inputRailTextUser;
-    this.inputRailTextInput = this.ui.inputRailTextInput;
-    this.inputMainBox = this.ui.inputMainBox;
-    this.inputHintText = this.ui.inputHintText;
-    this.inputEditorHost = this.ui.inputEditorHost;
-    this.inputTextarea = this.ui.inputTextarea;
-    this.slashOverlay = this.ui.slashOverlay;
-    this.slashBackdrop = this.ui.slashBackdrop;
-    this.slashModalBox = this.ui.slashModalBox;
-    this.slashModalTitleText = this.ui.slashModalTitleText;
-    this.slashModalQueryText = this.ui.slashModalQueryText;
-    this.slashModalEmptyText = this.ui.slashModalEmptyText;
-    this.slashModalSelect = this.ui.slashModalSelect;
-    this.contextOverlay = this.ui.contextOverlay;
-    this.contextBackdrop = this.ui.contextBackdrop;
-    this.contextModalBox = this.ui.contextModalBox;
-    this.contextModalTitleText = this.ui.contextModalTitleText;
-    this.contextModalHintText = this.ui.contextModalHintText;
-    this.contextModalScroll = this.ui.contextModalScroll;
-    this.contextModalContentBox = this.ui.contextModalContentBox;
-    this.contextModalBodyText = this.ui.contextModalBodyText;
-
-    // Signal-driven status strip update:
-    // index.ts 只生成输入模型，组件内部完成视图同步。
-    this.disposeStatusStripSyncEffect = bindStatusStripViewModel({
-      view: {
-        box: this.ui.statusBox,
-        rowTexts: this.ui.statusRowTexts,
-      },
-      theme: this.theme,
-      inputSignal: this.statusStripInputSignal,
-      isDestroyed: () => this.destroyed,
-    });
 
     this.mountViews();
     this.bindRendererEvents();
@@ -292,7 +189,6 @@ class CoreTuiClientApp {
     if (this.destroyed) return;
     this.destroyed = true;
 
-    this.disposeStatusStripSyncEffect();
     this.stopSpinner();
     if (this.deferredUiSyncTimer) {
       clearTimeout(this.deferredUiSyncTimer);
@@ -308,6 +204,7 @@ class CoreTuiClientApp {
     }
 
     this.unbindRendererEvents();
+    this.ui.disposeControllers();
     this.unmountViews();
     this.destroyViewTrees();
   }
@@ -384,37 +281,15 @@ class CoreTuiClientApp {
   }
 
   private syncMessagePane(layout: LayoutMetrics): void {
-    const effectiveFocus = this.getEffectiveFocus();
-    const headerWidth = Math.max(1, this.state.terminal.columns - PANEL_INNER_HORIZONTAL_OVERHEAD);
-
-    this.messageBox.height = layout.messageHeight;
-    this.messageBox.borderColor = effectiveFocus === "answer"
-      ? this.theme.colors.borderAccentSecondary
-      : this.theme.colors.borderDefault;
-    this.messageHeaderText.visible = true;
-    this.messageSubHeaderText.visible = false;
-
-    this.messageHeaderText.content = buildMessageHeaderLine(this.state.agentName, this.state.chatStream.length, headerWidth);
-    this.messageSubHeaderText.content = buildMessageSubHeaderLine({
+    const input: MessagePaneRenderInput = {
+      layout,
+      terminalColumns: this.state.terminal.columns,
+      answerFocused: this.getEffectiveFocus() === "answer",
       phase: this.state.phase,
       connection: this.state.connection,
       taskId: this.state.activeTaskId,
       agentName: this.state.agentName,
       spinnerFrame: WAITING_SPINNER_FRAMES[this.state.busySpinnerIndex] ?? WAITING_SPINNER_FRAMES[0],
-      width: headerWidth,
-    });
-
-    const scrollAreaHeight = Math.max(1, layout.messageHeight - MESSAGE_PANEL_VERTICAL_OVERHEAD);
-    this.messageScroll.height = scrollAreaHeight;
-    this.renderChatStream();
-  }
-
-  private renderChatStream(): void {
-    renderMessageStreamContent({
-      renderer: this.renderer,
-      theme: this.theme,
-      listBox: this.messageListBox,
-      agentName: this.state.agentName,
       items: this.state.chatStream,
       onToggleToolCardCollapse: (toolMessageId, nextCollapsed) => {
         const updated = this.updateToolChatMessage(toolMessageId, {
@@ -423,13 +298,14 @@ class CoreTuiClientApp {
         if (!updated) return;
         this.refreshAll();
       },
-    });
+    };
+    this.ui.message.syncFromAppState(input);
   }
 
   private syncStatusStrip(layout?: LayoutMetrics): void {
     const activeLayout = layout ?? this.getLayout();
     const rowWidth = Math.max(1, this.state.terminal.columns - PANEL_INNER_HORIZONTAL_OVERHEAD);
-    this.statusStripInputSignal.value = {
+    const input: StatusStripViewInput = {
       layout: activeLayout,
       terminal: this.state.terminal,
       rowWidth,
@@ -444,100 +320,47 @@ class CoreTuiClientApp {
       serverUrl: this.serverUrl,
       statusNotice: this.state.statusNotice,
     };
+    this.ui.status.syncFromAppState(input);
   }
 
   private syncInputPane(layout: LayoutMetrics): void {
-    const effectiveFocus = this.getEffectiveFocus();
-    const inputFocused = effectiveFocus === "input";
-    const busyIndicator = this.getBusyIndicator();
-    const editorHeight = INPUT_EDITOR_ROWS;
-    const viewState = buildInputPaneViewState({
+    const input: Omit<InputPaneRenderInput, "noticeText"> = {
+      layout,
       isBusy: this.isBusy(),
-      inputFocused,
-      busyIndicator,
+      inputFocused: this.getEffectiveFocus() === "input",
+      busyIndicator: this.getBusyIndicator(),
       agentName: this.state.agentName,
-      noticeText: this.inputNoticeText,
-    });
-
-    this.inputBox.height = layout.inputHeight;
-    this.inputBox.backgroundColor = inputFocused
-      ? this.theme.colors.panelBackgroundAlt
-      : this.theme.colors.panelBackgroundAlt;
-
-    this.inputRailBox.width = layout.railWidth;
-    this.inputRailBox.backgroundColor = this.theme.colors.panelBackgroundAlt;
-    this.inputRailAccent.backgroundColor = this.theme.colors.panelBackgroundAlt;
-    this.inputRailAccentGlyph.fg = viewState.railAccentColor === "focused"
-      ? this.theme.colors.accentPrimary
-      : this.theme.colors.accentSecondary;
-    this.inputRailAccentGlyph.content = buildInputRailGlyphContent(layout.inputHeight - INPUT_RAIL_INNER_VERTICAL_PADDING);
-    this.inputHintText.visible = viewState.showHint;
-    this.inputHintText.content = viewState.hintText;
-
-    this.inputEditorHost.height = editorHeight;
-    this.inputTextarea.height = "100%";
-    this.inputTextarea.width = "100%";
-    this.inputTextarea.placeholder = viewState.placeholderText;
-    this.inputTextarea.backgroundColor = inputFocused
-      ? this.theme.colors.selectionBackground
-      : this.theme.colors.panelBackgroundAlt;
-    this.inputTextarea.focusedBackgroundColor = this.theme.colors.selectionBackground;
+    };
+    this.ui.input.syncFromAppState(input);
   }
 
   private syncSlashModalLayout(layout: LayoutMetrics): void {
-    const modalOpen = this.state.slashModalState.open;
-    this.slashOverlay.visible = modalOpen;
-    if (!modalOpen) return;
-
-    const viewState = buildSlashModalLayoutState({
+    const input: SlashModalRenderInput = {
+      modalOpen: this.state.slashModalState.open,
       terminal: this.state.terminal,
       layout,
       filteredQuery: this.state.slashModalState.filteredQuery,
       commands: this.state.slashFilteredCommands,
       selectedIndex: this.state.slashModalState.selectedIndex,
-    });
-
-    this.slashModalBox.width = viewState.width;
-    this.slashModalBox.height = viewState.height;
-    this.slashModalBox.top = viewState.top;
-    this.slashModalBox.left = viewState.left;
-    this.slashModalBox.borderColor = this.theme.colors.borderAccentPrimary;
-
-    this.slashModalTitleText.content = viewState.titleText;
-    this.slashModalQueryText.content = viewState.queryText;
-    this.slashModalEmptyText.visible = viewState.emptyVisible;
-    this.slashModalEmptyText.content = viewState.emptyText;
-    this.slashModalSelect.visible = viewState.hasOptions;
-    this.slashModalSelect.height = viewState.listHeight;
-    this.slashModalSelect.options = viewState.options;
-    this.slashModalSelect.selectedIndex = viewState.selectedIndex;
+    };
+    this.ui.slash.syncFromAppState(input);
   }
 
   private syncContextModalLayout(_layout: LayoutMetrics): void {
-    this.contextOverlay.visible = this.state.contextModalOpen;
-    if (!this.state.contextModalOpen) return;
-
-    const viewState = buildContextModalLayoutState({
+    const input: ContextModalRenderInput = {
+      open: this.state.contextModalOpen,
       terminal: this.state.terminal,
       title: this.state.contextModalTitle,
       body: this.state.contextModalText,
-    });
-
-    this.contextModalBox.width = viewState.width;
-    this.contextModalBox.height = viewState.height;
-    this.contextModalBox.top = viewState.top;
-    this.contextModalBox.left = viewState.left;
-    this.contextModalTitleText.content = viewState.titleText;
-    this.contextModalHintText.content = viewState.hintText;
-    this.contextModalScroll.height = viewState.scrollHeight;
-    this.contextModalBodyText.content = viewState.bodyText;
+    };
+    this.ui.context.syncFromAppState(input);
   }
 
   private syncFocus(): void {
     if (this.state.contextModalOpen) {
-      this.inputTextarea.blur();
-      this.messageScroll.blur();
-      this.contextModalScroll.focus();
+      this.ui.input.blur();
+      this.ui.message.blur();
+      this.ui.context.focus();
       return;
     }
 
@@ -545,12 +368,13 @@ class CoreTuiClientApp {
     const inputFocused = effectiveFocus === "input";
 
     if (inputFocused) {
-      this.inputTextarea.focus();
-      this.messageScroll.blur();
+      this.ui.input.focus();
+      this.ui.message.blur();
     } else {
-      this.inputTextarea.blur();
-      this.messageScroll.focus();
+      this.ui.input.blur();
+      this.ui.message.focus();
     }
+    this.ui.context.blur();
   }
 
   private schedulePostInputUiSync(): void {
@@ -564,20 +388,27 @@ class CoreTuiClientApp {
 
   private handleSlashModalKeyPress(key: KeyEvent): boolean {
     if (this.state.contextModalOpen) return false;
-    if (!this.state.slashModalState.open) return false;
-    const currentInput = this.inputTextarea.plainText;
+    if (!this.ui.slash.isOpen()) return false;
+    const currentInput = this.ui.input.getValue();
     const singleLineSlashOnly =
       !currentInput.includes("\n") && currentInput.trimStart() === "/";
+    const action = this.ui.slash.handleKey({
+      key,
+      inputFocused: this.getEffectiveFocus() === "input",
+      singleLineSlashOnly,
+    });
+    if (!action.handled) return false;
 
-    if (isEscapeKey(key)) {
-      key.preventDefault();
-      key.stopPropagation();
+    key.preventDefault();
+    key.stopPropagation();
+
+    if (action.kind === "close") {
       this.closeSlashModal();
       if (!currentInput.includes("\n") && currentInput.trimStart().startsWith("/")) {
-        this.inputTextarea.replaceText("");
+        this.ui.input.clear();
       }
       this.syncSlashModalStateFromInput();
-      if (this.isBusy()) {
+      if (this.isBusy() && isEscapeKey(key)) {
         this.handleEscForceAbortAttempt();
       }
       this.syncInputPane(this.getLayout());
@@ -585,51 +416,24 @@ class CoreTuiClientApp {
       return true;
     }
 
-    if ((key.name === "backspace" || key.name === "delete") && singleLineSlashOnly) {
-      key.preventDefault();
-      key.stopPropagation();
-      this.closeSlashModal();
-      this.inputTextarea.replaceText("");
-      this.syncSlashModalStateFromInput();
-      this.syncInputPane(this.getLayout());
-      this.renderer.requestRender();
-      return true;
-    }
-
-    const inputFocused = this.getEffectiveFocus() === "input";
-    if (!inputFocused) return false;
-
-    if (this.state.slashFilteredCommands.length === 0) return false;
-
-    if (key.name === "up" || key.name === "k") {
-      key.preventDefault();
-      key.stopPropagation();
-      this.moveSlashSelection(-1);
-      return true;
-    }
-
-    if (key.name === "down" || key.name === "j") {
-      key.preventDefault();
-      key.stopPropagation();
-      this.moveSlashSelection(1);
-      return true;
-    }
-
-    const isSubmitKey = (key.name === "return" || key.name === "linefeed") && !key.shift && !key.meta;
-    if (isSubmitKey) {
-      key.preventDefault();
-      key.stopPropagation();
+    if (action.kind === "apply") {
       this.applySelectedSlashCommand();
       return true;
     }
 
-    return false;
+    if (action.kind === "navigated") {
+      this.state.slashModalState.selectedIndex = this.ui.slash.getSelectedIndex();
+      this.renderer.requestRender();
+      return true;
+    }
+
+    return true;
   }
 
   private handleContextModalKeyPress(key: KeyEvent): boolean {
     if (!this.state.contextModalOpen) return false;
 
-    if (isEscapeKey(key)) {
+    if (this.ui.context.handleKey(key)) {
       key.preventDefault();
       key.stopPropagation();
       this.closeContextModal();
@@ -640,20 +444,11 @@ class CoreTuiClientApp {
     return false;
   }
 
-  private moveSlashSelection(delta: number): void {
-    if (this.state.slashFilteredCommands.length === 0) return;
-    const maxIndex = this.state.slashFilteredCommands.length - 1;
-    const next = Math.max(0, Math.min(maxIndex, this.state.slashModalState.selectedIndex + delta));
-    this.state.slashModalState.selectedIndex = next;
-    this.slashModalSelect.selectedIndex = next;
-    this.renderer.requestRender();
-  }
-
   private applySelectedSlashCommand(): void {
-    const selected = this.state.slashFilteredCommands[this.state.slashModalState.selectedIndex];
+    const selected = this.ui.slash.applySelection();
     if (!selected) return;
 
-    this.inputTextarea.replaceText(selected.name);
+    this.ui.input.setValue(selected.name);
     this.closeSlashModal();
     this.syncInputPane(this.getLayout());
     this.renderer.requestRender();
@@ -663,10 +458,18 @@ class CoreTuiClientApp {
     if (this.state.contextModalOpen) return;
     this.state.slashModalState.open = true;
     this.updateSlashCommandOptions(query);
+    this.ui.slash.open({
+      terminal: this.state.terminal,
+      layout: this.getLayout(),
+      query,
+      commands: this.state.slashFilteredCommands,
+      selectedIndex: this.state.slashModalState.selectedIndex,
+    });
   }
 
   private closeSlashModal(): void {
     this.state.resetSlashModal();
+    this.ui.slash.close();
   }
 
   private updateSlashCommandOptions(query: string): void {
@@ -686,7 +489,7 @@ class CoreTuiClientApp {
       this.closeSlashModal();
       return;
     }
-    const input = this.inputTextarea.plainText;
+    const input = this.ui.input.getValue();
     if (!input.startsWith("/")) {
       if (this.state.slashModalState.open) this.closeSlashModal();
       return;
@@ -706,17 +509,19 @@ class CoreTuiClientApp {
     this.state.contextModalText = body;
     this.state.contextModalOpen = true;
     this.closeSlashModal();
+    this.ui.context.open({
+      terminal: this.state.terminal,
+      title,
+      body,
+    });
     this.refreshAll();
-    try {
-      this.contextModalScroll.scrollTo(0);
-    } catch {
-      // noop
-    }
+    this.ui.context.scrollTop();
   }
 
   private closeContextModal(): void {
     if (!this.state.contextModalOpen) return;
     this.state.contextModalOpen = false;
+    this.ui.context.close();
     this.refreshAll();
   }
 
@@ -776,6 +581,7 @@ class CoreTuiClientApp {
     const nextText = text.trim();
     if (this.inputNoticeText === nextText) return;
     this.inputNoticeText = nextText;
+    this.ui.input.setInputNotice(nextText);
     this.syncInputPane(this.getLayout());
     this.renderer.requestRender();
   }

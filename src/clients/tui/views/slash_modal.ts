@@ -21,7 +21,9 @@ import {
   Text,
   instantiate,
 } from "@opentui/core";
-import type { BoxRenderable, CliRenderer, SelectRenderable, TextRenderable } from "@opentui/core";
+import { effect, signal } from "@preact/signals-core";
+import type { ReadonlySignal } from "@preact/signals-core";
+import type { BoxRenderable, CliRenderer, KeyEvent, SelectRenderable, TextRenderable } from "@opentui/core";
 
 import type { LayoutMetrics, TerminalSize } from "../layout/metrics";
 import type { SlashCommandOption } from "../state/slash_commands";
@@ -67,6 +69,43 @@ export type SlashModalView = {
   queryText: TextRenderable;
   emptyText: TextRenderable;
   select: SelectRenderable;
+};
+
+export type SlashModalRenderInput = {
+  modalOpen: boolean;
+  terminal: TerminalSize;
+  layout: LayoutMetrics;
+  filteredQuery: string;
+  commands: SlashCommandOption[];
+  selectedIndex: number;
+};
+
+export type SlashModalKeyAction =
+  | { handled: false; kind: "none" }
+  | { handled: true; kind: "navigated" | "close" | "apply" };
+
+export type SlashModalViewController = {
+  readonly view: SlashModalView;
+  syncFromAppState: (input: SlashModalRenderInput) => void;
+  open: (args: {
+    terminal: TerminalSize;
+    layout: LayoutMetrics;
+    query: string;
+    commands: SlashCommandOption[];
+    selectedIndex?: number;
+  }) => void;
+  close: () => void;
+  moveSelection: (delta: number) => void;
+  applySelection: () => SlashCommandOption | undefined;
+  handleKey: (args: {
+    key: KeyEvent;
+    inputFocused: boolean;
+    singleLineSlashOnly: boolean;
+  }) => SlashModalKeyAction;
+  getSelectedIndex: () => number;
+  getFilteredCommands: () => SlashCommandOption[];
+  isOpen: () => boolean;
+  dispose: () => void;
 };
 
 // ================================
@@ -235,5 +274,204 @@ export const createSlashModalView = (
     queryText,
     emptyText,
     select,
+  };
+};
+
+// ================================
+// 运行时注入区（将实时状态数据注入组件）
+// ================================
+
+export const updateSlashModalView = (
+  args: {
+    view: SlashModalView;
+    theme: TuiTheme;
+    input: SlashModalRenderInput;
+  },
+): void => {
+  const { view, theme, input } = args;
+  view.overlay.visible = input.modalOpen;
+  if (!input.modalOpen) return;
+
+  const viewState = buildSlashModalLayoutState({
+    terminal: input.terminal,
+    layout: input.layout,
+    filteredQuery: input.filteredQuery,
+    commands: input.commands,
+    selectedIndex: input.selectedIndex,
+  });
+
+  view.modalBox.width = viewState.width;
+  view.modalBox.height = viewState.height;
+  view.modalBox.top = viewState.top;
+  view.modalBox.left = viewState.left;
+  view.modalBox.borderColor = theme.colors.borderAccentPrimary;
+
+  view.titleText.content = viewState.titleText;
+  view.queryText.content = viewState.queryText;
+  view.emptyText.visible = viewState.emptyVisible;
+  view.emptyText.content = viewState.emptyText;
+  view.select.visible = viewState.hasOptions;
+  view.select.height = viewState.listHeight;
+  view.select.options = viewState.options;
+  view.select.selectedIndex = viewState.selectedIndex;
+};
+
+// ================================
+// 响应式绑定区（Signal -> 视图同步）
+// ================================
+
+export const bindSlashModalViewModel = (
+  args: {
+    view: SlashModalView;
+    theme: TuiTheme;
+    inputSignal: ReadonlySignal<SlashModalRenderInput | null>;
+    isDestroyed?: () => boolean;
+  },
+): (() => void) => effect(() => {
+  if (args.isDestroyed?.()) return;
+  const input = args.inputSignal.value;
+  if (!input) return;
+  updateSlashModalView({
+    view: args.view,
+    theme: args.theme,
+    input,
+  });
+});
+
+const isEscapeKey = (key: KeyEvent): boolean => {
+  if (key.name === "escape" || key.name === "esc") return true;
+  if (key.code === "Escape") return true;
+  if (key.baseCode === 27) return true;
+  if (key.raw === "\u001b" || key.sequence === "\u001b") return true;
+  return false;
+};
+
+const normalizeSelectedIndex = (
+  selectedIndex: number,
+  commands: SlashCommandOption[],
+): number => Math.min(Math.max(0, selectedIndex), Math.max(0, commands.length - 1));
+
+export const createSlashModalViewController = (
+  args: {
+    ctx?: CliRenderer;
+    theme: TuiTheme;
+    onSelectCommand: () => void;
+    view?: SlashModalView;
+    isDestroyed?: () => boolean;
+  },
+): SlashModalViewController => {
+  const view = args.view ?? (() => {
+    if (!args.ctx) {
+      throw new Error("createSlashModalViewController requires args.ctx when args.view is not provided");
+    }
+    return createSlashModalView(args.ctx, args.theme, args.onSelectCommand);
+  })();
+  const renderInputSignal = signal<SlashModalRenderInput | null>(null);
+  const disposeSync = bindSlashModalViewModel({
+    view,
+    theme: args.theme,
+    inputSignal: renderInputSignal,
+    isDestroyed: args.isDestroyed,
+  });
+
+  const patchRenderInput = (
+    patch: Partial<SlashModalRenderInput>,
+  ) => {
+    const current = renderInputSignal.value;
+    if (!current) return;
+    const next: SlashModalRenderInput = {
+      ...current,
+      ...patch,
+    };
+    next.selectedIndex = normalizeSelectedIndex(next.selectedIndex, next.commands);
+    renderInputSignal.value = next;
+  };
+
+  return {
+    view,
+    syncFromAppState: (input) => {
+      renderInputSignal.value = {
+        ...input,
+        selectedIndex: normalizeSelectedIndex(input.selectedIndex, input.commands),
+      };
+    },
+    open: ({ terminal, layout, query, commands, selectedIndex = 0 }) => {
+      renderInputSignal.value = {
+        modalOpen: true,
+        terminal,
+        layout,
+        filteredQuery: query,
+        commands,
+        selectedIndex: normalizeSelectedIndex(selectedIndex, commands),
+      };
+    },
+    close: () => {
+      patchRenderInput({
+        modalOpen: false,
+        filteredQuery: "",
+        commands: [],
+        selectedIndex: 0,
+      });
+    },
+    moveSelection: (delta) => {
+      const current = renderInputSignal.value;
+      if (!current || current.commands.length === 0) return;
+      patchRenderInput({
+        selectedIndex: current.selectedIndex + delta,
+      });
+    },
+    applySelection: () => {
+      const current = renderInputSignal.value;
+      if (!current) return undefined;
+      const effectiveSelectedIndex = normalizeSelectedIndex(
+        typeof view.select.selectedIndex === "number"
+          ? view.select.selectedIndex
+          : current.selectedIndex,
+        current.commands,
+      );
+      return current.commands[effectiveSelectedIndex];
+    },
+    handleKey: ({ key, inputFocused, singleLineSlashOnly }) => {
+      const current = renderInputSignal.value;
+      if (!current?.modalOpen) return { handled: false, kind: "none" };
+
+      if (isEscapeKey(key)) {
+        return { handled: true, kind: "close" };
+      }
+      if ((key.name === "backspace" || key.name === "delete") && singleLineSlashOnly) {
+        return { handled: true, kind: "close" };
+      }
+      if (!inputFocused || current.commands.length === 0) {
+        return { handled: false, kind: "none" };
+      }
+      if (key.name === "up" || key.name === "k") {
+        patchRenderInput({ selectedIndex: current.selectedIndex - 1 });
+        return { handled: true, kind: "navigated" };
+      }
+      if (key.name === "down" || key.name === "j") {
+        patchRenderInput({ selectedIndex: current.selectedIndex + 1 });
+        return { handled: true, kind: "navigated" };
+      }
+      const isSubmitKey = (key.name === "return" || key.name === "linefeed") && !key.shift && !key.meta;
+      if (isSubmitKey) {
+        return { handled: true, kind: "apply" };
+      }
+      return { handled: false, kind: "none" };
+    },
+    getSelectedIndex: () => {
+      const current = renderInputSignal.value;
+      if (!current) return 0;
+      return normalizeSelectedIndex(
+        typeof view.select.selectedIndex === "number"
+          ? view.select.selectedIndex
+          : current.selectedIndex,
+        current.commands,
+      );
+    },
+    getFilteredCommands: () => renderInputSignal.value?.commands ?? [],
+    isOpen: () => Boolean(renderInputSignal.value?.modalOpen),
+    dispose: () => {
+      disposeSync();
+    },
   };
 };
