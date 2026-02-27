@@ -18,8 +18,8 @@ import BootstrapPrompt from "../../prompts/bootstrap.md" with { type: "text" };
 import ContextRulesDisabledPrompt from "../../prompts/context_disable_output_context.md" with { type: "text" };
 import ContextRulesEnablePrompt from "../../prompts/context.md" with { type: "text" };
 import PersistentMemoryUsagePrompt from "../../prompts/persistent_memory_usage.md" with { type: "text" };
-import TodoToolUsagePrompt from "../../prompts/todo_tool_usage.md" with { type: "text" };
-import ToolUsageEfficiencyPrompt from "../../prompts/tool_usage_efficiency.md" with { type: "text" };
+import ToolUsagePrompt from "../../prompts/tool_usage.md" with { type: "text" };
+import CorePrompt from "../../prompts/core.md" with { type: "text" };
 
 type LifecycleBootParams = {
   userPromptFilePath: string;
@@ -78,9 +78,9 @@ export const bootstrap =
     return {
       systemPrompt: [
         ContextRulesEnablePrompt,
+        CorePrompt,
         PersistentMemoryUsagePrompt,
-        TodoToolUsagePrompt,
-        ToolUsageEfficiencyPrompt,
+        ToolUsagePrompt,
         result.text,
       ].join("\n"),
       totalUsage: result.totalUsage,

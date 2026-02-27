@@ -3,7 +3,7 @@
   "module": "index.ts",
   "description": "Atom 智能生命体",
   "type": "module",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "scripts": {
     "dev": "bun run src/index.ts --workspace=./Playground",
     "build:bin": "mkdir -p dist && bun build src/index.ts --compile --outfile dist/atom",

@@ -193,21 +193,6 @@ const initializeRuntimeService = async (
   logStage("initializing MCP servers...");
   const mcp = await initMCPTools(agentConfig.mcp);
   const { tools: mcpTools, status: mcpStatus } = mcp;
-  for (const serverStatus of mcpStatus) {
-    if (serverStatus.available) {
-      console.log(
-        `[mcp] ${serverStatus.id}: OK | transport=${serverStatus.transportType} | target=${serverStatus.target ?? "unknown"} | tools=${serverStatus.toolCount ?? 0}`,
-      );
-      if ((serverStatus.toolNames?.length ?? 0) > 0) {
-        console.log(`[mcp] ${serverStatus.id}: ${serverStatus.toolNames!.join(", ")}`);
-      }
-      continue;
-    }
-
-    console.warn(
-      `[mcp] ${serverStatus.id}: unavailable | transport=${serverStatus.transportType} | target=${serverStatus.target ?? "unknown"} | ${serverStatus.message ?? "Unknown error"}`,
-    );
-  }
 
   const mcpAvailableCount = mcpStatus.filter((status) => status.available).length;
   logStage(`MCP ready (${mcpAvailableCount}/${mcpStatus.length})`);
