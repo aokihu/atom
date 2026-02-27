@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -179,8 +179,29 @@ describe("persistent memory db/store", () => {
 });
 
 describe("persistent memory coordinator", () => {
-  test("fails open when .agent directory is missing", async () => {
+  test("auto-creates .agent directory when missing", async () => {
     const workspace = await createTempWorkspace(false);
+    try {
+      const coordinator = PersistentMemoryCoordinator.initialize({
+        workspace,
+        config: { enabled: true },
+      });
+      expect(coordinator.status.enabled).toBe(true);
+      expect(coordinator.status.available).toBe(true);
+      expect(await Bun.file(join(workspace, ".agent", "memory.db")).exists()).toBe(true);
+
+      const session = createSession(workspace);
+      await expect(coordinator.hooks.beforeTask(session, "hello")).resolves.toBeUndefined();
+      await expect(coordinator.hooks.afterTask(session, { mode: "detailed" })).resolves.toBeUndefined();
+      await coordinator.dispose();
+    } finally {
+      await cleanupWorkspace(workspace);
+    }
+  });
+
+  test("fails open when .agent path is blocked by a file", async () => {
+    const workspace = await createTempWorkspace(false);
+    await writeFile(join(workspace, ".agent"), "blocked", "utf8");
     try {
       const coordinator = PersistentMemoryCoordinator.initialize({
         workspace,

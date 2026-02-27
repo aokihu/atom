@@ -4,7 +4,7 @@ Atom 是一个基于 Bun 的 Agent Runtime，支持本地 TUI 与 Telegram 客�
 
 ## 项目现状（2026-02-27）
 
-- 当前版本：`0.10.15`
+- 当前版本：`0.10.16`
 - 代码健康：`bun run typecheck` 通过
 - 测试状态：`bun run test` 通过（`252` 项）
 - 启动验证：使用 `Playground` 工作区，`server` 模式可正常返回 `/healthz`
@@ -137,12 +137,13 @@ docs/
   IMPROVEMENTS.md         # 改良清单与优化进展
 ```
 
-## v0.10.15 更新
+## v0.10.16 更新
 
 - 全面更新 README，使其与 `0.10.x` 的实际实现一致。
 - 新增改良文档 `docs/IMPROVEMENTS.md`，沉淀现状分析、优先级与执行建议。
 - 优化 `workspace_check`：改为并行且幂等的工作区初始化流程，减少启动阶段文件系统往返。
 - 新增 `workspace_check` 测试，确保初始化与“不覆盖已有文件”行为稳定。
+- 持久化记忆模块在启用时会自动创建 `{workspace}/.agent`，避免新工作区下初始化即降级为 unavailable。
 
 ## 安全建议
 

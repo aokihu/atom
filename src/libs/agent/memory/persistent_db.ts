@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   PERSISTENT_MEMORY_DB_DIR,
   PERSISTENT_MEMORY_DB_FILENAME,
@@ -51,6 +52,10 @@ export type PersistentMemoryDatabaseHandle = {
 export const getPersistentMemoryDbPath = (workspace: string) =>
   join(workspace, PERSISTENT_MEMORY_DB_DIR, PERSISTENT_MEMORY_DB_FILENAME);
 
+const ensurePersistentMemoryDbDirectory = (dbPath: string) => {
+  mkdirSync(dirname(dbPath), { recursive: true });
+};
+
 const applyPragmas = (db: Database) => {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000");
@@ -82,6 +87,7 @@ export const openPersistentMemoryDatabase = (
   workspace: string,
 ): PersistentMemoryDatabaseHandle => {
   const dbPath = getPersistentMemoryDbPath(workspace);
+  ensurePersistentMemoryDbDirectory(dbPath);
   const db = new Database(dbPath);
   let ok = false;
 
