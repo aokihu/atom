@@ -6,8 +6,8 @@
 
 ```text
 src/
-  index.ts                # 进程入口与模式编排（tui/server/tui-client）
-  clients/                # 用户侧客户端实现（当前 OpenTUI TUI，后续 web/bot）
+  index.ts                # 进程入口与模式编排（tui/server/tui-client/telegram/telegram-client）
+  clients/                # 用户侧客户端实现（OpenTUI TUI / Telegram，后续 web/bot）
   libs/
     agent/                # Agent 核心逻辑、提示词注入、工具集成
     channel/              # 通信通道契约与 HTTP 实现（gateway/client）
@@ -26,7 +26,8 @@ docs/
 ### `src/clients`
 - 放置“用户交互端”实现，例如：
   - `tui`（OpenTUI）
-  - 后续 Web UI / Bot adapter
+  - `telegram`（Bot adapter，基于 `GatewayClient`）
+  - 后续 Web UI / 其他 Bot adapter
 - 只通过 `GatewayClient`（或其他通道抽象）访问服务端。
 - 不直接依赖 `Agent`、`PriorityTaskQueue`、`AgentRuntimeService`。
 
@@ -55,6 +56,16 @@ docs/
 - `views/` 不直接调用 `GatewayClient`
 - `controllers/` 只返回动作或协调状态，不直接创建网络层实例
 - 与服务端交互集中在 `flows/`（或后续抽出的 data/service 层）
+
+#### `src/clients/telegram`
+
+- Telegram Bot 客户端同样只通过 `GatewayClient` 与 runtime 通信。
+- 核心职责拆分：
+  - `bot_api.ts`: Telegram Bot API 封装（`getUpdates` / `sendMessage`）
+  - `polling.ts`: long polling 循环、offset 管理、异常退避
+  - `dispatcher.ts`: 白名单校验、命令分发、任务触发与最终结果回传
+  - `markdown_v2.ts` / `message_split.ts`: 消息格式与分片处理
+- 本轮仅支持 polling；webhook 配置已预留，服务端路由尚未实现。
 
 ### `src/libs/channel`
 - 定义通道契约与传输实现。

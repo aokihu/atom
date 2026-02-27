@@ -1,3 +1,1 @@
-export type { LoadAgentConfigOptions } from "./config/loader";
-export { loadAgentConfig } from "./config/loader";
-
+export * from "./config/index";

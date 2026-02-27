@@ -57,6 +57,31 @@ export type AgentProviderConfig = {
   headers?: Record<string, string>;
 };
 
+export type TelegramTransportType = "polling" | "webhook";
+
+export type TelegramTransportConfig = {
+  type?: TelegramTransportType;
+  pollingIntervalMs?: number;
+  longPollTimeoutSec?: number;
+  dropPendingUpdatesOnStart?: boolean;
+  webhookPath?: string;
+  webhookSecretToken?: string;
+};
+
+export type TelegramMessageParseMode = "MarkdownV2" | "plain";
+
+export type TelegramMessageConfig = {
+  parseMode?: TelegramMessageParseMode;
+  chunkSize?: number;
+};
+
+export type TelegramConfig = {
+  botToken?: string;
+  allowedChatId: string;
+  transport?: TelegramTransportConfig;
+  message?: TelegramMessageConfig;
+};
+
 export type AgentPermissionRules = {
   allow?: string[];
   deny?: string[];
@@ -113,6 +138,7 @@ export type AgentConfig = {
   permissions?: AgentToolsPermission;
   mcp?: MCPConfig;
   tui?: AgentTuiConfig;
+  telegram?: TelegramConfig;
 };
 
 export type ContextMemoryTier = "core" | "working" | "ephemeral";
