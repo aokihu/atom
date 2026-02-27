@@ -1,26 +1,14 @@
 /**
  * TUI 组件：Status Strip（状态条）
- * 用于何处：被 `src/clients/tui/runtime/ui.ts` 装配在消息区与输入区之间，由 `CoreTuiClientApp` 刷新连接状态/工作状态文案。
- * 主要职责：构建状态条节点树，并根据运行状态生成一行或多行状态文本内容。
- *
- * ASCII Layout
- * +-------------------------------------------------------------------+
- * | row1: agent / connect / status / version                     |
- * | row2: reserved secondary line (optional by layout rows)      |
- * +-------------------------------------------------------------------+
  */
 import { Box, Text, instantiate } from "@opentui/core";
-import type { BoxRenderable, CliRenderer, TextRenderable } from "@opentui/core";
+import type { BoxRenderable, CliRenderer, MouseEvent, TextRenderable } from "@opentui/core";
 import { effect, signal } from "@preact/signals-core";
 import type { ReadonlySignal } from "@preact/signals-core";
 
 import type { LayoutMetrics, TerminalSize } from "../layout/metrics";
 import type { TuiTheme } from "../theme";
-import { stringDisplayWidth, truncateToDisplayWidth } from "../utils/text";
-
-// ================================
-// 类型定义区
-// ================================
+import { truncateToDisplayWidth } from "../utils/text";
 
 export type StatusStripViewInput = {
   layout: LayoutMetrics;
@@ -36,11 +24,17 @@ export type StatusStripViewInput = {
   activeTaskId?: string;
   serverUrl?: string;
   statusNotice: string;
+  mcpConnected: number;
+  mcpTotal: number;
 };
 
 export type StatusStripView = {
   box: BoxRenderable;
-  rowTexts: [TextRenderable, TextRenderable];
+  rowPrimary: BoxRenderable;
+  leftText: TextRenderable;
+  mcpTagText: TextRenderable;
+  rightText: TextRenderable;
+  rowSecondary: TextRenderable;
 };
 
 export type StatusStripViewController = {
@@ -48,10 +42,6 @@ export type StatusStripViewController = {
   syncFromAppState: (input: StatusStripViewInput) => void;
   dispose: () => void;
 };
-
-// ================================
-// 逻辑计算区（状态文案）
-// ================================
 
 const buildSweepBar = (tick = 0, width = 12): string => {
   const normalizedWidth = Math.max(6, width);
@@ -93,7 +83,19 @@ const buildBusyStatusPill = (
   return `[${label} ${sweep}]`;
 };
 
-export const buildStatusStripRows = (input: StatusStripViewInput): string[] => {
+export const buildMcpTagLabel = (connected: number, total: number): string =>
+  `[MCP Tools: ${connected}/${total}]`;
+
+export const isLeftMouseButton = (event: Pick<MouseEvent, "button">) => event.button === 0;
+
+export const createMcpTagMouseUpHandler =
+  (onMcpTagClick?: () => void) => (event: Pick<MouseEvent, "button">) => {
+    if (isLeftMouseButton(event)) {
+      onMcpTagClick?.();
+    }
+  };
+
+const buildStatusStripSegments = (input: StatusStripViewInput) => {
   const connectLabel =
     input.connection === "ok" ? "OK" : input.connection === "error" ? "ERROR" : "UNKNOWN";
   const statusLabel =
@@ -106,25 +108,22 @@ export const buildStatusStripRows = (input: StatusStripViewInput): string[] => {
         );
   const versionLabel = (input.version?.trim() || "unknown").replace(/\s+/g, " ");
 
-  const left = `${input.agentName}  Connect: ${connectLabel}  Status: ${statusLabel}`;
-  const right = versionLabel;
-  const fillerWidth = input.rowWidth - stringDisplayWidth(left) - stringDisplayWidth(right);
-
-  const line =
-    fillerWidth >= 2
-      ? `${left}${" ".repeat(fillerWidth)}${right}`
-      : `${left}  ${right}`;
-
-  return [truncateToDisplayWidth(line, input.rowWidth)].slice(0, input.layout.statusRows);
+  const leftRaw = `${input.agentName}  Connect: ${connectLabel}  Status: ${statusLabel}`;
+  return {
+    left: truncateToDisplayWidth(leftRaw, Math.max(1, input.rowWidth)),
+    mcp: buildMcpTagLabel(input.mcpConnected, input.mcpTotal),
+    right: versionLabel,
+  };
 };
 
-// ================================
-// UI 渲染区（Constructs 节点树）
-// ================================
-
-export const createStatusStripView = (ctx: CliRenderer, theme: TuiTheme): StatusStripView => {
-  const C = theme.colors;
-  // 部件说明：状态条根容器（边框 + 双行文本），使用先构建 VNode 再实例化的 Constructs 风格。
+export const createStatusStripView = (
+  args: {
+    ctx: CliRenderer;
+    theme: TuiTheme;
+    onMcpTagClick?: () => void;
+  },
+): StatusStripView => {
+  const C = args.theme.colors;
   const container = Box(
     {
       border: true,
@@ -135,25 +134,54 @@ export const createStatusStripView = (ctx: CliRenderer, theme: TuiTheme): Status
       width: "100%",
       flexDirection: "column",
     },
-    Text({ content: " ", fg: C.textSecondary, width: "100%", truncate: true }),
+    Box(
+      {
+        width: "100%",
+        flexDirection: "row",
+        alignItems: "center",
+      },
+      Text({
+        content: " ",
+        fg: C.textSecondary,
+        width: "100%",
+        truncate: true,
+        flexGrow: 1,
+        flexShrink: 1,
+      }),
+      Text({
+        content: " [MCP Tools: 0/0]",
+        fg: C.accentPrimary,
+        truncate: true,
+        flexShrink: 0,
+        onMouseUp: createMcpTagMouseUpHandler(args.onMcpTagClick),
+      }),
+      Text({
+        content: " unknown",
+        fg: C.textMuted,
+        truncate: true,
+        flexShrink: 0,
+      }),
+    ),
     Text({ content: " ", fg: C.textMuted, width: "100%", truncate: true }),
   );
 
-  const box = instantiate(ctx, container) as unknown as BoxRenderable;
+  const box = instantiate(args.ctx, container) as unknown as BoxRenderable;
+  const [rowPrimary, rowSecondary] = box.getChildren() as [BoxRenderable, TextRenderable];
+  const [leftText, mcpTagText, rightText] = rowPrimary.getChildren() as [
+    TextRenderable,
+    TextRenderable,
+    TextRenderable,
+  ];
 
-  // 部件说明：第 1 行显示主状态；第 2 行预留为辅助状态行（当前通常为空）。
-  const [row1, row2] = box.getChildren() as [TextRenderable, TextRenderable];
-  const view: StatusStripView = {
+  return {
     box,
-    rowTexts: [row1, row2],
+    rowPrimary,
+    leftText,
+    mcpTagText,
+    rightText,
+    rowSecondary,
   };
-
-  return view;
 };
-
-// ================================
-// 运行时注入区（将实时状态数据注入组件）
-// ================================
 
 export const updateStatusStripView = (
   view: StatusStripView,
@@ -161,18 +189,15 @@ export const updateStatusStripView = (
 ): void => {
   view.box.visible = input.layout.showStatusStrip;
   view.box.height = input.layout.showStatusStrip ? input.layout.statusHeight : 0;
+  view.rowPrimary.visible = input.layout.showStatusStrip && input.layout.statusRows >= 1;
+  view.rowSecondary.visible = input.layout.showStatusStrip && input.layout.statusRows >= 2;
 
-  const rows = buildStatusStripRows(input);
-  for (let index = 0; index < view.rowTexts.length; index += 1) {
-    const rowText = view.rowTexts[index]!;
-    rowText.visible = input.layout.showStatusStrip && index < input.layout.statusRows;
-    rowText.content = rows[index] && rows[index]!.length > 0 ? rows[index]! : " ";
-  }
+  const segments = buildStatusStripSegments(input);
+  view.leftText.content = segments.left;
+  view.mcpTagText.content = ` ${segments.mcp}`;
+  view.rightText.content = ` ${segments.right}`;
+  view.rowSecondary.content = " ";
 };
-
-// ================================
-// 响应式绑定区（Signal -> 视图同步）
-// ================================
 
 export const bindStatusStripViewModel = (
   args: {
@@ -194,10 +219,15 @@ export const createStatusStripViewController = (
   args: {
     ctx: CliRenderer;
     theme: TuiTheme;
+    onMcpTagClick?: () => void;
     isDestroyed?: () => boolean;
   },
 ): StatusStripViewController => {
-  const view = createStatusStripView(args.ctx, args.theme);
+  const view = createStatusStripView({
+    ctx: args.ctx,
+    theme: args.theme,
+    onMcpTagClick: args.onMcpTagClick,
+  });
   const inputSignal = signal<StatusStripViewInput | null>(null);
   const disposeSync = bindStatusStripViewModel({
     view,

@@ -12,12 +12,11 @@
  */
 
 import { resolve } from "node:path";
-import { constants } from "node:fs";
-import { copyFile, mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 
 /* 内置模版文件 */
-import AgentMdFile from "../../templates/AGENT.md" with { type: "file" };
-import AgentConfigJsonFile from "../../templates/agent.config.json" with { type: "file" };
+import AgentMdFile from "../../templates/AGENT.md" with { type: "text" };
+import AgentConfigJsonFile from "../../templates/agent.config.json" with { type: "text" };
 
 /**
  * 检查工作目录环境
@@ -28,18 +27,22 @@ export const workspace_check = async (workspace: string) => {
   const agentConfigJsonFilePath = resolve(workspace, "agent.config.json");
   const memoryFolderPath = resolve(workspace, "memory");
   const secretsFolderPath = resolve(workspace, "secrets");
+  const agentConfigTemplate =
+    typeof AgentConfigJsonFile === "string"
+      ? AgentConfigJsonFile
+      : `${JSON.stringify(AgentConfigJsonFile, null, 2)}\n`;
 
   await Promise.all([
     ensureTemplateFile(AgentMdFile, agentFilePath),
-    ensureTemplateFile(AgentConfigJsonFile as unknown as string, agentConfigJsonFilePath),
+    ensureTemplateFile(agentConfigTemplate, agentConfigJsonFilePath),
     mkdir(memoryFolderPath, { recursive: true }),
     mkdir(secretsFolderPath, { recursive: true }),
   ]);
 };
 
-const ensureTemplateFile = async (sourcePath: string, targetPath: string) => {
+const ensureTemplateFile = async (content: string, targetPath: string) => {
   try {
-    await copyFile(sourcePath, targetPath, constants.COPYFILE_EXCL);
+    await writeFile(targetPath, content, { flag: "wx" });
   } catch (error) {
     if (!isEexistError(error)) {
       throw error;

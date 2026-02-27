@@ -24,7 +24,7 @@ export interface RuntimeGateway {
 }
 
 export interface GatewayClient {
-  getHealth(): Promise<HealthzResponse>;
+  getHealth(options?: { probeMcpHttp?: boolean }): Promise<HealthzResponse>;
   createTask(request: CreateTaskRequest): Promise<CreateTaskResponse>;
   getTask(taskId: string, options?: GetTaskOptions): Promise<TaskStatusResponse>;
   getAgentContext(): Promise<AgentContextResponse>;

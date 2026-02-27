@@ -670,4 +670,89 @@ describe("AgentRuntimeService", () => {
 
     expect(toolMessages?.map((item) => item.step)).toEqual([7, 7]);
   });
+
+  test("updateSystemPrompt syncs messages when runtime is idle", () => {
+    const updates: Array<{ prompt: string; options?: { syncMessages?: boolean } }> = [];
+    const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext() {},
+      async runTask() {
+        return "ok";
+      },
+      abortCurrentRun() {
+        return false;
+      },
+      updateSystemPrompt(prompt: string, options?: { syncMessages?: boolean }) {
+        updates.push({ prompt, options });
+      },
+      getContextSnapshot() {
+        return {
+          version: 2.3,
+          runtime: {
+            round: 1,
+            workspace: "/tmp/",
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: { core: [], working: [], ephemeral: [] },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {} });
+    service.start();
+    service.updateSystemPrompt("new prompt");
+    service.stop();
+
+    expect(updates).toEqual([{ prompt: "new prompt", options: { syncMessages: true } }]);
+  });
+
+  test("updateSystemPrompt does not sync messages while task is running", async () => {
+    const updates: Array<{ prompt: string; options?: { syncMessages?: boolean } }> = [];
+    const gate = createDeferred();
+    const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext() {},
+      async runTask() {
+        await gate.promise;
+        return "ok";
+      },
+      abortCurrentRun() {
+        return false;
+      },
+      updateSystemPrompt(prompt: string, options?: { syncMessages?: boolean }) {
+        updates.push({ prompt, options });
+      },
+      getContextSnapshot() {
+        return {
+          version: 2.3,
+          runtime: {
+            round: 1,
+            workspace: "/tmp/",
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: { core: [], working: [], ephemeral: [] },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {} });
+    service.start();
+    const { taskId } = service.submitTask({ input: "long running task" });
+    await waitUntil(() => service.getTask(taskId)?.task.status === TaskStatus.Running);
+
+    service.updateSystemPrompt("new prompt");
+    gate.resolve();
+    await waitUntil(() => service.getTask(taskId)?.task.status === TaskStatus.Success);
+    service.stop();
+
+    expect(updates).toEqual([{ prompt: "new prompt", options: { syncMessages: false } }]);
+  });
 });

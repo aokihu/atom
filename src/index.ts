@@ -15,14 +15,35 @@ import {
 } from "./libs/agent/providers/factory";
 import { parseCliOptions, type CliOptions } from "./libs/utils/cli";
 import { initMCPTools } from "./libs/mcp";
+import { createMCPHealthStatusProvider } from "./libs/mcp/health";
 import { AgentRuntimeService } from "./libs/runtime";
 import { HttpGatewayClient, startHttpGateway } from "./libs/channel";
 import { startTelegramClient, startTuiClient } from "./clients";
 import { cleanupInvalidBackgroundBashSessionsOnStartup } from "./libs/agent/tools/background_sessions";
 import { cleanupTodoDbOnStartup } from "./libs/agent/tools/todo_store";
 import { PersistentMemoryCoordinator } from "./libs/agent/memory";
+import { createAgentPromptWatcher, loadOrCompileSystemPrompt } from "./libs/agent/prompt_cache";
 
 const DEFAULT_AGENT_NAME = "Atom";
+const HELP_TEXT = `Usage: atom [options]
+
+Options:
+  --help, -h                    Show this help message
+  --version, -v                 Show version information
+  --workspace <path>            Workspace directory (default: .)
+  --config <path>               Path to agent config file
+  --mode <mode>                 Run mode:
+                                tui | server | tui-client | telegram | telegram-client
+                                (legacy alias: hybrid -> tui)
+  --http-host <host>            HTTP host (default: 127.0.0.1)
+  --http-port <port>            HTTP port (default: 8787)
+  --server-url <url>            Server URL (for tui-client/telegram-client)
+
+Examples:
+  bun run src/index.ts --workspace ./Playground
+  bun run src/index.ts --mode server --workspace ./Playground
+  bun run src/index.ts --mode tui-client --server-url http://127.0.0.1:8787
+`;
 
 const getAppVersion = (): string => {
   try {
@@ -34,6 +55,15 @@ const getAppVersion = (): string => {
   } catch {
     return "unknown";
   }
+};
+
+const printVersionInfo = (version: string) => {
+  const bunVersion = process.versions.bun ?? "unknown";
+  const nodeVersion = process.versions.node ?? "unknown";
+  console.log(`Atom v${version}`);
+  console.log(`bun ${bunVersion}`);
+  console.log(`node ${nodeVersion}`);
+  console.log(`${process.platform} ${process.arch}`);
 };
 
 const formatDuration = (startTime: number): string =>
@@ -54,8 +84,8 @@ const printStartupBanner = (
   console.log(`${agentName} v${version} (${mode})`);
 };
 
-const printTuiCommands = () => {
-  console.log("Commands: `/help`, `/messages`, `/context`, `/exit`");
+const printStartupReady = (startTime: number) => {
+  logStage(`ready (${formatDuration(startTime)})`);
 };
 
 const printTelegramConfigSummary = (
@@ -183,16 +213,32 @@ const initializeRuntimeService = async (
   logStage(`MCP ready (${mcpAvailableCount}/${mcpStatus.length})`);
 
   let persistentMemoryCoordinator: PersistentMemoryCoordinator | undefined;
+  let stopPromptWatcher: (() => Promise<void>) | undefined;
 
   try {
     const model = createLanguageModelFromAgentConfig(agentConfig);
+    const agentPromptFilePath = join(cliOptions.workspace, "AGENT.md");
 
-    logStage("compiling agent prompt...");
-    const { systemPrompt } = await bootstrap(model)({
-      userPromptFilePath: join(cliOptions.workspace, "AGENT.md"),
-      enableOptimization: true,
+    const compileSystemPrompt = async () => {
+      const { systemPrompt } = await bootstrap(model)({
+        userPromptFilePath: agentPromptFilePath,
+        enableOptimization: true,
+      });
+      return systemPrompt;
+    };
+
+    const promptLoadResult = await loadOrCompileSystemPrompt({
+      workspace: cliOptions.workspace,
+      compileSystemPrompt: async () => {
+        logStage("prompt cache miss, compiling...");
+        return await compileSystemPrompt();
+      },
     });
-    logStage("prompt compiled");
+    if (promptLoadResult.source === "cache") {
+      logStage("prompt cache hit");
+    } else {
+      logStage("prompt compiled and cached");
+    }
 
     logStage("creating agent...");
     const activePersistentMemoryCoordinator = PersistentMemoryCoordinator.initialize({
@@ -212,7 +258,7 @@ const initializeRuntimeService = async (
     }
 
     const taskAgent = new Agent({
-      systemPrompt,
+      systemPrompt: promptLoadResult.systemPrompt,
       model,
       modelParams: agentConfig.agent?.params,
       workspace: cliOptions.workspace,
@@ -230,13 +276,35 @@ const initializeRuntimeService = async (
       cliOptions.mode === "tui" ? { log: () => {} } : console,
     );
     runtimeService.start();
+    const getMcpStatus = createMCPHealthStatusProvider({
+      startupStatus: mcpStatus,
+    });
+
+    const promptWatcher = createAgentPromptWatcher({
+      workspace: cliOptions.workspace,
+      initialChecksum: promptLoadResult.checksum,
+      compileSystemPrompt,
+      onPromptCompiled: ({ systemPrompt }) => {
+        runtimeService.updateSystemPrompt(systemPrompt);
+      },
+      log: (message) => logStage(message),
+      warn: (message) => console.warn(`[startup] ${message}`),
+    });
+    promptWatcher.start();
+    stopPromptWatcher = async () => {
+      await promptWatcher.stop();
+    };
+    logStage("prompt watch enabled");
 
     return {
       runtimeService,
+      getMcpStatus,
+      disposePromptWatcher: stopPromptWatcher ?? (async () => {}),
       disposePersistentMemory: () => activePersistentMemoryCoordinator.dispose(),
       disposeMCP: mcp.dispose,
     };
   } catch (error) {
+    await stopPromptWatcher?.();
     await persistentMemoryCoordinator?.dispose();
     await mcp.dispose();
     throw error;
@@ -247,14 +315,22 @@ const main = async () => {
   const startupStartTime = performance.now();
   const version = getAppVersion();
   const startupCwd = process.cwd();
-  const cliOptions = parseCliOptions(process.argv.slice(2), startupCwd);
+  const argv = process.argv.slice(2);
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(HELP_TEXT);
+    return;
+  }
+  if (argv.includes("--version") || argv.includes("-v")) {
+    printVersionInfo(version);
+    return;
+  }
+  const cliOptions = parseCliOptions(argv, startupCwd);
 
   if (cliOptions.mode === "tui-client") {
     printStartupBanner(DEFAULT_AGENT_NAME, version, cliOptions.mode);
     const serverUrl = buildServerUrl(cliOptions);
     console.log(`[tui] server = ${serverUrl}`);
-    printTuiCommands();
-    logStage(`ready in ${formatDuration(startupStartTime)}`);
+    printStartupReady(startupStartTime);
     await startTuiClient({
       client: new HttpGatewayClient(serverUrl),
       serverUrl,
@@ -278,7 +354,7 @@ const main = async () => {
     const telegramConfig = resolveRequiredTelegramConfig(agentConfig);
     printTelegramConfigSummary(telegramConfig);
     console.log(`[telegram] server = ${serverUrl}`);
-    logStage(`ready in ${formatDuration(startupStartTime)}`);
+    printStartupReady(startupStartTime);
     await startTelegramClient({
       client: new HttpGatewayClient(serverUrl),
       config: telegramConfig,
@@ -327,7 +403,8 @@ const main = async () => {
   printStartupBanner(agentName, version, cliOptions.mode);
   printModelSelection(agentConfig);
 
-  const { runtimeService, disposeMCP, disposePersistentMemory } = await initializeRuntimeService(
+  const { runtimeService, getMcpStatus, disposeMCP, disposePersistentMemory, disposePromptWatcher } =
+    await initializeRuntimeService(
     cliOptions,
     agentConfig,
   );
@@ -338,6 +415,7 @@ const main = async () => {
     appName: agentName,
     version,
     startupAt: runtimeService.startupAt,
+    getMcpStatus,
   });
 
   console.log(`[http] listening on ${gateway.baseUrl}`);
@@ -345,11 +423,12 @@ const main = async () => {
   const shutdown = createShutdownController(async () => {
     gateway.stop();
     runtimeService.stop();
+    await disposePromptWatcher();
     await disposePersistentMemory();
     await disposeMCP();
   });
 
-  logStage(`ready in ${formatDuration(startupStartTime)}`);
+  printStartupReady(startupStartTime);
 
   if (cliOptions.mode === "server") {
     await shutdown.wait;
@@ -358,7 +437,6 @@ const main = async () => {
   }
 
   if (cliOptions.mode === "tui") {
-    printTuiCommands();
     try {
       await startTuiClient({
         client: new HttpGatewayClient(gateway.baseUrl),

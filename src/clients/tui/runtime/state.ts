@@ -83,6 +83,8 @@ export class TuiClientState {
   busySpinnerIndex = 0;
   busyAnimationTick = 0;
   statusNotice = "Ready";
+  mcpConnected = 0;
+  mcpTotal = 0;
   contextModalOpen = false;
   contextModalText = "";
   contextModalTitle = "Context";

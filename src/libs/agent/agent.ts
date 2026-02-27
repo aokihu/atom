@@ -111,6 +111,10 @@ export class Agent {
     this.session.finishTaskContext(task, options);
   }
 
+  updateSystemPrompt(prompt: string, options?: { syncMessages?: boolean }) {
+    return this.session.updateSystemPrompt(prompt, options);
+  }
+
   displayMessages() {
     console.log(
       inspect(this.getMessagesSnapshot(), {

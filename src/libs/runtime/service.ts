@@ -248,6 +248,11 @@ export class AgentRuntimeService implements RuntimeGateway {
     this.taskQueue.stop();
   }
 
+  updateSystemPrompt(prompt: string) {
+    const hasRunningTask = this.taskQueue.getCurrentTask() !== null;
+    this.getAgent().updateSystemPrompt(prompt, { syncMessages: !hasRunningTask });
+  }
+
   submitTask(request: CreateTaskRequest): CreateTaskResponse {
     const task = createTask<string, string>(request.type ?? "http.input", request.input, {
       priority: request.priority ?? 2,

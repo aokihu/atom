@@ -124,7 +124,7 @@ const normalizeRuntimeTokenUsageFromSDK = (
 
 export class AgentSession {
   private readonly workspace: string;
-  private readonly baseSystemPrompt: string;
+  private baseSystemPrompt: string;
   private readonly contextState: AgentContextState;
   private rawContext = "";
   private messages: ModelMessage[];
@@ -145,6 +145,20 @@ export class AgentSession {
       clock: args.contextClock,
     });
     this.messages = [{ role: "system", content: this.baseSystemPrompt }];
+  }
+
+  updateSystemPrompt(nextPrompt: string, options?: { syncMessages?: boolean }): boolean {
+    const normalized = nextPrompt.trim();
+    if (normalized.length === 0) {
+      return false;
+    }
+
+    this.baseSystemPrompt = normalized;
+    if (options?.syncMessages) {
+      this.syncBaseSystemPromptMessage();
+    }
+
+    return true;
   }
 
   mergeExtractedContext(context: Partial<AgentContext>) {
@@ -373,6 +387,39 @@ export class AgentSession {
 
   private resetTaskConversationMessages() {
     this.messages = [{ role: "system", content: this.baseSystemPrompt }];
+  }
+
+  private syncBaseSystemPromptMessage() {
+    const existingIndex = this.messages.findIndex(
+      (message) =>
+        message.role === "system" &&
+        typeof message.content === "string" &&
+        !message.content.startsWith(CONTEXT_TAG_START),
+    );
+
+    if (existingIndex >= 0) {
+      this.messages[existingIndex] = {
+        role: "system",
+        content: this.baseSystemPrompt,
+      };
+      return;
+    }
+
+    const firstMessage = this.messages[0];
+    if (
+      firstMessage?.role === "system" &&
+      typeof firstMessage.content === "string" &&
+      firstMessage.content.startsWith(CONTEXT_TAG_START)
+    ) {
+      this.messages = [
+        firstMessage,
+        { role: "system", content: this.baseSystemPrompt },
+        ...this.messages.slice(1),
+      ];
+      return;
+    }
+
+    this.messages = [{ role: "system", content: this.baseSystemPrompt }, ...this.messages];
   }
 
   prepareUserTurn(question: string) {

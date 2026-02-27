@@ -41,8 +41,13 @@ export class HttpGatewayClient implements GatewayClient {
     this.baseUrl = normalizeBaseUrl(baseUrl);
   }
 
-  async getHealth(): Promise<HealthzResponse> {
-    return await this.request<HealthzResponse>("/healthz", { method: "GET" });
+  async getHealth(options?: { probeMcpHttp?: boolean }): Promise<HealthzResponse> {
+    const query = new URLSearchParams();
+    if (options?.probeMcpHttp) {
+      query.set("probeMcpHttp", "1");
+    }
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    return await this.request<HealthzResponse>(`/healthz${suffix}`, { method: "GET" });
   }
 
   async createTask(request: CreateTaskRequest): Promise<CreateTaskResponse> {

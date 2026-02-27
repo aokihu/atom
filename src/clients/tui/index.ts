@@ -11,7 +11,7 @@ import { BoxRenderable, createCliRenderer } from "@opentui/core";
 import type { CliRenderer, KeyEvent } from "@opentui/core";
 
 import type { GatewayClient } from "../../libs/channel/channel";
-import type { TaskOutputMessage } from "../../types/http";
+import type { MCPHealthStatus, TaskOutputMessage } from "../../types/http";
 import { TaskStatus, isTaskExecutionStopReason } from "../../types/task";
 import { resolveSlashCommandAction } from "./controllers/commands";
 import { executeContextCommand } from "./controllers/context_command";
@@ -88,6 +88,27 @@ const formatJson = (value: unknown): string => {
   } catch (error) {
     return `Failed to format JSON: ${formatErrorMessage(error)}`;
   }
+};
+
+const formatMcpStatusModalBody = (mcp: MCPHealthStatus): string => {
+  if (mcp.total <= 0) {
+    return "No MCP servers configured.";
+  }
+
+  const lines = [
+    `Connected: ${mcp.connected}/${mcp.total}`,
+    "",
+    ...mcp.servers.map((server) => {
+      const transport = `[${server.transport}]`;
+      if (server.connected) {
+        return `- ${server.id}  ${transport}  connected`;
+      }
+      const reason = server.message?.trim() || "connection failed";
+      return `- ${server.id}  ${transport}  failed: ${reason}`;
+    }),
+  ];
+
+  return lines.join("\n");
 };
 
 class CoreTuiClientApp {
@@ -182,6 +203,9 @@ class CoreTuiClientApp {
       },
       onSlashSelect: () => {
         this.applySelectedSlashCommand();
+      },
+      onMcpTagClick: () => {
+        void this.openMcpStatusModal();
       },
     });
     this.appRoot = this.ui.appRoot;
@@ -327,6 +351,8 @@ class CoreTuiClientApp {
       activeTaskId: this.state.activeTaskId,
       serverUrl: this.serverUrl,
       statusNotice: this.state.statusNotice,
+      mcpConnected: this.state.mcpConnected,
+      mcpTotal: this.state.mcpTotal,
     };
     this.ui.status.syncFromAppState(input);
   }
@@ -766,6 +792,10 @@ class CoreTuiClientApp {
       const health = await this.withConnectionTracking(() => this.client.getHealth());
       if (!this.destroyed) {
         this.state.serverVersion = health.version?.trim() || this.state.serverVersion;
+        if (health.mcp) {
+          this.state.mcpConnected = health.mcp.connected;
+          this.state.mcpTotal = health.mcp.total;
+        }
       }
       const remoteAgentName = health.name?.trim();
       if (!remoteAgentName || this.destroyed) return;
@@ -774,6 +804,30 @@ class CoreTuiClientApp {
       this.refreshAll();
     } catch {
       // startup should stay non-blocking
+    }
+  }
+
+  private async openMcpStatusModal(): Promise<void> {
+    if (this.destroyed) return;
+
+    try {
+      this.setStatusNotice("Loading MCP status...");
+      const health = await this.withConnectionTracking(() => this.client.getHealth({ probeMcpHttp: true }));
+      const mcp = health.mcp ?? {
+        connected: 0,
+        total: 0,
+        servers: [],
+      } satisfies MCPHealthStatus;
+      this.state.mcpConnected = mcp.connected;
+      this.state.mcpTotal = mcp.total;
+      this.openContextModal("MCP Tools", formatMcpStatusModalBody(mcp));
+      this.setStatusNotice(`MCP status loaded (${mcp.connected}/${mcp.total})`);
+      this.refreshAll();
+    } catch (error) {
+      const message = formatErrorMessage(error);
+      this.appendLog("error", `MCP status failed: ${message}`);
+      this.setStatusNotice(`MCP status failed: ${message}`);
+      this.refreshAll();
     }
   }
 

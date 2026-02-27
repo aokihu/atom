@@ -5,6 +5,7 @@ import type {
   ApiSuccessResponse,
   CreateTaskRequest,
   HealthzResponse,
+  MCPHealthStatus,
 } from "../../types/http";
 
 type StartHttpGatewayOptions = {
@@ -14,6 +15,7 @@ type StartHttpGatewayOptions = {
   appName: string;
   version: string;
   startupAt: number;
+  getMcpStatus?: (options?: { probeHttp?: boolean }) => Promise<MCPHealthStatus> | MCPHealthStatus;
 };
 
 export type HttpGatewayServer = {
@@ -139,7 +141,7 @@ const toInternalErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayServer => {
-  const { runtime, host, port, appName, version, startupAt } = options;
+  const { runtime, host, port, appName, version, startupAt, getMcpStatus } = options;
 
   const server = Bun.serve({
     hostname: host,
@@ -153,6 +155,7 @@ export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayS
           if (request.method !== "GET") {
             return methodNotAllowed(["GET"]);
           }
+          const probeHttp = url.searchParams.get("probeMcpHttp") === "1";
 
           const health: HealthzResponse = {
             name: appName,
@@ -160,6 +163,9 @@ export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayS
             startupAt,
             queue: await runtime.getQueueStats(),
           };
+          if (getMcpStatus) {
+            health.mcp = await getMcpStatus({ probeHttp });
+          }
 
           return ok(health);
         }

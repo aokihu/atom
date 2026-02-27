@@ -766,4 +766,47 @@ describe("AgentSession", () => {
     expect(decoded.last_task).toBeUndefined();
     expect(decoded.task_checkpoint).toBeUndefined();
   });
+
+  test("updateSystemPrompt syncs current base system message when syncMessages=true", () => {
+    const session = new AgentSession({
+      workspace: "/tmp/workspace",
+      systemPrompt: "system prompt",
+      contextClock: createClock(),
+    });
+    session.prepareUserTurn("hello");
+
+    const changed = session.updateSystemPrompt("new system prompt", { syncMessages: true });
+
+    const messages = session.getMessagesSnapshot();
+    expect(changed).toBe(true);
+    expect(messages[1]?.role).toBe("system");
+    expect(messages[1]?.content).toBe("new system prompt");
+  });
+
+  test("updateSystemPrompt affects next task and does not mutate current messages when syncMessages=false", () => {
+    const session = new AgentSession({
+      workspace: "/tmp/workspace",
+      systemPrompt: "system prompt",
+      contextClock: createClock(),
+    });
+    session.prepareUserTurn("hello");
+    const before = session.getMessagesSnapshot();
+
+    const changed = session.updateSystemPrompt("new system prompt", { syncMessages: false });
+    const after = session.getMessagesSnapshot();
+    expect(changed).toBe(true);
+    expect(after[1]?.content).toBe(before[1]?.content);
+
+    session.beginTaskContext({
+      id: "task-1",
+      type: "http.input",
+      input: "new task",
+      retries: 0,
+      startedAt: 1700000001000,
+    });
+    session.prepareUserTurn("run");
+
+    const nextTaskMessages = session.getMessagesSnapshot();
+    expect(nextTaskMessages[1]?.content).toBe("new system prompt");
+  });
 });

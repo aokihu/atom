@@ -61,6 +61,7 @@ export const createTuiClientUiBundle = (
     textareaKeyBindings: any[];
     onInputSubmit: () => void;
     onSlashSelect: () => void;
+    onMcpTagClick: () => void;
   },
 ): TuiClientUiBundle => {
   const C = args.theme.colors;
@@ -83,6 +84,7 @@ export const createTuiClientUiBundle = (
   const status = createStatusStripViewController({
     ctx: renderer,
     theme: args.theme,
+    onMcpTagClick: args.onMcpTagClick,
   });
   const input = createInputPaneViewController({
     ctx: renderer,

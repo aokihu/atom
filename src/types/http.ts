@@ -171,11 +171,27 @@ export type QueueStats = {
   size: number;
 };
 
+export type MCPServerHealthStatus = {
+  id: string;
+  transport: "stdio" | "http";
+  connected: boolean;
+  target?: string;
+  message?: string;
+  testedAt: number;
+};
+
+export type MCPHealthStatus = {
+  connected: number;
+  total: number;
+  servers: MCPServerHealthStatus[];
+};
+
 export type HealthzResponse = {
   name: string;
   version: string;
   startupAt: number;
   queue: QueueStats;
+  mcp?: MCPHealthStatus;
 };
 
 export type AgentContextResponse = {
