@@ -2,7 +2,8 @@ import { sleep } from "bun";
 
 import type { GatewayClient } from "../../libs/channel/channel";
 import type { CompletedTaskSummary } from "../shared/flows/task_flow";
-import { isTaskStillRunning, summarizeCompletedTask } from "../shared/flows/task_flow";
+import { executePolledTask } from "../shared/flows/task_polling";
+import { summarizeCompletedTask } from "../shared/flows/task_flow";
 import type { TelegramUpdate } from "./bot_api";
 
 export type ExecuteTelegramTaskFlowOptions = {
@@ -16,26 +17,14 @@ export const executeTelegramTaskFlow = async (
   options: ExecuteTelegramTaskFlowOptions,
 ): Promise<CompletedTaskSummary> => {
   const sleepFn = options.sleepFn ?? sleep;
-  const created = await options.client.createTask({
-    type: "telegram.input",
-    input: options.input,
+  const result = await executePolledTask({
+    client: options.client,
+    taskType: "telegram.input",
+    taskInput: options.input,
+    pollIntervalMs: options.pollIntervalMs,
+    sleepFn,
   });
-
-  let afterSeq = 0;
-  for (;;) {
-    const status = await options.client.getTask(created.taskId, { afterSeq });
-    const delta = status.messages;
-    if (delta) {
-      afterSeq = delta.latestSeq;
-    }
-
-    if (isTaskStillRunning(status.task.status)) {
-      await sleepFn(options.pollIntervalMs);
-      continue;
-    }
-
-    return summarizeCompletedTask(status.task);
-  }
+  return summarizeCompletedTask(result.task);
 };
 
 export type TelegramUpdateDispatcherOptions = {

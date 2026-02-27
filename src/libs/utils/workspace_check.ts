@@ -12,7 +12,8 @@
  */
 
 import { resolve } from "node:path";
-import { copyFile, mkdir, exists } from "node:fs/promises";
+import { constants } from "node:fs";
+import { copyFile, mkdir } from "node:fs/promises";
 
 /* 内置模版文件 */
 import AgentMdFile from "../../templates/AGENT.md" with { type: "file" };
@@ -23,43 +24,31 @@ import AgentConfigJsonFile from "../../templates/agent.config.json" with { type:
  * @param workspace 当前工作的目录
  */
 export const workspace_check = async (workspace: string) => {
-  await checkAgentFile(workspace);
-  await checkAgentConfigJsonFile(workspace);
-  await checkMemoryFolder(workspace);
-  await checkSecretsFolder(workspace);
-};
-
-const checkAgentFile = async (workspace: string) => {
   const agentFilePath = resolve(workspace, "AGENT.md");
-  const agentFileExists = await Bun.file(agentFilePath).exists();
-  if (!agentFileExists) {
-    await copyFile(AgentMdFile, agentFilePath);
-  }
-};
-
-const checkAgentConfigJsonFile = async (workspace: string) => {
   const agentConfigJsonFilePath = resolve(workspace, "agent.config.json");
-  const agentConfigJsonFileExists = await Bun.file(
-    agentConfigJsonFilePath,
-  ).exists();
-  if (!agentConfigJsonFileExists) {
-    // @ts-ignore
-    await copyFile(AgentConfigJsonFile, agentConfigJsonFilePath);
-  }
-};
-
-const checkMemoryFolder = async (workspace: string) => {
   const memoryFolderPath = resolve(workspace, "memory");
-  const memoryFolderExists = await exists(memoryFolderPath);
-  if (!memoryFolderExists) {
-    await mkdir(memoryFolderPath);
+  const secretsFolderPath = resolve(workspace, "secrets");
+
+  await Promise.all([
+    ensureTemplateFile(AgentMdFile, agentFilePath),
+    ensureTemplateFile(AgentConfigJsonFile as unknown as string, agentConfigJsonFilePath),
+    mkdir(memoryFolderPath, { recursive: true }),
+    mkdir(secretsFolderPath, { recursive: true }),
+  ]);
+};
+
+const ensureTemplateFile = async (sourcePath: string, targetPath: string) => {
+  try {
+    await copyFile(sourcePath, targetPath, constants.COPYFILE_EXCL);
+  } catch (error) {
+    if (!isEexistError(error)) {
+      throw error;
+    }
   }
 };
 
-const checkSecretsFolder = async (workspace: string) => {
-  const secretsFolderPath = resolve(workspace, "secrets");
-  const secretsFolderExists = await exists(secretsFolderPath);
-  if (!secretsFolderExists) {
-    await mkdir(secretsFolderPath);
-  }
-};
+const isEexistError = (error: unknown): error is NodeJS.ErrnoException =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  (error as NodeJS.ErrnoException).code === "EEXIST";

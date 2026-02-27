@@ -7,8 +7,9 @@
  */
 
 import type { GatewayClient } from "../../../libs/channel/channel";
-import type { TaskOutputMessage, TaskStatusResponse } from "../../../types/http";
-import { summarizeCompletedTask, isTaskStillRunning, type CompletedTaskSummary } from "./task_flow";
+import type { TaskOutputMessage } from "../../../types/http";
+import { executePolledTask } from "../../shared/flows/task_polling";
+import { summarizeCompletedTask, type CompletedTaskSummary } from "./task_flow";
 
 type WithConnectionTracking = <T>(operation: () => Promise<T>) => Promise<T>;
 
@@ -47,42 +48,22 @@ export const executePromptTaskFlow = async (input: ExecutePromptTaskFlowInput): 
   callbacks.onBeforeSubmit();
 
   try {
-    const created = await withConnectionTracking(() =>
-      client.createTask({
-        type: "tui.input",
-        input: question,
-      }),
-    );
+    const result = await executePolledTask({
+      client,
+      taskType: "tui.input",
+      taskInput: question,
+      pollIntervalMs,
+      sleepFn,
+      runClientOperation: withConnectionTracking,
+      shouldStop: isDestroyed,
+      onTaskCreated: callbacks.onTaskCreated,
+      onTaskMessages: callbacks.onTaskMessages,
+    });
 
-    if (isDestroyed()) return;
+    if (result.stopped) return;
 
-    callbacks.onTaskCreated(created.taskId);
-    let afterSeq = 0;
-
-    while (!isDestroyed()) {
-      const status: TaskStatusResponse = await withConnectionTracking(() =>
-        client.getTask(created.taskId, { afterSeq }),
-      );
-      const task = status.task;
-      const delta = status.messages;
-
-      if (delta) {
-        afterSeq = delta.latestSeq;
-
-        if (delta.items.length > 0) {
-          callbacks.onTaskMessages?.(created.taskId, delta.items);
-        }
-      }
-
-      if (isTaskStillRunning(task.status)) {
-        await sleepFn(pollIntervalMs);
-        continue;
-      }
-
-      const summary = summarizeCompletedTask(task);
-      callbacks.onTaskCompleted(created.taskId, summary);
-      break;
-    }
+    const summary = summarizeCompletedTask(result.task);
+    callbacks.onTaskCompleted(result.taskId, summary);
   } catch (error) {
     callbacks.onRequestError(formatErrorMessage(error));
   } finally {

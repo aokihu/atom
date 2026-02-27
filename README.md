@@ -1,136 +1,75 @@
 # atom
 
-## What's New (v0.6.0)
+Atom 是一个基于 Bun 的 Agent Runtime，支持本地 TUI 与 Telegram 客户端，并通过统一 HTTP Gateway 与运行时通信。
 
-- AI 供应商配置迁移到 `agent.config.json`：不再使用 `.env` 的 `AI_PROVIDER / AI_MODEL / AI_API_KEY`。
-- `agent.config.json` 新增 `providers` 数组，支持多供应商配置与切换（当前已内置 `deepseek`、`openrouter` 及多种 OpenAI-compatible 供应商别名）。
-- 顶层 `agentName` 升级为 `agent: { name, model, params }`，其中 `agent.params` 支持 `temperature`、`topP`、`maxOutputTokens` 等常用推理参数。
-- 启动日志新增模型信息展示：显示当前 `provider`、`model`，OpenAI-compatible 模型额外显示 `base_url`。
-- TUI 任务失败时会在聊天区显示错误信息，避免界面看起来“没有 assistant 输出”。
-- `temperature` 配置增加基础校验范围（`0 <= temperature <= 2`）。
-- 重构 OpenTUI 客户端代码：按 `runtime / views / controllers / flows / layout / state / theme / utils` 分层，便于维护和扩展。
-- 保持输入输出解耦：默认 `tui` 模式仍然是「本地 TUI + 同进程 HTTP 服务端」组合，通过 HTTP 通讯。
-- 新增内置工具权限配置项：`cp` / `mv` / `git`（可在 `agent.config.json` 中独立配置 `allow` / `deny`）。
-- `agent.name` 配置生效范围扩展：影响 TUI 展示与 `/healthz` 返回的 `name` 字段。
-- `agent.config.json` 顶层权限配置字段由 `tools` 更名为 `permissions`。
+## 项目现状（2026-02-27）
 
-## Documentation
+- 当前版本：`0.10.15`
+- 代码健康：`bun run typecheck` 通过
+- 测试状态：`bun run test` 通过（`252` 项）
+- 启动验证：使用 `Playground` 工作区，`server` 模式可正常返回 `/healthz`
 
-- 架构与模块边界：[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
+## 快速开始
 
-To install dependencies:
+### 1) 安装依赖
 
 ```bash
 bun install
 ```
 
-To run:
+### 2) 使用 Playground 作为模拟工作区启动
 
 ```bash
 bun run src/index.ts --workspace=./Playground
 ```
 
-默认是 `tui` 模式：同进程启动 HTTP 服务端，并启动本地 OpenTUI TUI 客户端通过 HTTP 通讯（兼容旧名 `hybrid`）。
+默认模式为 `tui`：同进程启动 HTTP 服务端与本地 OpenTUI 客户端。
 
-## 0.6.0 Upgrade Notes
+### 3) 常用命令
 
-- 配置迁移（Breaking）：AI 配置从 `.env` 迁移到 `agent.config.json`。
-- 配置迁移（Breaking）：顶层 `agentName` 已废弃，改为 `agent.name`。
-- 配置迁移（Breaking）：模型引用改为 `agent.model = "{provider_id}/{model}"`，并通过 `providers[]` 提供对应 `api_key` / `base_url` 等信息。
-- 启动时会打印 `[model] ...` 和（若存在）`[model.params] ...` 以便确认实际生效配置。
-- 若 TUI 对话区没有 assistant 文本，请查看聊天区新增的 `Task failed: ...` 系统消息（现在会显示运行错误详情）。
+```bash
+# 开发启动（等价于 --workspace=./Playground）
+bun run dev
 
-## 0.2.0 Breaking Changes
+# 类型检查
+bun run typecheck
 
-- `--mode repl` 已移除；当前使用 `--mode tui`（组合模式）、`--mode tui-client`（仅 TUI 客户端）、`--mode telegram`（Telegram 组合模式）或 `--mode telegram-client`（仅 Telegram 客户端）
-- 本地客户端命令改为 slash 命令：`/help`、`/messages`、`/context`、`/exit`
-- 裸命令 `messages` / `context` / `exit` 不再保留兼容
-
-## Project Structure
-
-```text
-src/
-  index.ts                # 启动入口与模式编排
-  clients/                # 客户端实现（OpenTUI TUI / Telegram）
-  libs/
-    agent/                # Agent 核心与工具
-    channel/              # 通道契约与 HTTP 网关/客户端
-    runtime/              # 任务运行时与队列
-    mcp/                  # MCP 初始化
-    utils/                # CLI/日期/workspace 等工具
-  prompts/                # Prompt 模板
-  templates/              # 工作区模板
-  types/                  # 共享类型定义
-docs/
-  ARCHITECTURE.md         # 架构设计与扩展约定
+# 测试
+bun run test
 ```
 
-结构约定：
+## 运行模式
 
-- `clients` 只通过 `libs/channel` 通信，不直接操作 `Agent` 或队列。
-- `libs/runtime` 负责任务编排，不负责 UI/交互。
-- `src/index.ts` 作为 composition root，只负责装配模块和启动模式。
-
-### Startup arguments
-
-- `--workspace <path>` / `--workspace=<path>`
-  - 工作目录，默认是启动时的当前目录（`process.cwd()`）。
-  - 启动时会从 `<workspace>/AGENT.md` 加载提示词。
-- `--config <path>` / `--config=<path>`
-  - 指定配置文件路径，可选。
-  - 未传时默认读取 `<workspace>/agent.config.json`。
-- `--mode <tui|server|tui-client|telegram|telegram-client>`
-  - `tui`（默认，旧名 `hybrid`）：启动 HTTP 服务端 + 本地 OpenTUI TUI 客户端（HTTP 通讯）。
-  - `server`：仅启动 HTTP 服务端。
-  - `tui-client`：仅启动 OpenTUI TUI 客户端，通过 HTTP 连接到服务端。
-  - `telegram`：启动 HTTP 服务端 + Telegram 机器人客户端（轮询模式）。
-  - `telegram-client`：仅启动 Telegram 机器人客户端，通过 HTTP 连接到服务端。
-- `--http-host <host>`
-  - HTTP 服务监听地址，默认 `127.0.0.1`（仅本机访问）。
-- `--http-port <port>`
-  - HTTP 服务监听端口，默认 `8787`。
-- `--server-url <url>`
-  - `tui-client` / `telegram-client` 模式连接的服务端地址（优先级高于 `--http-host/--http-port`）。
+- `tui`：默认模式，HTTP 服务端 + 本地 TUI 客户端
+- `server`：仅服务端
+- `tui-client`：仅 TUI 客户端（连接已有服务）
+- `telegram`：服务端 + Telegram 客户端
+- `telegram-client`：仅 Telegram 客户端（连接已有服务）
+- `hybrid`：历史别名，等价于 `tui`（已弃用）
 
 示例：
 
 ```bash
-# 默认 tui 模式（推荐，兼容旧参数名 hybrid）
-bun run src/index.ts --workspace ./Playground
-
-# 仅启动 HTTP 服务端
+# server-only
 bun run src/index.ts --mode server --workspace ./Playground --http-port 8787
 
-# 仅启动 OpenTUI TUI 客户端（连接到已运行服务）
+# TUI client-only
 bun run src/index.ts --mode tui-client --server-url http://127.0.0.1:8787
 
-# Telegram 组合模式（本地启动服务端 + Telegram 机器人）
+# Telegram 组合模式
 bun run src/index.ts --mode telegram --workspace ./Playground
-
-# 仅启动 Telegram 客户端（连接到已运行服务）
-bun run src/index.ts --mode telegram-client --server-url http://127.0.0.1:8787
-
-# 指定配置文件
-bun run src/index.ts --workspace ./Playground --config ./agent.config.json
 ```
 
-### TUI Commands
+## CLI 参数
 
-- `/help`
-- `/messages`
-- `/context`
-- `/exit`
+- `--workspace <path>`：工作区目录（默认 `process.cwd()`）
+- `--config <path>`：配置文件路径（默认 `<workspace>/agent.config.json`）
+- `--mode <tui|server|tui-client|telegram|telegram-client>`
+- `--http-host <host>`：服务监听地址（默认 `127.0.0.1`）
+- `--http-port <port>`：服务监听端口（默认 `8787`）
+- `--server-url <url>`：client-only 模式连接地址（优先于 `--http-host/--http-port`）
 
-说明（当前 `0.5.0` TUI 行为）：
-
-- `/context`：打开上下文弹窗（context modal）。
-- `/exit`：退出 TUI。
-- `/help`、`/messages`：在当前会话布局中已隐藏（输入后会提示 hidden，不再弹出旧面板）。
-- `Tab`：在输入区与回答区之间切换焦点（忙碌状态下会优先聚焦回答区）。
-
-### HTTP API (v1)
-
-当前输入输出已解耦，OpenTUI TUI 客户端通过 HTTP 与服务端通讯（轮询模式，非流式）。
+## HTTP API（v1）
 
 - `GET /healthz`
 - `POST /v1/tasks`
@@ -138,182 +77,79 @@ bun run src/index.ts --workspace ./Playground --config ./agent.config.json
 - `GET /v1/agent/context`
 - `GET /v1/agent/messages`
 
-#### 提交任务并轮询
-
-```bash
-# 1) 创建任务
-curl -s -X POST http://127.0.0.1:8787/v1/tasks \
-  -H 'content-type: application/json' \
-  -d '{"input":"你好","type":"curl.input"}'
-
-# 2) 查询任务状态（将 <taskId> 替换为上一步返回值）
-curl -s http://127.0.0.1:8787/v1/tasks/<taskId>
-```
-
-#### 返回格式
+响应结构统一：
 
 - 成功：`{"ok": true, "data": ...}`
 - 失败：`{"ok": false, "error": {"code": "...", "message": "..."}}`
 
-`GET /healthz` 补充：
+## 内置工具与权限
 
-- 返回 `name`（Agent 显示名）、`version`、`startupAt` 和 `queue`（运行时队列统计）。
+当前内置工具：
 
-## Tool permission config
+- `ls` `read` `tree` `ripgrep` `write`
+- `todo_list` `todo_add` `todo_update` `todo_complete` `todo_reopen` `todo_remove` `todo_clear_done`
+- `cp` `mv` `git` `bash` `background` `webfetch`
 
-Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/agent.config.json`），用于配置 Agent 显示信息、AI 供应商以及内置工具权限。`agent.name` 会影响 TUI 和 `/healthz.name`。AI 配置已从 `.env` 的 `AI_PROVIDER / AI_MODEL / AI_API_KEY` 迁移到 `agent.config.json` 的 `agent` 与 `providers` 字段。
+`agent.config.json` 的 `permissions` 段可对工具设置 `allow` / `deny` 正则规则，且 `deny` 优先级高于 `allow`。
 
-### AI provider 配置
+## 配置说明（agent.config.json）
 
-- `agent.model` 使用 `"{provider_id}/{model}"` 格式，例如 `deepseek/deepseek-chat`。
-- `agent.params` 可配置常用推理参数（如 `temperature`、`topP`、`topK`、`maxOutputTokens`、`presencePenalty`、`frequencyPenalty`、`stopSequences`、`seed`）。
-  - 当前内置校验：`temperature` 范围为 `0 ~ 2`，`topP` 范围为 `(0, 1]`。
-- `providers` 为供应商数组，配置结构按多供应商扩展设计。
-- 当前运行时支持的 `provider_id`：
-  - 原生：`deepseek`、`openrouter`
-  - OpenAI-compatible（内置默认 `base_url`）：`openai`、`siliconflow`、`moonshot`、`dashscope`、`groq`、`together`、`xai`、`ollama`
-  - 通用：`openai-compatible`（需要显式配置 `providers[].base_url`）
-- `providers[].api_key` 为明文配置，请避免提交真实密钥到仓库。
+关键字段：
 
-### Telegram 配置
+- `agent.name`：Agent 名称（影响 TUI 展示与 `/healthz.name`）
+- `agent.model`：格式 `"<provider_id>/<model>"`
+- `agent.params`：模型推理参数（如 `temperature`、`topP`、`maxOutputTokens`）
+- `agent.execution`：运行预算（如 `maxToolCallsPerTask`、`maxModelStepsPerTask`）
+- `providers[]`：模型供应商配置（`provider_id`、`model`、`api_key`、可选 `base_url`/`headers`）
+- `mcp.servers[]`：MCP 服务（`http` 或 `stdio`）
+- `telegram`：Telegram Bot 配置（仅 telegram 模式需要）
 
-- 在 `agent.config.json` 中新增 `telegram` 段用于机器人通道：
-  - `allowedChatId`：允许访问的唯一 chat_id（白名单）。
-  - `botToken`：Bot Token（可被环境变量 `TELEGRAM_BOT_TOKEN` 覆盖）。
-  - `transport.type`：`polling`（可用）或 `webhook`（仅占位，当前未实现）。
-  - `message.parseMode`：`MarkdownV2`（默认）或 `plain`。
-  - `message.chunkSize`：单条消息分片长度（默认 `3500`）。
-- 当前 webhook 仅完成配置与接口预留；若设置 `transport.type=webhook`，启动会直接报错提示使用 polling。
+支持的 `provider_id`：
 
-常用模型示例（以供应商控制台最新可用列表为准）：
+- 原生：`deepseek`、`openrouter`
+- OpenAI-compatible：`volcengine`、`openai`、`siliconflow`、`moonshot`、`dashscope`、`groq`、`together`、`xai`、`ollama`、`openai-compatible`
 
-- `deepseek/deepseek-chat`
-- `deepseek/deepseek-reasoner`
-- `openrouter/openai/gpt-4o-mini`
-- `openrouter/anthropic/claude-3.7-sonnet`
-- `openai/gpt-4o-mini`
-- `openai/gpt-4.1-mini`
-- `siliconflow/Qwen/Qwen2.5-72B-Instruct`
-- `siliconflow/deepseek-ai/DeepSeek-V3`
-- `moonshot/moonshot-v1-8k`
-- `dashscope/qwen-plus`
-- `groq/llama-3.1-70b-versatile`
-- `ollama/qwen2.5:7b`
+## TUI 命令
 
-### 规则说明
+- `/help`
+- `/messages`
+- `/context`
+- `/exit`
 
-- 每个工具支持 `allow` / `deny` 两组正则。
-- 新增内置工具 `cp` / `mv` / `git` / `bash` 支持独立权限配置。
-- `deny` 优先级高于 `allow`。
-- 如果未配置 `allow`，默认允许（仅受 `deny` 限制）。
-- 如果配置了 `allow`，则必须命中其中至少一条才允许。
-- 支持两个路径变量：`{workspace}`（当前工作目录）与 `{root}`（系统根目录），会在加载配置时自动展开为正则安全的绝对路径文本。
+## 目录结构
 
-### 配置示例
-
-```json
-{
-  "agent": {
-    "name": "MyAgent",
-    "model": "deepseek/deepseek-chat",
-    "params": {
-      "temperature": 0.2,
-      "maxOutputTokens": 4096
-    }
-  },
-  "providers": [
-    {
-      "provider_id": "deepseek",
-      "model": "deepseek-chat",
-      "api_key": "YOUR_DEEPSEEK_API_KEY",
-      "enabled": true
-    }
-  ],
-  "permissions": {
-    "read": {
-      "allow": ["^{workspace}/src/.*", "^{workspace}/.*\\.md$"],
-      "deny": ["^{workspace}/.*/secret.*"]
-    },
-    "ls": {
-      "allow": ["^{workspace}/.*"],
-      "deny": ["^{workspace}/.*/secret.*"]
-    },
-    "tree": {
-      "allow": ["^{workspace}/.*"],
-      "deny": ["^{workspace}/.*/secret.*"]
-    },
-    "ripgrep": {
-      "allow": ["^{workspace}/src/.*", "^{workspace}/.*\\.md$"],
-      "deny": ["^{workspace}/.*/secret.*"]
-    },
-    "write": {
-      "allow": ["^{workspace}/Playground/.*"],
-      "deny": ["^{workspace}/src/.*"]
-    },
-    "cp": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "mv": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "git": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "bash": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "background": {
-      "allow": ["^{workspace}/.*"],
-      "deny": []
-    },
-    "webfetch": {
-      "allow": ["^https://docs\\.example\\.com/.*"],
-      "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
-    }
-  },
-  "telegram": {
-    "botToken": "YOUR_TELEGRAM_BOT_TOKEN",
-    "allowedChatId": "123456789",
-    "transport": {
-      "type": "polling",
-      "pollingIntervalMs": 1000,
-      "longPollTimeoutSec": 30,
-      "dropPendingUpdatesOnStart": true
-    },
-    "message": {
-      "parseMode": "MarkdownV2",
-      "chunkSize": 3500
-    }
-  }
-}
+```text
+src/
+  index.ts                # 入口与模式编排
+  clients/                # TUI / Telegram 客户端
+  libs/
+    agent/                # Agent 核心与工具编排
+    channel/              # Gateway 契约与 HTTP 实现
+    runtime/              # 任务运行时与队列
+    mcp/                  # MCP 初始化与集成
+    utils/                # CLI / workspace 等工具
+  prompts/                # Prompt 模板
+  templates/              # 工作区模板
+  types/                  # 共享类型
+Playground/               # 本地模拟运行工作区
+docs/
+  ARCHITECTURE.md         # 架构边界文档
+  IMPROVEMENTS.md         # 改良清单与优化进展
 ```
 
-默认配置文件位于 `<workspace>/agent.config.json`。
+## v0.10.15 更新
 
-补充说明：
-- `cp` / `mv` 工具默认不覆盖目标文件，需显式传入 `overwrite: true`。
-- `git` 工具在执行时会检查运行环境是否安装 `git`；若未安装会返回错误，而不会在启动阶段失败。
-- `bash` 工具支持 `once` / `normal` 两种模式，并支持 `query` / `kill` 查询与终止 `normal` 会话。
-- `bash.normal` 使用“输出空闲超时”机制（默认 `60s`），超时后会自动终止进程。
-- `background` 工具提供 tmux 持久会话管理（`start/list/inspect/query_logs/capture_pane/send_keys/new_window/split_pane/kill`）。
-- `background` 依赖运行环境安装 `tmux`；会话日志与元数据位于 `{workspace}/.agent/background/`（不兼容旧 `{workspace}/.agent/bash/` 后台会话文件）。
-- `background.query_logs` 查询 `start` 时主命令结构化日志；后续 pane/window 输出请用 `background.capture_pane`。
-- `bash` 与 `background` 在执行命令前都会做内置危险命令拦截（如灾难性删除/关机/磁盘破坏类命令），该策略独立于权限配置且不可绕过。
+- 全面更新 README，使其与 `0.10.x` 的实际实现一致。
+- 新增改良文档 `docs/IMPROVEMENTS.md`，沉淀现状分析、优先级与执行建议。
+- 优化 `workspace_check`：改为并行且幂等的工作区初始化流程，减少启动阶段文件系统往返。
+- 新增 `workspace_check` 测试，确保初始化与“不覆盖已有文件”行为稳定。
 
-## TUI Implementation Notes (for contributors)
+## 安全建议
 
-`0.5.0` 起 OpenTUI 客户端已做结构化拆分，主要目录如下：
+- 不要将真实 `api_key`、`botToken`、`webhookSecretToken` 提交到仓库。
+- 建议在本地或 CI 中通过环境变量注入敏感信息。
 
-- `src/clients/tui/runtime/`: UI 组件树装配与客户端状态管理
-- `src/clients/tui/views/`: 纯视图构建（消息区、输入区、状态栏、弹窗）
-- `src/clients/tui/controllers/`: slash 命令与交互控制逻辑
-- `src/clients/tui/flows/`: 任务提交/轮询等流程编排
-- `src/clients/tui/layout/`: 终端尺寸与布局计算
-- `src/clients/tui/state/`: TUI 层状态模型与命令列表
-- `src/clients/tui/theme/`: 主题色定义（当前 Nord）
+## 文档
 
-This project was created using `bun init` in bun v1.3.8. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+- 架构文档：[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+- 改良计划：[docs/IMPROVEMENTS.md](./docs/IMPROVEMENTS.md)
