@@ -76,6 +76,23 @@ describe("bash tool", () => {
     expect(result.stdout.trim()).toBe(workspace);
   });
 
+  test("once mode blocks commands referencing protected workspace paths", async () => {
+    const workspace = await createWorkspaceTempDir();
+    await Bun.write(join(workspace, ".env"), "secret=1\n");
+
+    const result = await executeTool(
+      { workspace },
+      {
+        action: "start",
+        mode: "once",
+        cwd: workspace,
+        command: "cat .env",
+      },
+    );
+
+    expect(result.error).toBe("Permission denied: bash command references protected path");
+  });
+
   test("once mode returns non-zero exit without throwing", async () => {
     const cwd = await createWorkspaceTempDir();
 

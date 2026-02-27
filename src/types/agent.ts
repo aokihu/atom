@@ -10,6 +10,21 @@ export type AgentRuntimeConfig = {
   execution?: AgentExecutionConfig;
 };
 
+export type AgentIntentGuardDetector = "model" | "heuristic";
+
+export type AgentIntentGuardBrowserPolicyConfig = {
+  noFallback?: boolean;
+  networkAdjacentOnly?: boolean;
+  failTaskIfUnmet?: boolean;
+};
+
+export type AgentIntentGuardConfig = {
+  enabled?: boolean;
+  detector?: AgentIntentGuardDetector;
+  softBlockAfter?: number;
+  browser?: AgentIntentGuardBrowserPolicyConfig;
+};
+
 export type AgentExecutionConfig = {
   maxModelStepsPerRun?: number;
   autoContinueOnStepLimit?: boolean;
@@ -17,6 +32,20 @@ export type AgentExecutionConfig = {
   maxContinuationRuns?: number;
   maxModelStepsPerTask?: number;
   continueWithoutAdvancingContextRound?: boolean;
+  intentGuard?: AgentIntentGuardConfig;
+};
+
+export type ResolvedAgentIntentGuardBrowserPolicyConfig = {
+  noFallback: boolean;
+  networkAdjacentOnly: boolean;
+  failTaskIfUnmet: boolean;
+};
+
+export type ResolvedAgentIntentGuardConfig = {
+  enabled: boolean;
+  detector: AgentIntentGuardDetector;
+  softBlockAfter: number;
+  browser: ResolvedAgentIntentGuardBrowserPolicyConfig;
 };
 
 export type ResolvedAgentExecutionConfig = {
@@ -26,6 +55,7 @@ export type ResolvedAgentExecutionConfig = {
   maxContinuationRuns: number;
   maxModelStepsPerTask: number;
   continueWithoutAdvancingContextRound: boolean;
+  intentGuard: ResolvedAgentIntentGuardConfig;
 };
 
 export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
@@ -35,6 +65,16 @@ export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
   maxContinuationRuns: 5,
   maxModelStepsPerTask: 80,
   continueWithoutAdvancingContextRound: true,
+  intentGuard: {
+    enabled: true,
+    detector: "model",
+    softBlockAfter: 2,
+    browser: {
+      noFallback: true,
+      networkAdjacentOnly: true,
+      failTaskIfUnmet: true,
+    },
+  },
 };
 
 export type AgentModelParams = {
@@ -51,7 +91,8 @@ export type AgentModelParams = {
 export type AgentProviderConfig = {
   provider_id: string;
   model: string;
-  api_key: string;
+  api_key?: string;
+  api_key_env?: string;
   enabled?: boolean;
   base_url?: string;
   headers?: Record<string, string>;
@@ -94,6 +135,7 @@ export type AgentToolsPermission = {
   ripgrep?: AgentPermissionRules;
   write?: AgentPermissionRules;
   todo?: AgentPermissionRules;
+  memory?: AgentPermissionRules;
   cp?: AgentPermissionRules;
   mv?: AgentPermissionRules;
   git?: AgentPermissionRules;
@@ -109,8 +151,26 @@ export type PersistentMemoryConfig = {
   autoRecall?: boolean;
   autoCapture?: boolean;
   maxRecallItems?: number;
+  maxRecallLongtermItems?: number;
   minCaptureConfidence?: number;
   searchMode?: PersistentMemorySearchMode;
+  tagging?: {
+    reuseProbabilityThreshold?: number;
+    placeholderSummaryMaxLen?: number;
+    reactivatePolicy?: {
+      enabled?: boolean;
+      hitCountThreshold?: number;
+      windowHours?: number;
+    };
+    scheduler?: {
+      enabled?: boolean;
+      adaptive?: boolean;
+      baseIntervalMinutes?: number;
+      minIntervalMinutes?: number;
+      maxIntervalMinutes?: number;
+      jitterRatio?: number;
+    };
+  };
 };
 
 export type MCPHttpTransportConfig = {
@@ -155,7 +215,7 @@ export type AgentConfig = {
   telegram?: TelegramConfig;
 };
 
-export type ContextMemoryTier = "core" | "working" | "ephemeral";
+export type ContextMemoryTier = "core" | "working" | "ephemeral" | "longterm";
 
 export type ContextMemoryBlockStatus = "open" | "done" | "failed" | "cancelled";
 
@@ -167,6 +227,10 @@ export type ContextMemoryBlock = {
   round: number;
   tags: string[];
   content: string;
+  content_state?: "active" | "tag_ref";
+  tag_id?: string;
+  tag_summary?: string;
+  rehydrated_at?: number;
   status?: ContextMemoryBlockStatus;
   task_id?: string;
   closed_at?: number;
@@ -177,6 +241,7 @@ export type AgentContextMemory = {
   core: ContextMemoryBlock[];
   working: ContextMemoryBlock[];
   ephemeral: ContextMemoryBlock[];
+  longterm: ContextMemoryBlock[];
 };
 
 export type AgentContextRuntime = {

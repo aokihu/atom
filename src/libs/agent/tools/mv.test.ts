@@ -43,4 +43,27 @@ describe("mv tool", () => {
     expect(await Bun.file(source).exists()).toBe(false);
     expect(await Bun.file(destination).text()).toBe("hello");
   });
+
+  test("denies moving from or to protected workspace paths", async () => {
+    const workspace = await createWorkspaceTempDir();
+    await mkdir(join(workspace, "secrets"), { recursive: true });
+    const protectedSource = join(workspace, ".env");
+    const protectedDestination = join(workspace, "secrets", "x.txt");
+    const safeSource = join(workspace, "safe.txt");
+    const safeDestination = join(workspace, "safe-moved.txt");
+    await Bun.write(protectedSource, "secret");
+    await Bun.write(safeSource, "safe");
+
+    const fromProtected = await (mvTool({ workspace }) as any).execute({
+      source: protectedSource,
+      destination: safeDestination,
+    });
+    expect(fromProtected.error).toBe("Permission denied: mv path not allowed");
+
+    const toProtected = await (mvTool({ workspace }) as any).execute({
+      source: safeSource,
+      destination: protectedDestination,
+    });
+    expect(toProtected.error).toBe("Permission denied: mv path not allowed");
+  });
 });

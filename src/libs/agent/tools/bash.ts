@@ -85,6 +85,10 @@ const commandBlocked = (ruleId: string, detail: string) => ({
   detail,
 });
 
+const sensitivePathDenied = () => ({
+  error: "Permission denied: bash command references protected path",
+});
+
 const bashUnavailableError = () => ({
   error: "bash command is not available in runtime environment",
 });
@@ -282,6 +286,10 @@ export const bashTool = (context: ToolExecutionContext) =>
       const safety = validateBashCommandSafety(command);
       if (!safety.ok) {
         return commandBlocked(safety.ruleId, safety.message);
+      }
+
+      if (policy.hasSensitivePathReference(command, cwd)) {
+        return sensitivePathDenied();
       }
 
       if (!(await checkBashAvailable())) {

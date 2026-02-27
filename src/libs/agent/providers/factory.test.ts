@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createLanguageModelFromAgentConfig,
+  normalizeProviderIdToDefaultApiKeyEnvName,
   parseAgentModelRef,
+  resolveProviderApiKey,
   resolveSelectedProvider,
 } from "./factory";
 
@@ -22,6 +24,57 @@ const createConfig = () => ({
 });
 
 describe("provider factory", () => {
+  test("normalizeProviderIdToDefaultApiKeyEnvName converts provider id to env var name", () => {
+    expect(normalizeProviderIdToDefaultApiKeyEnvName("deepseek")).toBe("DEEPSEEK_API_KEY");
+    expect(normalizeProviderIdToDefaultApiKeyEnvName("openai-compatible")).toBe("OPENAI_COMPATIBLE_API_KEY");
+  });
+
+  test("resolveProviderApiKey prefers explicit env var over implicit env var and config value", () => {
+    expect(
+      resolveProviderApiKey(
+        "deepseek",
+        {
+          provider_id: "deepseek",
+          model: "deepseek-chat",
+          api_key: "config-key",
+          api_key_env: "DEEPSEEK_PRIMARY_KEY",
+        },
+        {
+          DEEPSEEK_PRIMARY_KEY: "explicit-env",
+          DEEPSEEK_API_KEY: "implicit-env",
+        },
+      ),
+    ).toBe("explicit-env");
+  });
+
+  test("resolveProviderApiKey uses implicit normalized env var when explicit env var is absent", () => {
+    expect(
+      resolveProviderApiKey(
+        "openai-compatible",
+        {
+          provider_id: "openai-compatible",
+          model: "foo",
+        },
+        {
+          OPENAI_COMPATIBLE_API_KEY: "normalized-env",
+        },
+      ),
+    ).toBe("normalized-env");
+  });
+
+  test("resolveProviderApiKey throws when no api key source exists", () => {
+    expect(() =>
+      resolveProviderApiKey(
+        "deepseek",
+        {
+          provider_id: "deepseek",
+          model: "deepseek-chat",
+        },
+        {},
+      ),
+    ).toThrow("Missing API key for provider 'deepseek'");
+  });
+
   test("parseAgentModelRef parses provider and model", () => {
     expect(parseAgentModelRef("deepseek/deepseek-chat")).toEqual({
       providerId: "deepseek",
@@ -138,6 +191,51 @@ describe("provider factory", () => {
 
   test("createLanguageModelFromAgentConfig builds deepseek model", () => {
     const model = createLanguageModelFromAgentConfig(createConfig());
+    expect(model).toBeDefined();
+  });
+
+  test("createLanguageModelFromAgentConfig accepts provider key from env by explicit api_key_env", () => {
+    const model = createLanguageModelFromAgentConfig(
+      {
+        agent: {
+          name: "Atom",
+          model: "deepseek/deepseek-chat",
+        },
+        providers: [
+          {
+            provider_id: "deepseek",
+            model: "deepseek-chat",
+            api_key_env: "DEEPSEEK_API_KEY_CUSTOM",
+          },
+        ],
+      },
+      {
+        DEEPSEEK_API_KEY_CUSTOM: "env-key",
+      },
+    );
+
+    expect(model).toBeDefined();
+  });
+
+  test("createLanguageModelFromAgentConfig accepts provider key from normalized env var fallback", () => {
+    const model = createLanguageModelFromAgentConfig(
+      {
+        agent: {
+          name: "Atom",
+          model: "deepseek/deepseek-chat",
+        },
+        providers: [
+          {
+            provider_id: "deepseek",
+            model: "deepseek-chat",
+          },
+        ],
+      },
+      {
+        DEEPSEEK_API_KEY: "env-key",
+      },
+    );
+
     expect(model).toBeDefined();
   });
 });

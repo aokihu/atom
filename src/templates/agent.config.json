@@ -12,44 +12,54 @@
       "maxToolCallsPerTask": 40,
       "maxContinuationRuns": 5,
       "maxModelStepsPerTask": 80,
-      "continueWithoutAdvancingContextRound": true
+      "continueWithoutAdvancingContextRound": true,
+      "intentGuard": {
+        "enabled": true,
+        "detector": "model",
+        "softBlockAfter": 2,
+        "browser": {
+          "noFallback": true,
+          "networkAdjacentOnly": true,
+          "failTaskIfUnmet": true
+        }
+      }
     }
   },
   "providers": [
     {
       "provider_id": "deepseek",
       "model": "deepseek-chat",
-      "api_key": "YOUR_DEEPSEEK_API_KEY",
+      "api_key_env": "DEEPSEEK_API_KEY",
       "enabled": true
     },
     {
       "provider_id": "openrouter",
       "model": "openai/gpt-4o-mini",
-      "api_key": "YOUR_OPENROUTER_API_KEY",
+      "api_key_env": "OPENROUTER_API_KEY",
       "enabled": false
     },
     {
       "provider_id": "openai",
       "model": "gpt-4o-mini",
-      "api_key": "YOUR_OPENAI_API_KEY",
+      "api_key_env": "OPENAI_API_KEY",
       "enabled": false
     },
     {
       "provider_id": "siliconflow",
       "model": "deepseek-ai/DeepSeek-V3",
-      "api_key": "YOUR_SILICONFLOW_API_KEY",
+      "api_key_env": "SILICONFLOW_API_KEY",
       "enabled": false
     },
     {
       "provider_id": "dashscope",
       "model": "qwen-plus",
-      "api_key": "YOUR_DASHSCOPE_API_KEY",
+      "api_key_env": "DASHSCOPE_API_KEY",
       "enabled": false
     },
     {
       "provider_id": "ollama",
       "model": "qwen2.5:7b",
-      "api_key": "OLLAMA_DUMMY_KEY",
+      "api_key_env": "OLLAMA_API_KEY",
       "enabled": false
     }
   ],
@@ -105,12 +115,30 @@
   },
   "memory": {
     "persistent": {
-      "enabled": false,
+      "enabled": true,
       "autoRecall": true,
       "autoCapture": true,
       "maxRecallItems": 6,
+      "maxRecallLongtermItems": 6,
       "minCaptureConfidence": 0.7,
-      "searchMode": "auto"
+      "searchMode": "auto",
+      "tagging": {
+        "reuseProbabilityThreshold": 0.15,
+        "placeholderSummaryMaxLen": 120,
+        "reactivatePolicy": {
+          "enabled": true,
+          "hitCountThreshold": 2,
+          "windowHours": 24
+        },
+        "scheduler": {
+          "enabled": true,
+          "adaptive": true,
+          "baseIntervalMinutes": 15,
+          "minIntervalMinutes": 5,
+          "maxIntervalMinutes": 180,
+          "jitterRatio": 0.1
+        }
+      }
     }
   },
   "tui": {

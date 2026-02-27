@@ -43,12 +43,17 @@ describe("tree tool", () => {
     expect(result.output).not.toContain("deep.txt");
   });
 
-  test("hides workspace .agent subtree even when all=true", async () => {
+  test("hides workspace protected entries even when all=true", async () => {
     const workspace = await createWorkspaceTempDir();
     await mkdir(join(workspace, "sub"), { recursive: true });
     await mkdir(join(workspace, ".agent"), { recursive: true });
+    await mkdir(join(workspace, "secrets"), { recursive: true });
     await Bun.write(join(workspace, "visible.txt"), "ok");
+    await Bun.write(join(workspace, ".cache"), "ok");
+    await Bun.write(join(workspace, ".env"), "x=1");
+    await Bun.write(join(workspace, "agent.config.json"), "{}");
     await Bun.write(join(workspace, ".agent", "secret.txt"), "secret");
+    await Bun.write(join(workspace, "secrets", "secret.txt"), "secret");
 
     const result = await (treeTool({ workspace }) as any).execute({
       dirpath: workspace,
@@ -58,14 +63,30 @@ describe("tree tool", () => {
     expect(result.error).toBeUndefined();
     expect(result.output).toContain("sub/");
     expect(result.output).toContain("visible.txt");
+    expect(result.output).toContain(".cache");
     expect(result.output).not.toContain(".agent");
+    expect(result.output).not.toContain("secrets");
+    expect(result.output).not.toContain("agent.config.json");
+    expect(result.output).not.toContain(".env");
     expect(result.output).not.toContain("secret.txt");
-    expect(result.output).toContain("1 directory, 1 file");
+    expect(result.output).toContain("1 directory, 2 files");
   });
 
   test("denies reading workspace .agent directly", async () => {
     const workspace = await createWorkspaceTempDir();
     const protectedDir = join(workspace, ".agent");
+    await mkdir(protectedDir, { recursive: true });
+
+    const result = await (treeTool({ workspace }) as any).execute({
+      dirpath: protectedDir,
+    });
+
+    expect(result.error).toBe("Permission denied: tree path not allowed");
+  });
+
+  test("denies reading workspace secrets directly", async () => {
+    const workspace = await createWorkspaceTempDir();
+    const protectedDir = join(workspace, "secrets");
     await mkdir(protectedDir, { recursive: true });
 
     const result = await (treeTool({ workspace }) as any).execute({

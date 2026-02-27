@@ -16,8 +16,12 @@ export type ResolvedProviderSelection = {
     provider: AgentProviderConfig;
 };
 
+type ResolvedRuntimeProviderSelection = ResolvedProviderSelection & {
+    apiKey: string;
+};
+
 type ProviderModelBuilder = (
-    selection: ResolvedProviderSelection,
+    selection: ResolvedRuntimeProviderSelection,
 ) => LanguageModelV3;
 
 const OPENAI_COMPATIBLE_DEFAULT_BASE_URLS: Record<string, string> = {
@@ -45,8 +49,49 @@ const OPENAI_COMPATIBLE_PROVIDER_IDS = new Set<string>([
     "ollama",
 ]);
 
+const trimToUndefined = (value: string | undefined) => {
+    const normalized = value?.trim();
+    return normalized && normalized.length > 0 ? normalized : undefined;
+};
+
+export const normalizeProviderIdToDefaultApiKeyEnvName = (providerId: string): string => {
+    const normalizedProviderId = providerId
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    return `${normalizedProviderId || "PROVIDER"}_API_KEY`;
+};
+
+export const resolveProviderApiKey = (
+    providerId: string,
+    provider: AgentProviderConfig,
+    env: NodeJS.ProcessEnv = process.env,
+): string => {
+    const explicitEnvName = trimToUndefined(provider.api_key_env);
+    const implicitEnvName = normalizeProviderIdToDefaultApiKeyEnvName(providerId);
+
+    const fromExplicitEnv =
+        explicitEnvName ? trimToUndefined(env[explicitEnvName]) : undefined;
+    if (fromExplicitEnv) return fromExplicitEnv;
+
+    const fromImplicitEnv = trimToUndefined(env[implicitEnvName]);
+    if (fromImplicitEnv) return fromImplicitEnv;
+
+    const fromConfig = trimToUndefined(provider.api_key);
+    if (fromConfig) return fromConfig;
+
+    const hints = [
+        explicitEnvName ? `env ${explicitEnvName}` : undefined,
+        `env ${implicitEnvName}`,
+        "providers[].api_key",
+    ].filter(Boolean).join(", ");
+    throw new Error(
+        `Missing API key for provider '${providerId}'. Configure one of: ${hints}`,
+    );
+};
+
 const createOpenAICompatibleLanguageModel = (
-    selection: ResolvedProviderSelection,
+    selection: ResolvedRuntimeProviderSelection,
     providerName: string,
     defaultBaseURL?: string,
 ) => {
@@ -64,7 +109,7 @@ const createOpenAICompatibleLanguageModel = (
     const provider = createOpenAICompatible({
         name: providerName,
         baseURL,
-        apiKey: selection.provider.api_key,
+        apiKey: selection.apiKey,
         headers: selection.provider.headers,
     });
 
@@ -84,9 +129,9 @@ export const resolveOpenAICompatibleProviderBaseURL = (
     OPENAI_COMPATIBLE_DEFAULT_BASE_URLS[providerId];
 
 const PROVIDER_BUILDERS: Record<string, ProviderModelBuilder> = {
-    deepseek: ({ provider, modelId }) =>
+    deepseek: ({ apiKey, modelId }) =>
         createDeepSeek({
-            apiKey: provider.api_key,
+            apiKey,
         })(modelId),
     volcengine: (selection) =>
         createOpenAICompatibleLanguageModel(
@@ -94,9 +139,9 @@ const PROVIDER_BUILDERS: Record<string, ProviderModelBuilder> = {
             "volcengine",
             OPENAI_COMPATIBLE_DEFAULT_BASE_URLS.volcengine_coding,
         ),
-    openrouter: ({ provider, modelId }) =>
+    openrouter: ({ provider, modelId, apiKey }) =>
         createOpenRouter({
-            apiKey: provider.api_key,
+            apiKey,
             baseURL: provider.base_url,
             headers: provider.headers,
             compatibility: "strict",
@@ -209,8 +254,13 @@ export const resolveSelectedProvider = (
 
 export const createLanguageModelFromAgentConfig = (
     config: AgentConfig,
+    env: NodeJS.ProcessEnv = process.env,
 ): LanguageModelV3 => {
     const selection = resolveSelectedProvider(config);
+    const runtimeSelection: ResolvedRuntimeProviderSelection = {
+        ...selection,
+        apiKey: resolveProviderApiKey(selection.providerId, selection.provider, env),
+    };
     const builder = PROVIDER_BUILDERS[selection.providerId];
 
     if (!builder) {
@@ -220,5 +270,5 @@ export const createLanguageModelFromAgentConfig = (
         );
     }
 
-    return builder(selection);
+    return builder(runtimeSelection);
 };

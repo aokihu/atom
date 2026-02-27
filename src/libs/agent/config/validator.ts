@@ -47,6 +47,17 @@ const ensureRequiredNonEmptyString = (value: unknown, keyPath: string) => {
   ensureNonEmptyString(value, keyPath);
 };
 
+const ensureEnvVarName = (value: unknown, keyPath: string) => {
+  if (value === undefined) return;
+  ensureNonEmptyString(value, keyPath);
+  if (typeof value !== "string") return;
+  if (!/^[A-Z_][A-Z0-9_]*$/.test(value)) {
+    throw new Error(
+      `${keyPath} must match /^[A-Z_][A-Z0-9_]*$/`,
+    );
+  }
+};
+
 const ensureNumber = (value: unknown, keyPath: string) => {
   if (value === undefined) return;
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -153,6 +164,39 @@ const validateAgentExecutionConfig = (value: unknown, keyPath: string) => {
     execution.continueWithoutAdvancingContextRound,
     `${keyPath}.continueWithoutAdvancingContextRound`,
   );
+
+  const intentGuard = execution.intentGuard;
+  if (intentGuard !== undefined) {
+    if (typeof intentGuard !== "object" || intentGuard === null || Array.isArray(intentGuard)) {
+      throw new Error(`${keyPath}.intentGuard must be a JSON object`);
+    }
+
+    const intentGuardConfig = intentGuard as Record<string, unknown>;
+    ensureBoolean(intentGuardConfig.enabled, `${keyPath}.intentGuard.enabled`);
+    ensureEnumValue(intentGuardConfig.detector, `${keyPath}.intentGuard.detector`, ["model", "heuristic"]);
+    ensureIntegerInRange(intentGuardConfig.softBlockAfter, `${keyPath}.intentGuard.softBlockAfter`, {
+      min: 0,
+      max: 12,
+    });
+
+    const browser = intentGuardConfig.browser;
+    if (browser !== undefined) {
+      if (typeof browser !== "object" || browser === null || Array.isArray(browser)) {
+        throw new Error(`${keyPath}.intentGuard.browser must be a JSON object`);
+      }
+
+      const browserPolicy = browser as Record<string, unknown>;
+      ensureBoolean(browserPolicy.noFallback, `${keyPath}.intentGuard.browser.noFallback`);
+      ensureBoolean(
+        browserPolicy.networkAdjacentOnly,
+        `${keyPath}.intentGuard.browser.networkAdjacentOnly`,
+      );
+      ensureBoolean(
+        browserPolicy.failTaskIfUnmet,
+        `${keyPath}.intentGuard.browser.failTaskIfUnmet`,
+      );
+    }
+  }
 };
 
 const parseAgentModelRef = (value: string) => {
@@ -210,7 +254,8 @@ const validateAgentAndProvidersConfig = (config: AgentConfig) => {
 
     ensureRequiredNonEmptyString(provider.provider_id, `${keyPath}.provider_id`);
     ensureRequiredNonEmptyString(provider.model, `${keyPath}.model`);
-    ensureRequiredNonEmptyString(provider.api_key, `${keyPath}.api_key`);
+    ensureNonEmptyString(provider.api_key, `${keyPath}.api_key`);
+    ensureEnvVarName(provider.api_key_env, `${keyPath}.api_key_env`);
     ensureBoolean(provider.enabled, `${keyPath}.enabled`);
     ensureNonEmptyString(provider.base_url, `${keyPath}.base_url`);
     ensureStringRecord(provider.headers, `${keyPath}.headers`);
@@ -384,6 +429,16 @@ export const validateMemoryConfig = (config: AgentConfig) => {
   ) {
     throw new Error("memory.persistent.maxRecallItems must be <= 12");
   }
+  ensurePositiveInteger(
+    persistentConfig.maxRecallLongtermItems,
+    "memory.persistent.maxRecallLongtermItems",
+  );
+  if (
+    typeof persistentConfig.maxRecallLongtermItems === "number" &&
+    persistentConfig.maxRecallLongtermItems > 24
+  ) {
+    throw new Error("memory.persistent.maxRecallLongtermItems must be <= 24");
+  }
 
   ensureNumberInRange(
     persistentConfig.minCaptureConfidence,
@@ -395,6 +450,83 @@ export const validateMemoryConfig = (config: AgentConfig) => {
     "memory.persistent.searchMode",
     ["auto", "fts", "like"],
   );
+
+  const tagging = persistentConfig.tagging;
+  if (tagging !== undefined) {
+    if (typeof tagging !== "object" || tagging === null || Array.isArray(tagging)) {
+      throw new Error("memory.persistent.tagging must be a JSON object");
+    }
+
+    const taggingConfig = tagging as Record<string, unknown>;
+    ensureNumberInRange(
+      taggingConfig.reuseProbabilityThreshold,
+      "memory.persistent.tagging.reuseProbabilityThreshold",
+      { min: 0, max: 1 },
+    );
+    ensureIntegerInRange(
+      taggingConfig.placeholderSummaryMaxLen,
+      "memory.persistent.tagging.placeholderSummaryMaxLen",
+      { min: 24, max: 240 },
+    );
+
+    const reactivatePolicy = taggingConfig.reactivatePolicy;
+    if (reactivatePolicy !== undefined) {
+      if (
+        typeof reactivatePolicy !== "object" ||
+        reactivatePolicy === null ||
+        Array.isArray(reactivatePolicy)
+      ) {
+        throw new Error("memory.persistent.tagging.reactivatePolicy must be a JSON object");
+      }
+
+      const reactivatePolicyConfig = reactivatePolicy as Record<string, unknown>;
+      ensureBoolean(
+        reactivatePolicyConfig.enabled,
+        "memory.persistent.tagging.reactivatePolicy.enabled",
+      );
+      ensureIntegerInRange(
+        reactivatePolicyConfig.hitCountThreshold,
+        "memory.persistent.tagging.reactivatePolicy.hitCountThreshold",
+        { min: 1, max: 12 },
+      );
+      ensureIntegerInRange(
+        reactivatePolicyConfig.windowHours,
+        "memory.persistent.tagging.reactivatePolicy.windowHours",
+        { min: 1, max: 168 },
+      );
+    }
+
+    const scheduler = taggingConfig.scheduler;
+    if (scheduler !== undefined) {
+      if (typeof scheduler !== "object" || scheduler === null || Array.isArray(scheduler)) {
+        throw new Error("memory.persistent.tagging.scheduler must be a JSON object");
+      }
+
+      const schedulerConfig = scheduler as Record<string, unknown>;
+      ensureBoolean(schedulerConfig.enabled, "memory.persistent.tagging.scheduler.enabled");
+      ensureBoolean(schedulerConfig.adaptive, "memory.persistent.tagging.scheduler.adaptive");
+      ensureIntegerInRange(
+        schedulerConfig.baseIntervalMinutes,
+        "memory.persistent.tagging.scheduler.baseIntervalMinutes",
+        { min: 1, max: 720 },
+      );
+      ensureIntegerInRange(
+        schedulerConfig.minIntervalMinutes,
+        "memory.persistent.tagging.scheduler.minIntervalMinutes",
+        { min: 1, max: 720 },
+      );
+      ensureIntegerInRange(
+        schedulerConfig.maxIntervalMinutes,
+        "memory.persistent.tagging.scheduler.maxIntervalMinutes",
+        { min: 1, max: 720 },
+      );
+      ensureNumberInRange(
+        schedulerConfig.jitterRatio,
+        "memory.persistent.tagging.scheduler.jitterRatio",
+        { min: 0, max: 0.5 },
+      );
+    }
+  }
 };
 
 export const validateTuiConfig = (config: AgentConfig) => {

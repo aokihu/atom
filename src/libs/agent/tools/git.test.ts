@@ -43,6 +43,21 @@ describe("git tool", () => {
     resetGitAvailabilityCacheForTest();
   });
 
+  test("blocks command when args reference protected workspace paths", async () => {
+    const workspace = await createWorkspaceTempDir();
+    await Bun.write(join(workspace, ".env"), "secret=1\n");
+
+    const result = await (gitTool({
+      workspace,
+    }) as any).execute({
+      cwd: workspace,
+      subcommand: "status",
+      args: [".env"],
+    });
+
+    expect(result.error).toBe("Permission denied: git command references protected path");
+  });
+
   test("runs git status in a repo", async () => {
     resetGitAvailabilityCacheForTest();
     const dir = await createWorkspaceTempDir();

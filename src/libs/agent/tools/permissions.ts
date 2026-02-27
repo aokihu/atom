@@ -116,6 +116,112 @@ const isPathEqualOrDescendant = (target: string, base: string) => {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 };
 
+const escapeRegexText = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const normalizePathSeparators = (value: string) =>
+  value.replaceAll("\\", "/");
+
+const SENSITIVE_ROOT_DIR_NAMES = new Set(["secrets"]);
+const SENSITIVE_ROOT_FILE_NAMES = new Set(["agent.config.json"]);
+
+const toWorkspaceRelativePath = (targetPath: string, workspace?: string) => {
+  const workspacePath = normalizeWorkspacePath(workspace);
+  if (!workspacePath) {
+    return null;
+  }
+
+  const target = resolve(targetPath);
+  if (!isPathEqualOrDescendant(target, workspacePath)) {
+    return null;
+  }
+
+  const rel = relative(workspacePath, target).replaceAll("\\", "/");
+  return rel;
+};
+
+const isWorkspaceSensitivePathHardBlocked = (
+  targetPath: string,
+  workspace?: string,
+) => {
+  const rel = toWorkspaceRelativePath(targetPath, workspace);
+  if (rel === null || rel === "") {
+    return false;
+  }
+
+  const parts = rel.split("/");
+  if (parts.length === 0) {
+    return false;
+  }
+  const first = parts[0] ?? "";
+  const leaf = parts[parts.length - 1] ?? "";
+
+  if (SENSITIVE_ROOT_DIR_NAMES.has(first)) {
+    return true;
+  }
+  if (parts.length === 1 && SENSITIVE_ROOT_FILE_NAMES.has(first)) {
+    return true;
+  }
+  if (leaf.startsWith(".env")) {
+    return true;
+  }
+
+  return false;
+};
+
+type SensitivePathReferenceOptions = {
+  workspace?: string;
+  cwd?: string;
+};
+
+export const hasSensitiveWorkspacePathReference = (
+  input: string,
+  options: SensitivePathReferenceOptions,
+) => {
+  const workspacePath = normalizeWorkspacePath(options.workspace);
+  if (!workspacePath) {
+    return false;
+  }
+
+  const text = normalizePathSeparators(input ?? "");
+  if (text.trim() === "") {
+    return false;
+  }
+
+  const workspaceNormalized = normalizePathSeparators(workspacePath);
+  const workspaceRegexText = escapeRegexText(workspaceNormalized);
+  const absolutePatterns = [
+    new RegExp(`${workspaceRegexText}/\\.agent(?:/|\\b)`),
+    new RegExp(`${workspaceRegexText}/secrets(?:/|\\b)`),
+    new RegExp(`${workspaceRegexText}/agent\\.config\\.json(?:\\b|$)`),
+    new RegExp(`${workspaceRegexText}/\\.env(?:\\.[A-Za-z0-9._-]+)?(?:\\b|$)`),
+  ];
+
+  if (absolutePatterns.some((pattern) => pattern.test(text))) {
+    return true;
+  }
+
+  const cwd = options.cwd;
+  if (!cwd) {
+    return false;
+  }
+
+  const cwdPath = resolve(cwd);
+  if (!isPathEqualOrDescendant(cwdPath, workspacePath)) {
+    return false;
+  }
+
+  const relativePatterns = [
+    /(^|[\s"'`:])(?:\.\/)?\.agent(?:\/|\b)/,
+    /(^|[\s"'`:])(?:\.\/)?secrets(?:\/|\b)/,
+    /(^|[\s"'`:])(?:\.\/)?agent\.config\.json(?:\b|$)/,
+    /(^|[\s"'`:])(?:\.\/)?\.env(?:\.[A-Za-z0-9._-]+)?(?:\b|$)/,
+    /(^|[\s"'`:])(?:\.\.\/)+(?:\.agent(?:\/|\b)|secrets(?:\/|\b)|agent\.config\.json(?:\b|$)|\.env(?:\.[A-Za-z0-9._-]+)?(?:\b|$))/,
+  ];
+
+  return relativePatterns.some((pattern) => pattern.test(text));
+};
+
 export const isWorkspaceAgentHardBlocked = (
   targetPath: string,
   workspace?: string,
@@ -130,21 +236,19 @@ export const isWorkspaceAgentHardBlocked = (
   return isPathEqualOrDescendant(target, protectedDir);
 };
 
+const isWorkspaceHardBlockedPath = (
+  targetPath: string,
+  workspace?: string,
+) =>
+  isWorkspaceAgentHardBlocked(targetPath, workspace) ||
+  isWorkspaceSensitivePathHardBlocked(targetPath, workspace);
+
 export const shouldHideWorkspaceAgentEntry = (
   parentDir: string,
   entryName: string,
   workspace?: string,
 ) => {
-  if (entryName !== ".agent") {
-    return false;
-  }
-
-  const workspacePath = normalizeWorkspacePath(workspace);
-  if (!workspacePath) {
-    return false;
-  }
-
-  return resolve(parentDir) === workspacePath;
+  return isWorkspaceHardBlockedPath(resolve(parentDir, entryName), workspace);
 };
 
 export const getWorkspaceAgentRipgrepExcludes = (
@@ -156,20 +260,44 @@ export const getWorkspaceAgentRipgrepExcludes = (
     return [] as string[];
   }
 
-  const protectedDir = resolve(workspacePath, ".agent");
   const normalizedSearchDir = resolve(searchDir);
-
-  if (!isPathEqualOrDescendant(protectedDir, normalizedSearchDir)) {
+  if (!isPathEqualOrDescendant(normalizedSearchDir, workspacePath)) {
     return [] as string[];
   }
 
-  const rel = relative(normalizedSearchDir, protectedDir);
-  if (rel === "") {
-    return [] as string[];
-  }
+  const excludes: string[] = [];
+  const addExclude = (value: string) => {
+    if (!excludes.includes(value)) {
+      excludes.push(value);
+    }
+  };
+  const addPathExcludes = (targetPath: string, recursive: boolean) => {
+    if (!isPathEqualOrDescendant(targetPath, normalizedSearchDir)) {
+      return;
+    }
 
-  const normalizedRel = rel.replaceAll("\\", "/");
-  return [`!${normalizedRel}`, `!${normalizedRel}/**`];
+    const rel = relative(normalizedSearchDir, targetPath);
+    if (rel === "") {
+      return;
+    }
+
+    const normalizedRel = rel.replaceAll("\\", "/");
+    addExclude(`!${normalizedRel}`);
+    if (recursive) {
+      addExclude(`!${normalizedRel}/**`);
+    }
+  };
+
+  addPathExcludes(resolve(workspacePath, ".agent"), true);
+  addPathExcludes(resolve(workspacePath, "secrets"), true);
+  addPathExcludes(resolve(workspacePath, "agent.config.json"), false);
+
+  addExclude("!.env*");
+  addExclude("!**/.env*");
+  addExclude("!.env*/**");
+  addExclude("!**/.env*/**");
+
+  return excludes;
 };
 
 /**
@@ -240,7 +368,7 @@ export const canReadFile = (
   tools?: AgentToolsPermission,
   workspace?: string,
 ) => {
-  if (isWorkspaceAgentHardBlocked(filepath, workspace)) {
+  if (isWorkspaceHardBlockedPath(filepath, workspace)) {
     return false;
   }
 
@@ -259,7 +387,7 @@ export const canListDir = (
   tools?: AgentToolsPermission,
   workspace?: string,
 ) => {
-  if (isWorkspaceAgentHardBlocked(dirpath, workspace)) {
+  if (isWorkspaceHardBlockedPath(dirpath, workspace)) {
     return false;
   }
 
@@ -278,7 +406,7 @@ export const canReadTree = (
   tools?: AgentToolsPermission,
   workspace?: string,
 ) => {
-  if (isWorkspaceAgentHardBlocked(dirpath, workspace)) {
+  if (isWorkspaceHardBlockedPath(dirpath, workspace)) {
     return false;
   }
 
@@ -297,7 +425,7 @@ export const canRipgrep = (
   tools?: AgentToolsPermission,
   workspace?: string,
 ) => {
-  if (isWorkspaceAgentHardBlocked(dirpath, workspace)) {
+  if (isWorkspaceHardBlockedPath(dirpath, workspace)) {
     return false;
   }
 
@@ -311,8 +439,17 @@ export const canRipgrep = (
  * @param {AgentToolsPermission} [tools] - 工具配置
  * @returns {boolean} 是否允许写入
  */
-export const canWriteFile = (filepath: string, tools?: AgentToolsPermission) =>
-  matchByRules(filepath, tools?.write);
+export const canWriteFile = (
+  filepath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceHardBlockedPath(filepath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(filepath, tools?.write);
+};
 
 /**
  * 检查是否允许使用 TODO 数据库文件
@@ -321,46 +458,115 @@ export const canUseTodo = (filepath: string, tools?: AgentToolsPermission) =>
   matchByRules(filepath, tools?.todo);
 
 /**
+ * 检查是否允许使用 memory 工具（持久化记忆库）
+ */
+export const canUseMemory = (target: string, tools?: AgentToolsPermission) =>
+  matchByRules(target, tools?.memory);
+
+/**
  * 检查是否允许从源路径复制
  */
-export const canCopyFrom = (filepath: string, tools?: AgentToolsPermission) =>
-  matchByRules(filepath, tools?.cp);
+export const canCopyFrom = (
+  filepath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceHardBlockedPath(filepath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(filepath, tools?.cp);
+};
 
 /**
  * 检查是否允许复制到目标路径
  */
-export const canCopyTo = (filepath: string, tools?: AgentToolsPermission) =>
-  matchByRules(filepath, tools?.cp);
+export const canCopyTo = (
+  filepath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceHardBlockedPath(filepath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(filepath, tools?.cp);
+};
 
 /**
  * 检查是否允许从源路径移动
  */
-export const canMoveFrom = (filepath: string, tools?: AgentToolsPermission) =>
-  matchByRules(filepath, tools?.mv);
+export const canMoveFrom = (
+  filepath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceHardBlockedPath(filepath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(filepath, tools?.mv);
+};
 
 /**
  * 检查是否允许移动到目标路径
  */
-export const canMoveTo = (filepath: string, tools?: AgentToolsPermission) =>
-  matchByRules(filepath, tools?.mv);
+export const canMoveTo = (
+  filepath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceHardBlockedPath(filepath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(filepath, tools?.mv);
+};
 
 /**
  * 检查是否允许在指定目录执行 git
  */
-export const canUseGit = (dirpath: string, tools?: AgentToolsPermission) =>
-  matchByRules(dirpath, tools?.git);
+export const canUseGit = (
+  dirpath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceHardBlockedPath(dirpath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(dirpath, tools?.git);
+};
 
 /**
  * 检查是否允许在指定目录执行 bash
  */
-export const canUseBash = (dirpath: string, tools?: AgentToolsPermission) =>
-  matchByRules(dirpath, tools?.bash);
+export const canUseBash = (
+  dirpath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceHardBlockedPath(dirpath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(dirpath, tools?.bash);
+};
 
 /**
  * 检查是否允许在指定目录执行 background(tmux) 操作
  */
-export const canUseBackground = (dirpath: string, tools?: AgentToolsPermission) =>
-  matchByRules(dirpath, tools?.background);
+export const canUseBackground = (
+  dirpath: string,
+  tools?: AgentToolsPermission,
+  workspace?: string,
+) => {
+  if (isWorkspaceHardBlockedPath(dirpath, workspace)) {
+    return false;
+  }
+
+  return matchByRules(dirpath, tools?.background);
+};
 
 /**
  * 检查是否允许访问URL

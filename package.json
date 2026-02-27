@@ -3,10 +3,11 @@
   "module": "index.ts",
   "description": "Atom 智能生命体",
   "type": "module",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "scripts": {
     "dev": "bun run src/index.ts --workspace=./Playground",
-    "build:bin": "mkdir -p dist && bun build src/index.ts --compile --outfile dist/atom",
+    "test:server-chat": "bun run src/scripts/server_chat_eval.ts ./Playground 8789",
+    "build:bin": "mkdir -p dist && VERSION=$(bun --print 'JSON.parse(await Bun.file(\"package.json\").text()).version') && bun build src/index.ts --compile --minify --define BUILD_VERSION=\\\"$VERSION\\\" --outfile dist/atom",
     "typecheck": "bun x tsc --noEmit",
     "test": "bun test"
   },

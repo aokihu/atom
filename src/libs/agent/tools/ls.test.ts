@@ -46,10 +46,13 @@ describe("ls tool", () => {
     expect(lines).toContain("a.txt");
   });
 
-  test("hides workspace .agent in default output while keeping other dotfiles", async () => {
+  test("hides workspace protected entries while keeping non-sensitive dotfiles", async () => {
     const workspace = await createWorkspaceTempDir();
     await mkdir(join(workspace, ".agent"), { recursive: true });
+    await mkdir(join(workspace, "secrets"), { recursive: true });
+    await Bun.write(join(workspace, "agent.config.json"), "{}");
     await Bun.write(join(workspace, ".env"), "x=1");
+    await Bun.write(join(workspace, ".cache"), "x=1");
     await Bun.write(join(workspace, "visible.txt"), "ok");
 
     const result = await (lsTool({ workspace }) as any).execute({
@@ -58,15 +61,21 @@ describe("ls tool", () => {
     });
 
     expect(result.error).toBeUndefined();
-    expect(result.output).toContain(".env");
+    expect(result.output).toContain(".cache");
     expect(result.output).toContain("visible.txt");
     expect(outputLines(result.output)).not.toContain(".agent");
+    expect(outputLines(result.output)).not.toContain("secrets");
+    expect(outputLines(result.output)).not.toContain("agent.config.json");
+    expect(outputLines(result.output)).not.toContain(".env");
   });
 
-  test("hides workspace .agent in long output and removes total line after filtering", async () => {
+  test("hides workspace protected entries in long output and removes total line after filtering", async () => {
     const workspace = await createWorkspaceTempDir();
     await mkdir(join(workspace, ".agent"), { recursive: true });
+    await mkdir(join(workspace, "secrets"), { recursive: true });
+    await Bun.write(join(workspace, "agent.config.json"), "{}");
     await Bun.write(join(workspace, ".env"), "x=1");
+    await Bun.write(join(workspace, ".cache"), "x=1");
     await Bun.write(join(workspace, "visible.txt"), "ok");
 
     const result = await (lsTool({ workspace }) as any).execute({
@@ -76,9 +85,12 @@ describe("ls tool", () => {
     });
 
     expect(result.error).toBeUndefined();
-    expect(result.output).toContain(".env");
+    expect(result.output).toContain(".cache");
     expect(result.output).toContain("visible.txt");
     expect(result.output).not.toMatch(/\s\.agent(?:$| -> )/m);
+    expect(result.output).not.toMatch(/\ssecrets(?:$| -> )/m);
+    expect(result.output).not.toMatch(/\sagent\.config\.json(?:$| -> )/m);
+    expect(result.output).not.toMatch(/\s\.env(?:$| -> )/m);
     expect(result.output).not.toMatch(/^total\s+\d+\b/m);
     expect(result.output).toMatch(/^[dl\-\?][rwx-]{9}\s+/m);
     expect(result.output).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
@@ -89,6 +101,18 @@ describe("ls tool", () => {
   test("denies listing workspace .agent directly", async () => {
     const workspace = await createWorkspaceTempDir();
     const protectedDir = join(workspace, ".agent");
+    await mkdir(protectedDir, { recursive: true });
+
+    const result = await (lsTool({ workspace }) as any).execute({
+      dirpath: protectedDir,
+    });
+
+    expect(result.error).toBe("Permission denied: ls path not allowed");
+  });
+
+  test("denies listing workspace secrets directly", async () => {
+    const workspace = await createWorkspaceTempDir();
+    const protectedDir = join(workspace, "secrets");
     await mkdir(protectedDir, { recursive: true });
 
     const result = await (lsTool({ workspace }) as any).execute({

@@ -2,8 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   canUseBackground,
   canCopyFrom,
+  canCopyTo,
+  hasSensitiveWorkspacePathReference,
+  canUseMemory,
   canUseBash,
   canListDir,
+  canMoveFrom,
   canMoveTo,
   canReadFile,
   canReadTree,
@@ -58,6 +62,66 @@ describe("agent tool permissions", () => {
     expect(
       canRipgrep(`${workspace}/.agent`, {
         ripgrep: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+  });
+
+  test("hard-blocks sensitive workspace files and dirs before user rules", () => {
+    const workspace = "/Users/example/workspace";
+
+    expect(
+      canReadFile(`${workspace}/agent.config.json`, {
+        read: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canReadFile(`${workspace}/.env.local`, {
+        read: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canReadFile(`${workspace}/nested/.env.production`, {
+        read: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canListDir(`${workspace}/secrets`, {
+        ls: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canReadTree(`${workspace}/secrets`, {
+        tree: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canRipgrep(`${workspace}/secrets`, {
+        ripgrep: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canWriteFile(`${workspace}/.env`, {
+        write: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canCopyFrom(`${workspace}/agent.config.json`, {
+        cp: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canCopyTo(`${workspace}/secrets/token.txt`, {
+        cp: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canMoveFrom(`${workspace}/.env`, {
+        mv: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canMoveTo(`${workspace}/secrets/new.txt`, {
+        mv: { allow: [".*"] },
       }, workspace),
     ).toBe(false);
   });
@@ -132,6 +196,13 @@ describe("agent tool permissions", () => {
         git: { deny: ["^/Users/example/secret/.*"] },
       }),
     ).toBe(false);
+
+    const workspace = "/Users/example/work";
+    expect(
+      canUseGit(`${workspace}/secrets`, {
+        git: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
   });
 
   test("bash permission checks cwd path", () => {
@@ -145,6 +216,13 @@ describe("agent tool permissions", () => {
         bash: { deny: ["^/Users/example/secret/.*"] },
       }),
     ).toBe(false);
+
+    const workspace = "/Users/example/work";
+    expect(
+      canUseBash(`${workspace}/.agent`, {
+        bash: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
   });
 
   test("background permission checks cwd path", () => {
@@ -157,6 +235,61 @@ describe("agent tool permissions", () => {
       canUseBackground("/Users/example/secret/repo", {
         background: { deny: ["^/Users/example/secret/.*"] },
       }),
+    ).toBe(false);
+
+    const workspace = "/Users/example/work";
+    expect(
+      canUseBackground(`${workspace}/agent.config.json`, {
+        background: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+  });
+
+  test("memory permission follows tools.memory rules", () => {
+    expect(
+      canUseMemory("/Users/example/work/.agent/memory.db", {
+        memory: { allow: ["^/Users/example/work/.*"] },
+      }),
+    ).toBe(true);
+    expect(
+      canUseMemory("/tmp/memory.db", {
+        memory: { deny: ["^/tmp/"] },
+      }),
+    ).toBe(false);
+  });
+
+  test("detects sensitive workspace path references in command text", () => {
+    const workspace = "/Users/example/work";
+
+    expect(
+      hasSensitiveWorkspacePathReference(
+        "cat /Users/example/work/.env.local",
+        { workspace, cwd: workspace },
+      ),
+    ).toBe(true);
+    expect(
+      hasSensitiveWorkspacePathReference(
+        "git show HEAD:agent.config.json",
+        { workspace, cwd: workspace },
+      ),
+    ).toBe(true);
+    expect(
+      hasSensitiveWorkspacePathReference(
+        "cat secrets/token.txt",
+        { workspace, cwd: workspace },
+      ),
+    ).toBe(true);
+    expect(
+      hasSensitiveWorkspacePathReference(
+        "cat ../.env",
+        { workspace, cwd: `${workspace}/sub` },
+      ),
+    ).toBe(true);
+    expect(
+      hasSensitiveWorkspacePathReference(
+        "cat /tmp/public.txt",
+        { workspace, cwd: workspace },
+      ),
     ).toBe(false);
   });
 });

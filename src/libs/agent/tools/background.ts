@@ -165,6 +165,10 @@ const commandBlocked = (ruleId: string, detail: string) => ({
   detail,
 });
 
+const sensitivePathDenied = () => ({
+  error: "Permission denied: background command references protected path",
+});
+
 const bashUnavailableError = () => ({
   error: "bash command is not available in runtime environment",
 });
@@ -347,6 +351,9 @@ export const backgroundTool = (context: ToolExecutionContext) =>
 
         const blocked = checkCommandSafety(sendInput.command);
         if (blocked) return blocked;
+        if (policy.hasSensitivePathReference(sendInput.command, cwd)) {
+          return sensitivePathDenied();
+        }
 
         const result = await sendKeysToBackgroundBashPane({
           workspace,
@@ -382,6 +389,9 @@ export const backgroundTool = (context: ToolExecutionContext) =>
         if (newWindowInput.command) {
           const blocked = checkCommandSafety(newWindowInput.command);
           if (blocked) return blocked;
+          if (policy.hasSensitivePathReference(newWindowInput.command, cwd)) {
+            return sensitivePathDenied();
+          }
         }
 
         const result = await createBackgroundBashWindow({
@@ -418,6 +428,9 @@ export const backgroundTool = (context: ToolExecutionContext) =>
         if (splitInput.command) {
           const blocked = checkCommandSafety(splitInput.command);
           if (blocked) return blocked;
+          if (policy.hasSensitivePathReference(splitInput.command, cwd)) {
+            return sensitivePathDenied();
+          }
         }
 
         const result = await splitBackgroundBashPane({
@@ -478,6 +491,9 @@ export const backgroundTool = (context: ToolExecutionContext) =>
 
       const blocked = checkCommandSafety(startInput.command);
       if (blocked) return blocked;
+      if (policy.hasSensitivePathReference(startInput.command, startInput.cwd)) {
+        return sensitivePathDenied();
+      }
 
       if (!(await checkBashAvailable())) {
         return bashUnavailableError();

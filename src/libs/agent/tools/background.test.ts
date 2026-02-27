@@ -273,6 +273,57 @@ describe("background tool", () => {
     expect(splitPaneResult.error).toBe("Command blocked by builtin safety policy");
   });
 
+  test("start/send_keys/new_window/split_pane block protected workspace path references", async () => {
+    const workspace = await createWorkspaceTempDir();
+    const sessionId = "bg-protected-path-guard";
+    await Bun.write(join(workspace, ".env"), "secret=1\n");
+    await writeBackgroundSession({ workspace, sessionId });
+
+    const startResult = await executeTool(
+      { workspace },
+      {
+        action: "start",
+        cwd: workspace,
+        command: "cat .env",
+        sessionId: "bg-start-protected",
+      },
+    );
+    expect(startResult.error).toBe("Permission denied: background command references protected path");
+
+    const sendKeysResult = await executeTool(
+      { workspace },
+      {
+        action: "send_keys",
+        sessionId,
+        paneId: "%1",
+        command: "cat .env",
+      },
+    );
+    expect(sendKeysResult.error).toBe("Permission denied: background command references protected path");
+
+    const newWindowResult = await executeTool(
+      { workspace },
+      {
+        action: "new_window",
+        sessionId,
+        command: "cat ./secrets/token.txt",
+      },
+    );
+    expect(newWindowResult.error).toBe("Permission denied: background command references protected path");
+
+    const splitPaneResult = await executeTool(
+      { workspace },
+      {
+        action: "split_pane",
+        sessionId,
+        targetPaneId: "%1",
+        direction: "vertical",
+        command: "cat agent.config.json",
+      },
+    );
+    expect(splitPaneResult.error).toBe("Permission denied: background command references protected path");
+  });
+
   test("new_window validates cwd existence", async () => {
     const workspace = await createWorkspaceTempDir();
     const sessionId = "bg-new-window-cwd-check";

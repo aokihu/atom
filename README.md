@@ -76,6 +76,16 @@ bun run src/index.ts --mode telegram --workspace ./Playground
 - `GET /v1/tasks/:id`
 - `GET /v1/agent/context`
 - `GET /v1/agent/messages`
+- `POST /v1/agent/memory/search`
+- `POST /v1/agent/memory/get`
+- `POST /v1/agent/memory/upsert`
+- `POST /v1/agent/memory/update`
+- `POST /v1/agent/memory/delete`
+- `POST /v1/agent/memory/feedback`
+- `POST /v1/agent/memory/tag_resolve`
+- `GET /v1/agent/memory/stats`
+- `POST /v1/agent/memory/compact`
+- `POST /v1/agent/memory/list_recent`
 
 响应结构统一：
 
@@ -88,9 +98,32 @@ bun run src/index.ts --mode telegram --workspace ./Playground
 
 - `ls` `read` `tree` `ripgrep` `write`
 - `todo_list` `todo_add` `todo_update` `todo_complete` `todo_reopen` `todo_remove` `todo_clear_done`
+- `memory_write` `memory_search` `memory_get` `memory_update` `memory_delete` `memory_feedback` `memory_tag_resolve` `memory_compact` `memory_list_recent`
 - `cp` `mv` `git` `bash` `background` `webfetch`
 
 `agent.config.json` 的 `permissions` 段可对工具设置 `allow` / `deny` 正则规则，且 `deny` 优先级高于 `allow`。
+
+## 持久化记忆（标签化冷记忆）
+
+- context 协议升级到 `3.0`，支持 `memory.longterm`。
+- 持久化记忆支持两种内容状态：
+  - `active`：正文常驻
+  - `tag_ref`：保留 `tag_id + tag_summary` 占位，正文转入冷存储
+- 当记忆低活跃但仍有较高复用概率时，系统会优先标签化而不是直接删除；后续可通过 `memory_tag_resolve` 恢复。
+- 新工作区模板默认开启 `memory.persistent.enabled = true`。
+
+## 任务意图护栏（Browser-first）
+
+- `agent.execution.intentGuard` 默认开启。
+- 当任务明确要求“使用浏览器访问”时：
+  - 优先要求浏览器能力工具（如 browser/playwright 类 MCP 工具）
+  - 仅允许有限次数的网络邻近工具偏航（默认 2 次），超过后拦截
+  - 若最终没有任何浏览器能力工具成功执行，任务标记为 `intent_execution_failed`
+- 关键开关位于 `agent.execution.intentGuard`：
+  - `enabled`
+  - `detector` (`model` / `heuristic`)
+  - `softBlockAfter`
+  - `browser.noFallback` / `browser.networkAdjacentOnly` / `browser.failTaskIfUnmet`
 
 ## 配置说明（agent.config.json）
 
@@ -100,7 +133,7 @@ bun run src/index.ts --mode telegram --workspace ./Playground
 - `agent.model`：格式 `"<provider_id>/<model>"`
 - `agent.params`：模型推理参数（如 `temperature`、`topP`、`maxOutputTokens`）
 - `agent.execution`：运行预算（如 `maxToolCallsPerTask`、`maxModelStepsPerTask`）
-- `providers[]`：模型供应商配置（`provider_id`、`model`、`api_key`、可选 `base_url`/`headers`）
+- `providers[]`：模型供应商配置（`provider_id`、`model`、可选 `api_key`/`api_key_env`、可选 `base_url`/`headers`）
 - `mcp.servers[]`：MCP 服务（`http` 或 `stdio`）
 - `telegram`：Telegram Bot 配置（仅 telegram 模式需要）
 

@@ -61,15 +61,20 @@ export const gitTool = (context: ToolExecutionContext) =>
         };
       }
 
+      const commandArgs = ["git", subcommand, ...args];
+      const command = commandArgs.join(" ");
+      if (policy.hasSensitivePathReference(command, cwd)) {
+        return {
+          error: "Permission denied: git command references protected path",
+        };
+      }
+
       if (!(await checkGitAvailable())) {
         return {
           error: "git command is not available in runtime environment",
           hint: "Install git in the runtime environment or remove git tool usage.",
         };
       }
-
-      const commandArgs = ["git", subcommand, ...args];
-      const command = commandArgs.join(" ");
 
       try {
         const proc = Bun.spawn(commandArgs, {

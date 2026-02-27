@@ -86,6 +86,20 @@ describe("agent config", () => {
     ).not.toThrow();
   });
 
+  test("validateAgentConfig accepts permissions.memory rules", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        permissions: {
+          memory: {
+            allow: ["^/Users/me/work/.*"],
+            deny: ["^/Users/me/work/private/.*"],
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
   test("validateAgentConfig accepts tui.theme", () => {
     expect(() =>
       validateAgentConfig({
@@ -150,10 +164,37 @@ describe("agent config", () => {
             maxContinuationRuns: 6,
             maxModelStepsPerTask: 90,
             continueWithoutAdvancingContextRound: true,
+            intentGuard: {
+              enabled: true,
+              detector: "model",
+              softBlockAfter: 2,
+              browser: {
+                noFallback: true,
+                networkAdjacentOnly: true,
+                failTaskIfUnmet: true,
+              },
+            },
           },
         },
       }),
     ).not.toThrow();
+  });
+
+  test("validateAgentConfig rejects invalid agent.execution.intentGuard.softBlockAfter", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        agent: {
+          name: "Atom",
+          model: "deepseek/deepseek-chat",
+          execution: {
+            intentGuard: {
+              softBlockAfter: -1,
+            },
+          },
+        },
+      }),
+    ).toThrow("agent.execution.intentGuard.softBlockAfter must be an integer in range 0..12");
   });
 
   test("validateAgentConfig rejects invalid agent.execution.maxToolCallsPerTask", () => {
@@ -203,6 +244,37 @@ describe("agent config", () => {
         }),
       ).not.toThrow();
     }
+  });
+
+  test("validateAgentConfig accepts memory.persistent.tagging config", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        memory: {
+          persistent: {
+            enabled: true,
+            maxRecallLongtermItems: 12,
+            tagging: {
+              reuseProbabilityThreshold: 0.2,
+              placeholderSummaryMaxLen: 120,
+              reactivatePolicy: {
+                enabled: true,
+                hitCountThreshold: 3,
+                windowHours: 48,
+              },
+              scheduler: {
+                enabled: true,
+                adaptive: true,
+                baseIntervalMinutes: 15,
+                minIntervalMinutes: 5,
+                maxIntervalMinutes: 180,
+                jitterRatio: 0.1,
+              },
+            },
+          },
+        },
+      }),
+    ).not.toThrow();
   });
 
   test("validateAgentConfig rejects invalid memory.persistent.maxRecallItems", () => {
@@ -368,6 +440,36 @@ describe("agent config", () => {
         ],
       }),
     ).toThrow("Duplicate provider_id: deepseek");
+  });
+
+  test("validateAgentConfig accepts provider.api_key_env without provider.api_key", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        providers: [
+          {
+            provider_id: "deepseek",
+            model: "deepseek-chat",
+            api_key_env: "DEEPSEEK_API_KEY",
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  test("validateAgentConfig rejects invalid provider.api_key_env", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        providers: [
+          {
+            provider_id: "deepseek",
+            model: "deepseek-chat",
+            api_key_env: "deepseek.api.key",
+          },
+        ],
+      }),
+    ).toThrow("providers[0].api_key_env must match /^[A-Z_][A-Z0-9_]*$/");
   });
 
   test("validateAgentConfig rejects empty providers", () => {
