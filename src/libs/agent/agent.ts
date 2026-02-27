@@ -76,7 +76,7 @@ export class Agent {
    * 流式输出执行任务（兼容保留，当前不对外返回流）
    */
   async runAsyncTask(question: string, options?: AgentRunOptions) {
-    const result = this.runner.runTaskStream(this.session, question, options);
+    const result = await this.runner.runTaskStream(this.session, question, options);
 
     for await (const _textPart of result.textStream) {
       // 保持旧行为：消费流但不输出

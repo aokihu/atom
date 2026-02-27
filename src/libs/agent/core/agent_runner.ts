@@ -28,6 +28,10 @@ import {
   emitOutputMessage,
   type AgentOutputMessageSink,
 } from "./output_messages";
+import type {
+  PersistentMemoryAfterTaskMeta,
+  PersistentMemoryHooks,
+} from "../memory/persistent_types";
 
 export type AgentRunStopReason =
   | "completed"
@@ -76,6 +80,7 @@ export type AgentDependencies = {
     onExtractContext: (context: Partial<AgentContext>) => void,
   ) => LanguageModelV3Middleware;
   executionConfig?: AgentExecutionConfig;
+  persistentMemoryHooks?: PersistentMemoryHooks;
   maxSteps?: number;
 };
 
@@ -96,6 +101,7 @@ export class AgentRunner {
     onExtractContext: (context: Partial<AgentContext>) => void,
   ) => LanguageModelV3Middleware;
   private readonly executionConfig: ResolvedAgentExecutionConfig;
+  private readonly persistentMemoryHooks?: PersistentMemoryHooks;
 
   constructor(args: {
     model: LanguageModelV3;
@@ -119,6 +125,7 @@ export class AgentRunner {
       config: deps.executionConfig,
       legacyMaxSteps: deps.maxSteps,
     });
+    this.persistentMemoryHooks = deps.persistentMemoryHooks;
   }
 
   private readonly model: LanguageModelV3;
@@ -164,8 +171,11 @@ export class AgentRunner {
 
     const abortController = this.createAbortController();
     this.currentAbortController = abortController;
+    let persistentAfterTaskMeta: PersistentMemoryAfterTaskMeta | undefined;
 
     try {
+      await this.invokePersistentMemoryBeforeTask(session, question);
+
       while (true) {
         const nextSegmentIndex = segmentCount + 1;
         this.writeExecutionBudgetContext(session, {
@@ -227,6 +237,7 @@ export class AgentRunner {
               completed: false,
               stopReason: "tool_budget_exhausted",
             };
+            persistentAfterTaskMeta = this.toPersistentAfterTaskMeta(result, "detailed");
             this.emitTerminalMessages(options, result);
             return result;
           }
@@ -265,6 +276,7 @@ export class AgentRunner {
             completed: true,
             stopReason: "completed",
           };
+          persistentAfterTaskMeta = this.toPersistentAfterTaskMeta(result, "detailed");
           this.emitTerminalMessages(options, result);
           return result;
         }
@@ -280,20 +292,29 @@ export class AgentRunner {
             completed: false,
             stopReason: decision.stopReason,
           };
+          persistentAfterTaskMeta = this.toPersistentAfterTaskMeta(result, "detailed");
           this.emitTerminalMessages(options, result);
           return result;
         }
 
         continuationRuns += 1;
       }
+    } catch (error) {
+      persistentAfterTaskMeta = persistentAfterTaskMeta ?? {
+        completed: false,
+        mode: "detailed",
+      };
+      throw error;
     } finally {
+      await this.invokePersistentMemoryAfterTask(session, persistentAfterTaskMeta);
       if (this.currentAbortController === abortController) {
         this.currentAbortController = null;
       }
     }
   }
 
-  runTaskStream(session: AgentSession, question: string, options?: AgentRunOptions) {
+  async runTaskStream(session: AgentSession, question: string, options?: AgentRunOptions) {
+    await this.invokePersistentMemoryBeforeTask(session, question);
     this.refreshTodoProgressContext(session);
     session.prepareUserTurn(question);
 
@@ -327,6 +348,9 @@ export class AgentRunner {
         }
       } finally {
         self.refreshTodoProgressContext(session);
+        await self.invokePersistentMemoryAfterTask(session, {
+          mode: "stream",
+        });
         if (self.currentAbortController === abortController) {
           self.currentAbortController = null;
         }
@@ -491,6 +515,46 @@ export class AgentRunner {
       model: this.model,
       middleware: [this.createExtractContextMiddleware(onExtractContext)],
     });
+  }
+
+  private toPersistentAfterTaskMeta(
+    result: AgentRunDetailedResult,
+    mode: "detailed" | "stream",
+  ): PersistentMemoryAfterTaskMeta {
+    return {
+      completed: result.completed,
+      mode,
+      ...(result.completed
+        ? { finishReason: result.finishReason }
+        : { stopReason: result.stopReason }),
+    };
+  }
+
+  private async invokePersistentMemoryBeforeTask(session: AgentSession, question: string) {
+    if (!this.persistentMemoryHooks) return;
+
+    try {
+      await this.persistentMemoryHooks.beforeTask(session, question);
+    } catch (error) {
+      console.warn(
+        `[memory] beforeTask hook failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async invokePersistentMemoryAfterTask(
+    session: AgentSession,
+    meta?: PersistentMemoryAfterTaskMeta,
+  ) {
+    if (!this.persistentMemoryHooks) return;
+
+    try {
+      await this.persistentMemoryHooks.afterTask(session, meta);
+    } catch (error) {
+      console.warn(
+        `[memory] afterTask hook failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 }
 

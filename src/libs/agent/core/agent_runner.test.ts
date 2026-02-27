@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { DEFAULT_AGENT_EXECUTION_CONFIG } from "../../../types/agent";
-import { __agentRunnerInternals } from "./agent_runner";
+import { AgentSession } from "../session/agent_session";
+import { AgentRunner, __agentRunnerInternals } from "./agent_runner";
 
 describe("agent_runner internals", () => {
   test("classifies non-limit segment as completed", () => {
@@ -111,5 +112,167 @@ describe("agent_runner internals", () => {
       [{ id: 1, status: "open" }],
     );
     expect(keep).toEqual({ kind: "keep" });
+  });
+});
+
+describe("agent_runner persistent memory hooks", () => {
+  const createSession = () =>
+    new AgentSession({
+      workspace: "/tmp/atom-runner-test",
+      systemPrompt: "system",
+    });
+
+  const createRunnerForTest = (args: {
+    generateResults?: Array<{ text: string; finishReason: string; stepCount: number }>;
+    streamParts?: string[];
+    hooks?: {
+      beforeTask?: (...args: any[]) => any;
+      afterTask?: (...args: any[]) => any;
+    };
+    executionConfig?: Partial<typeof DEFAULT_AGENT_EXECUTION_CONFIG>;
+  }) => {
+    const generateResults = [...(args.generateResults ?? [{ text: "ok", finishReason: "stop", stepCount: 1 }])];
+    const modelExecutor = {
+      generate: async () => {
+        const next = generateResults.shift();
+        if (!next) {
+          throw new Error("No stub generate result left");
+        }
+        return next;
+      },
+      stream: () => ({
+        textStream: (async function* () {
+          for (const part of args.streamParts ?? ["hello"]) {
+            yield part;
+          }
+        })(),
+      }),
+    } as any;
+
+    const runner = new AgentRunner({
+      model: {} as any,
+      dependencies: {
+        modelExecutor,
+        createToolRegistry: () => ({} as any),
+        createExtractContextMiddleware: () => (({ doGenerate }: any) => doGenerate?.({}) ?? {}) as any,
+        executionConfig: {
+          ...DEFAULT_AGENT_EXECUTION_CONFIG,
+          ...(args.executionConfig ?? {}),
+        },
+        persistentMemoryHooks: {
+          beforeTask: async (...hookArgs: unknown[]) => {
+            await args.hooks?.beforeTask?.(...hookArgs);
+          },
+          afterTask: async (...hookArgs: unknown[]) => {
+            await args.hooks?.afterTask?.(...hookArgs);
+          },
+        },
+      },
+    });
+
+    (runner as any).createContextAwareModel = () => ({}) as any;
+    return runner;
+  };
+
+  test("calls beforeTask once across continuation segments and calls afterTask on completion", async () => {
+    const calls: Array<{ phase: "before" | "after"; meta?: unknown }> = [];
+    const runner = createRunnerForTest({
+      generateResults: [
+        { text: "partial", finishReason: "length", stepCount: 2 },
+        { text: "done", finishReason: "stop", stepCount: 1 },
+      ],
+      executionConfig: {
+        maxModelStepsPerRun: 2,
+        maxContinuationRuns: 3,
+        maxModelStepsPerTask: 10,
+      },
+      hooks: {
+        beforeTask: async () => {
+          calls.push({ phase: "before" });
+        },
+        afterTask: async (_session: AgentSession, meta: unknown) => {
+          calls.push({ phase: "after", meta });
+        },
+      },
+    });
+
+    const result = await runner.runTaskDetailed(createSession(), "question");
+
+    expect(result.completed).toBe(true);
+    expect(calls.filter((call) => call.phase === "before")).toHaveLength(1);
+    expect(calls.filter((call) => call.phase === "after")).toHaveLength(1);
+    expect(calls.find((call) => call.phase === "after")?.meta).toMatchObject({
+      completed: true,
+      mode: "detailed",
+      finishReason: "stop",
+    });
+  });
+
+  test("afterTask still runs when task stops in controlled path", async () => {
+    const afterCalls: unknown[] = [];
+    const runner = createRunnerForTest({
+      generateResults: [{ text: "partial", finishReason: "length", stepCount: 2 }],
+      executionConfig: {
+        maxModelStepsPerRun: 2,
+        autoContinueOnStepLimit: false,
+        maxModelStepsPerTask: 10,
+      },
+      hooks: {
+        afterTask: async (_session: AgentSession, meta: unknown) => {
+          afterCalls.push(meta);
+        },
+      },
+    });
+
+    const result = await runner.runTaskDetailed(createSession(), "question");
+
+    expect(result.completed).toBe(false);
+    expect(afterCalls).toHaveLength(1);
+    expect(afterCalls[0]).toMatchObject({
+      completed: false,
+      mode: "detailed",
+      stopReason: "step_limit_segment_continue",
+    });
+  });
+
+  test("hook errors are fail-open and do not block task execution", async () => {
+    const runner = createRunnerForTest({
+      hooks: {
+        beforeTask: async () => {
+          throw new Error("before failed");
+        },
+        afterTask: async () => {
+          throw new Error("after failed");
+        },
+      },
+    });
+
+    const result = await runner.runTaskDetailed(createSession(), "question");
+    expect(result.completed).toBe(true);
+    expect(result.text).toBe("ok");
+  });
+
+  test("runTaskStream calls hooks and afterTask runs when stream finishes", async () => {
+    const calls: string[] = [];
+    const runner = createRunnerForTest({
+      streamParts: ["a", "b"],
+      hooks: {
+        beforeTask: async () => {
+          calls.push("before");
+        },
+        afterTask: async () => {
+          calls.push("after");
+        },
+      },
+    });
+
+    const stream = await runner.runTaskStream(createSession(), "question");
+    const parts: string[] = [];
+    for await (const part of stream.textStream as AsyncIterable<string>) {
+      parts.push(part);
+    }
+
+    expect(parts).toEqual(["a", "b"]);
+    expect(calls).toEqual(["before", "after"]);
   });
 });

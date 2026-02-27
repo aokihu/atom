@@ -109,6 +109,17 @@ const ensureNumberInRange = (
   }
 };
 
+const ensureEnumValue = (
+  value: unknown,
+  keyPath: string,
+  allowed: readonly string[],
+) => {
+  if (value === undefined) return;
+  if (typeof value !== "string" || !allowed.includes(value)) {
+    throw new Error(`${keyPath} must be one of: ${allowed.join(", ")}`);
+  }
+};
+
 const validateAgentModelParams = (value: unknown, keyPath: string) => {
   if (value === undefined) return;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -347,6 +358,45 @@ export const validateMcpConfig = (config: AgentConfig) => {
   });
 };
 
+export const validateMemoryConfig = (config: AgentConfig) => {
+  const memory = (config as AgentConfig & Record<string, unknown>).memory;
+  if (memory === undefined) return;
+
+  if (typeof memory !== "object" || memory === null || Array.isArray(memory)) {
+    throw new Error("memory must be a JSON object");
+  }
+
+  const persistent = (memory as Record<string, unknown>).persistent;
+  if (persistent === undefined) return;
+
+  if (typeof persistent !== "object" || persistent === null || Array.isArray(persistent)) {
+    throw new Error("memory.persistent must be a JSON object");
+  }
+
+  const persistentConfig = persistent as Record<string, unknown>;
+  ensureBoolean(persistentConfig.enabled, "memory.persistent.enabled");
+  ensureBoolean(persistentConfig.autoRecall, "memory.persistent.autoRecall");
+  ensureBoolean(persistentConfig.autoCapture, "memory.persistent.autoCapture");
+  ensurePositiveInteger(persistentConfig.maxRecallItems, "memory.persistent.maxRecallItems");
+  if (
+    typeof persistentConfig.maxRecallItems === "number" &&
+    persistentConfig.maxRecallItems > 12
+  ) {
+    throw new Error("memory.persistent.maxRecallItems must be <= 12");
+  }
+
+  ensureNumberInRange(
+    persistentConfig.minCaptureConfidence,
+    "memory.persistent.minCaptureConfidence",
+    { min: 0, max: 1 },
+  );
+  ensureEnumValue(
+    persistentConfig.searchMode,
+    "memory.persistent.searchMode",
+    ["auto", "fts", "like"],
+  );
+};
+
 export const validateTuiConfig = (config: AgentConfig) => {
   const tui = config.tui;
   if (tui === undefined) return;
@@ -425,6 +475,7 @@ export const validateTelegramConfig = (config: AgentConfig) => {
 export const validateAgentConfig = (config: AgentConfig) => {
   validateAgentAndProvidersConfig(config);
   validateToolsConfig(config);
+  validateMemoryConfig(config);
   validateMcpConfig(config);
   validateTuiConfig(config);
   validateTelegramConfig(config);

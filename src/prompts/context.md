@@ -157,5 +157,9 @@ Rules:
 - `core`: long-term persistent memory
 - `working`: multi-round task memory
 - `ephemeral`: short-lived temporary memory
+- When persistent memory is enabled, `memory.core` may be saved across sessions.
+- Put only stable, high-value, reusable facts/preferences/constraints in `memory.core`.
+- Put temporary progress and short-lived reasoning in `memory.working` or `memory.ephemeral`.
+- Prefer reusing the same `memory.core[].id` when updating an existing long-term memory.
 
 Memory lifecycle is governed by `decay`, `confidence`, and round progression.

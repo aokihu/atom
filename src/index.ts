@@ -20,6 +20,7 @@ import { HttpGatewayClient, startHttpGateway } from "./libs/channel";
 import { startTelegramClient, startTuiClient } from "./clients";
 import { cleanupInvalidBackgroundBashSessionsOnStartup } from "./libs/agent/tools/background_sessions";
 import { cleanupTodoDbOnStartup } from "./libs/agent/tools/todo_store";
+import { PersistentMemoryCoordinator } from "./libs/agent/memory";
 
 const DEFAULT_AGENT_NAME = "Atom";
 
@@ -181,6 +182,8 @@ const initializeRuntimeService = async (
   const mcpAvailableCount = mcpStatus.filter((status) => status.available).length;
   logStage(`MCP ready (${mcpAvailableCount}/${mcpStatus.length})`);
 
+  let persistentMemoryCoordinator: PersistentMemoryCoordinator | undefined;
+
   try {
     const model = createLanguageModelFromAgentConfig(agentConfig);
 
@@ -192,6 +195,22 @@ const initializeRuntimeService = async (
     logStage("prompt compiled");
 
     logStage("creating agent...");
+    const activePersistentMemoryCoordinator = PersistentMemoryCoordinator.initialize({
+      workspace: cliOptions.workspace,
+      config: agentConfig.memory?.persistent,
+    });
+    persistentMemoryCoordinator = activePersistentMemoryCoordinator;
+    const persistentMemoryStatus = activePersistentMemoryCoordinator.status;
+    if (persistentMemoryStatus.enabled && persistentMemoryStatus.available) {
+      console.log(
+        `[memory] persistent enabled | db=${persistentMemoryStatus.dbPath} | search=${persistentMemoryStatus.searchModeUsed ?? "like"}`,
+      );
+    } else if (persistentMemoryStatus.enabled) {
+      console.warn(
+        `[memory] persistent unavailable, disabled for this run | ${persistentMemoryStatus.message ?? "unknown error"}`,
+      );
+    }
+
     const taskAgent = new Agent({
       systemPrompt,
       model,
@@ -201,6 +220,7 @@ const initializeRuntimeService = async (
       mcpTools,
       dependencies: {
         executionConfig: agentConfig.agent?.execution,
+        persistentMemoryHooks: activePersistentMemoryCoordinator.hooks,
       },
     });
 
@@ -213,9 +233,11 @@ const initializeRuntimeService = async (
 
     return {
       runtimeService,
+      disposePersistentMemory: () => activePersistentMemoryCoordinator.dispose(),
       disposeMCP: mcp.dispose,
     };
   } catch (error) {
+    await persistentMemoryCoordinator?.dispose();
     await mcp.dispose();
     throw error;
   }
@@ -305,7 +327,7 @@ const main = async () => {
   printStartupBanner(agentName, version, cliOptions.mode);
   printModelSelection(agentConfig);
 
-  const { runtimeService, disposeMCP } = await initializeRuntimeService(
+  const { runtimeService, disposeMCP, disposePersistentMemory } = await initializeRuntimeService(
     cliOptions,
     agentConfig,
   );
@@ -323,6 +345,7 @@ const main = async () => {
   const shutdown = createShutdownController(async () => {
     gateway.stop();
     runtimeService.stop();
+    await disposePersistentMemory();
     await disposeMCP();
   });
 

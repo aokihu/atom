@@ -171,6 +171,68 @@ describe("agent config", () => {
     ).toThrow("agent.execution.maxToolCallsPerTask must be a positive integer");
   });
 
+  test("validateAgentConfig accepts memory.persistent config", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        memory: {
+          persistent: {
+            enabled: true,
+            autoRecall: true,
+            autoCapture: true,
+            maxRecallItems: 6,
+            minCaptureConfidence: 0.7,
+            searchMode: "auto",
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  test("validateAgentConfig accepts all memory.persistent search modes", () => {
+    for (const searchMode of ["auto", "fts", "like"] as const) {
+      expect(() =>
+        validateAgentConfig({
+          ...createValidConfig(),
+          memory: {
+            persistent: {
+              enabled: true,
+              searchMode,
+            },
+          },
+        }),
+      ).not.toThrow();
+    }
+  });
+
+  test("validateAgentConfig rejects invalid memory.persistent.maxRecallItems", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        memory: {
+          persistent: {
+            enabled: true,
+            maxRecallItems: 13,
+          },
+        },
+      }),
+    ).toThrow("memory.persistent.maxRecallItems must be <= 12");
+  });
+
+  test("validateAgentConfig rejects invalid memory.persistent.minCaptureConfidence", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        memory: {
+          persistent: {
+            enabled: true,
+            minCaptureConfidence: 2,
+          },
+        },
+      }),
+    ).toThrow("memory.persistent.minCaptureConfidence must be <= 1");
+  });
+
   test("validateAgentConfig rejects deprecated agentName", () => {
     const config = createValidConfig() as any;
     config.agentName = "Atom";

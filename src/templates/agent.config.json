@@ -103,6 +103,16 @@
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
     }
   },
+  "memory": {
+    "persistent": {
+      "enabled": false,
+      "autoRecall": true,
+      "autoCapture": true,
+      "maxRecallItems": 6,
+      "minCaptureConfidence": 0.7,
+      "searchMode": "auto"
+    }
+  },
   "tui": {
     "theme": "nord"
   },

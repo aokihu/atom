@@ -102,6 +102,17 @@ export type AgentToolsPermission = {
   webfetch?: AgentPermissionRules;
 };
 
+export type PersistentMemorySearchMode = "auto" | "fts" | "like";
+
+export type PersistentMemoryConfig = {
+  enabled?: boolean;
+  autoRecall?: boolean;
+  autoCapture?: boolean;
+  maxRecallItems?: number;
+  minCaptureConfidence?: number;
+  searchMode?: PersistentMemorySearchMode;
+};
+
 export type MCPHttpTransportConfig = {
   type: "http";
   url: string;
@@ -136,6 +147,9 @@ export type AgentConfig = {
   agent?: AgentRuntimeConfig;
   providers?: AgentProviderConfig[];
   permissions?: AgentToolsPermission;
+  memory?: {
+    persistent?: PersistentMemoryConfig;
+  };
   mcp?: MCPConfig;
   tui?: AgentTuiConfig;
   telegram?: TelegramConfig;
