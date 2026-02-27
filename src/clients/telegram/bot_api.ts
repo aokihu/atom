@@ -41,7 +41,9 @@ export type TelegramSendMessageOptions = {
 };
 
 export type TelegramBotApi = {
-  getUpdates: (options?: TelegramGetUpdatesOptions) => Promise<TelegramUpdate[]>;
+  getUpdates: (
+    options?: TelegramGetUpdatesOptions & { signal?: AbortSignal },
+  ) => Promise<TelegramUpdate[]>;
   sendMessage: (options: TelegramSendMessageOptions) => Promise<void>;
 };
 
@@ -70,6 +72,7 @@ export const createTelegramBotApi = (
   const request = async <T>(
     endpoint: string,
     payload: Record<string, unknown>,
+    init?: Pick<RequestInit, "signal">,
   ): Promise<T> => {
     let response: Response;
     try {
@@ -79,6 +82,7 @@ export const createTelegramBotApi = (
           "content-type": "application/json",
         },
         body: JSON.stringify(payload),
+        signal: init?.signal,
       });
     } catch (error) {
       throw new Error(
@@ -109,12 +113,16 @@ export const createTelegramBotApi = (
 
   return {
     async getUpdates(options): Promise<TelegramUpdate[]> {
-      return await request<TelegramUpdate[]>("getUpdates", {
-        offset: options?.offset,
-        timeout: options?.timeoutSec,
-        limit: options?.limit,
-        allowed_updates: ["message"],
-      });
+      return await request<TelegramUpdate[]>(
+        "getUpdates",
+        {
+          offset: options?.offset,
+          timeout: options?.timeoutSec,
+          limit: options?.limit,
+          allowed_updates: ["message"],
+        },
+        { signal: options?.signal },
+      );
     },
     async sendMessage(options): Promise<void> {
       await request<unknown>("sendMessage", {

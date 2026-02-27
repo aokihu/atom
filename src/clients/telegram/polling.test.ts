@@ -89,4 +89,36 @@ describe("runTelegramPolling", () => {
 
     expect(offsets).toEqual([0, 6]);
   });
+
+  test("returns immediately when aborted during long polling", async () => {
+    const controller = new AbortController();
+    const started = Date.now();
+
+    const api: TelegramBotApi = {
+      async getUpdates(options) {
+        return await new Promise<never>((_, reject) => {
+          options?.signal?.addEventListener(
+            "abort",
+            () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            { once: true },
+          );
+        });
+      },
+      async sendMessage() {},
+    };
+
+    const runPromise = runTelegramPolling({
+      api,
+      signal: controller.signal,
+      pollingIntervalMs: 0,
+      longPollTimeoutSec: 30,
+      dropPendingUpdatesOnStart: false,
+      onUpdate: async () => {},
+      logger: { log() {}, warn() {} },
+    });
+
+    controller.abort();
+    await runPromise;
+    expect(Date.now() - started).toBeLessThan(200);
+  });
 });

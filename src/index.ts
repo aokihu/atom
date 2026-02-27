@@ -57,6 +57,18 @@ const printTuiCommands = () => {
   console.log("Commands: `/help`, `/messages`, `/context`, `/exit`");
 };
 
+const printTelegramConfigSummary = (
+  telegramConfig: ReturnType<typeof resolveTelegramConfig>,
+) => {
+  if (!telegramConfig) return;
+  console.log(
+    `[telegram.config] transport=${telegramConfig.transport.type} | allowed_chat_id=${telegramConfig.allowedChatId} | parse_mode=${telegramConfig.message.parseMode} | chunk_size=${telegramConfig.message.chunkSize}`,
+  );
+  console.log(
+    `[telegram.config] polling_interval_ms=${telegramConfig.transport.pollingIntervalMs} | long_poll_timeout_sec=${telegramConfig.transport.longPollTimeoutSec} | drop_pending_updates_on_start=${telegramConfig.transport.dropPendingUpdatesOnStart}`,
+  );
+};
+
 const resolveRequiredTelegramConfig = (
   config: Awaited<ReturnType<typeof loadAgentConfig>>,
 ) => {
@@ -147,11 +159,6 @@ const initializeRuntimeService = async (
   cliOptions: CliOptions,
   agentConfig: Awaited<ReturnType<typeof loadAgentConfig>>,
 ) => {
-  logStage(`workspace = ${cliOptions.workspace}`);
-  if (cliOptions.configPath) {
-    logStage(`config = ${cliOptions.configPath}`);
-  }
-
   logStage("initializing MCP servers...");
   const mcp = await initMCPTools(agentConfig.mcp);
   const { tools: mcpTools, status: mcpStatus } = mcp;
@@ -247,6 +254,7 @@ const main = async () => {
 
     const serverUrl = buildServerUrl(cliOptions);
     const telegramConfig = resolveRequiredTelegramConfig(agentConfig);
+    printTelegramConfigSummary(telegramConfig);
     console.log(`[telegram] server = ${serverUrl}`);
     logStage(`ready in ${formatDuration(startupStartTime)}`);
     await startTelegramClient({
@@ -344,6 +352,7 @@ const main = async () => {
   }
 
   const telegramConfig = resolveRequiredTelegramConfig(agentConfig);
+  printTelegramConfigSummary(telegramConfig);
   try {
     await startTelegramClient({
       client: new HttpGatewayClient(gateway.baseUrl),

@@ -27,7 +27,8 @@ const normalizeOutgoingText = (
 const createStopSignal = (): { signal: AbortSignal; dispose: () => void } => {
   const controller = new AbortController();
 
-  const onSignal = () => {
+  const onSignal = (signal: NodeJS.Signals) => {
+    console.log(`[telegram] received ${signal}, stopping polling...`);
     controller.abort();
   };
 
@@ -83,9 +84,13 @@ export const startTelegramClient = async (
   logger.log(
     `[telegram] transport=${config.transport.type} | allowed_chat_id=${config.allowedChatId} | parse_mode=${config.message.parseMode}`,
   );
+  logger.log(
+    `[telegram] polling_interval_ms=${config.transport.pollingIntervalMs} | long_poll_timeout_sec=${config.transport.longPollTimeoutSec} | drop_pending_updates_on_start=${config.transport.dropPendingUpdatesOnStart}`,
+  );
 
   const stopSignal = createStopSignal();
   try {
+    logger.log("[telegram] polling loop started");
     await runTelegramPolling({
       api,
       signal: stopSignal.signal,
@@ -95,6 +100,7 @@ export const startTelegramClient = async (
       onUpdate: dispatchUpdate,
       logger,
     });
+    logger.log("[telegram] polling loop stopped");
   } finally {
     stopSignal.dispose();
   }
