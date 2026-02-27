@@ -99,6 +99,16 @@ export type PersistentMemorySearchResult = {
   modeUsed: "fts" | "like";
 };
 
+export type PersistentMemoryBulkReadResult = {
+  entries: PersistentMemoryEntry[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+  };
+  modeUsed: "fts" | "like";
+};
+
 export type UpsertCoreBlocksArgs = {
   blocks: ContextMemoryBlock[];
   sourceTaskId?: string | null;

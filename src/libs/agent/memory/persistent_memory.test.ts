@@ -176,6 +176,77 @@ describe("persistent memory db/store", () => {
       await cleanupWorkspace(workspace);
     }
   });
+
+  test("bulkReadByQuery supports pagination and returns total count", async () => {
+    const workspace = await createTempWorkspace(true);
+    let handle;
+    try {
+      handle = openPersistentMemoryDatabase(workspace);
+      const store = new PersistentMemoryStore(handle);
+
+      await store.upsertCoreBlocks({
+        blocks: [
+          coreBlock({
+            id: "core:guide:typescript-1",
+            content: "TypeScript coding guideline with strict mode and Bun runtime.",
+            tags: ["typescript", "guide"],
+          }) as any,
+          coreBlock({
+            id: "core:guide:typescript-2",
+            content: "TypeScript testing standard with Bun test and deterministic fixtures.",
+            tags: ["typescript", "testing"],
+          }) as any,
+          coreBlock({
+            id: "core:guide:typescript-3",
+            content: "TypeScript naming conventions and module boundary rules.",
+            tags: ["typescript", "naming"],
+          }) as any,
+        ],
+      });
+
+      const page1 = await store.bulkReadByQuery("typescript", 2, 0);
+      expect(page1.pagination.total).toBe(3);
+      expect(page1.pagination.limit).toBe(2);
+      expect(page1.pagination.offset).toBe(0);
+      expect(page1.entries).toHaveLength(2);
+      expect(["fts", "like"]).toContain(page1.modeUsed);
+
+      const page2 = await store.bulkReadByQuery("typescript", 2, 2);
+      expect(page2.pagination.total).toBe(3);
+      expect(page2.entries).toHaveLength(1);
+
+      const allIds = [...page1.entries, ...page2.entries].map((entry) => entry.blockId).sort();
+      expect(allIds).toEqual([
+        "core:guide:typescript-1",
+        "core:guide:typescript-2",
+        "core:guide:typescript-3",
+      ]);
+    } finally {
+      await closePersistentMemoryDatabase(handle);
+      await cleanupWorkspace(workspace);
+    }
+  });
+
+  test("bulkReadByQuery returns empty for blank query", async () => {
+    const workspace = await createTempWorkspace(true);
+    let handle;
+    try {
+      handle = openPersistentMemoryDatabase(workspace);
+      const store = new PersistentMemoryStore(handle);
+
+      await store.upsertCoreBlocks({
+        blocks: [coreBlock()],
+      });
+
+      const result = await store.bulkReadByQuery("   ", 10, 0);
+      expect(result.entries).toEqual([]);
+      expect(result.pagination.total).toBe(0);
+      expect(["fts", "like"]).toContain(result.modeUsed);
+    } finally {
+      await closePersistentMemoryDatabase(handle);
+      await cleanupWorkspace(workspace);
+    }
+  });
 });
 
 describe("persistent memory coordinator", () => {

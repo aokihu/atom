@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ContextMemoryBlock, PersistentMemorySearchMode } from "../../../types/agent";
 import type {
+  PersistentMemoryBulkReadResult,
   PersistentMemoryEntry,
   PersistentMemoryEntryRow,
   PersistentMemorySearchHit,
@@ -126,6 +127,10 @@ export const derivePersistentMemorySummary = (content: string): string => {
 
 type SearchRowWithRank = PersistentMemoryEntryRow & {
   rank?: number | null;
+};
+
+type SearchCountRow = {
+  total: number;
 };
 
 export class PersistentMemoryStore {
@@ -309,6 +314,38 @@ export class PersistentMemoryStore {
     return candidates;
   }
 
+  async bulkReadByQuery(
+    query: string,
+    limit = 20,
+    offset = 0,
+  ): Promise<PersistentMemoryBulkReadResult> {
+    const tokens = normalizeSearchTokens(query);
+    const normalizedLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
+    const normalizedOffset = Math.max(0, Math.trunc(offset));
+    const preferredMode: "fts" | "like" = this.ftsEnabled ? "fts" : "like";
+
+    if (tokens.length === 0) {
+      return {
+        entries: [],
+        pagination: {
+          total: 0,
+          limit: normalizedLimit,
+          offset: normalizedOffset,
+        },
+        modeUsed: preferredMode,
+      };
+    }
+
+    if (this.ftsEnabled) {
+      const viaFts = this.bulkReadWithFts(tokens, normalizedLimit, normalizedOffset);
+      if (viaFts) {
+        return viaFts;
+      }
+    }
+
+    return this.bulkReadWithLike(tokens, normalizedLimit, normalizedOffset);
+  }
+
   private searchWithFts(
     tokens: string[],
     limit: number,
@@ -406,6 +443,102 @@ export class PersistentMemoryStore {
     });
 
     return { hits: hits.slice(0, limit), modeUsed: "like" };
+  }
+
+  private bulkReadWithFts(
+    tokens: string[],
+    limit: number,
+    offset: number,
+  ): PersistentMemoryBulkReadResult | null {
+    const ftsQuery = buildFtsQuery(tokens);
+    if (!ftsQuery) {
+      return {
+        entries: [],
+        pagination: { total: 0, limit, offset },
+        modeUsed: "fts",
+      };
+    }
+
+    try {
+      const countRow = this.handle.db
+        .query(
+          `SELECT COUNT(1) AS total
+             FROM persistent_memory_fts
+            WHERE persistent_memory_fts MATCH ?`,
+        )
+        .get(ftsQuery) as SearchCountRow | null;
+
+      const rows = this.handle.db
+        .query(
+          `SELECT e.id, e.block_id, e.source_tier, e.memory_type, e.summary, e.content, e.tags_json, e.confidence,
+                  e.decay, e.status, e.content_hash, e.first_seen_round, e.last_seen_round, e.source_task_id,
+                  e.created_at, e.updated_at, e.last_recalled_at, e.recall_count,
+                  bm25(persistent_memory_fts) AS rank
+             FROM persistent_memory_fts
+             JOIN persistent_memory_entries e ON e.id = persistent_memory_fts.rowid
+            WHERE persistent_memory_fts MATCH ?
+            ORDER BY rank ASC, e.updated_at DESC
+            LIMIT ? OFFSET ?`,
+        )
+        .all(ftsQuery, limit, offset) as SearchRowWithRank[];
+
+      return {
+        entries: rows.map((row) => rowToEntry(row)),
+        pagination: {
+          total: Math.max(0, Math.trunc(normalizeFinite(countRow?.total, 0))),
+          limit,
+          offset,
+        },
+        modeUsed: "fts",
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private bulkReadWithLike(
+    tokens: string[],
+    limit: number,
+    offset: number,
+  ): PersistentMemoryBulkReadResult {
+    const likeTerms = tokens.map((token) => `%${escapeLike(token)}%`);
+    const clauses: string[] = [];
+    const params: string[] = [];
+    for (const term of likeTerms) {
+      clauses.push("(summary LIKE ? ESCAPE '!' OR content LIKE ? ESCAPE '!' OR tags_json LIKE ? ESCAPE '!')");
+      params.push(term, term, term);
+    }
+
+    const whereSql = clauses.length > 0 ? clauses.join(" OR ") : "1 = 1";
+    const countRow = this.handle.db
+      .query(
+        `SELECT COUNT(1) AS total
+           FROM persistent_memory_entries
+          WHERE ${whereSql}`,
+      )
+      .get(...params) as SearchCountRow | null;
+
+    const rows = this.handle.db
+      .query(
+        `SELECT id, block_id, source_tier, memory_type, summary, content, tags_json, confidence, decay,
+                status, content_hash, first_seen_round, last_seen_round, source_task_id, created_at,
+                updated_at, last_recalled_at, recall_count
+           FROM persistent_memory_entries
+          WHERE ${whereSql}
+          ORDER BY updated_at DESC
+          LIMIT ? OFFSET ?`,
+      )
+      .all(...params, limit, offset) as PersistentMemoryEntryRow[];
+
+    return {
+      entries: rows.map((row) => rowToEntry(row)),
+      pagination: {
+        total: Math.max(0, Math.trunc(normalizeFinite(countRow?.total, 0))),
+        limit,
+        offset,
+      },
+      modeUsed: "like",
+    };
   }
 
   async markRecalled(entryIds: number[]): Promise<void> {
