@@ -1,3 +1,11 @@
+/**
+ * Solarized Dark semantic theme definition.
+ *
+ * Purpose:
+ * - Map semantic UI color keys to Solarized Dark palette values.
+ * - Provide an alternate built-in theme for switch testing.
+ */
+
 import type { TuiTheme } from "../core/types";
 import { SOLARIZED_DARK_PALETTE as palette } from "../palettes/solarized_dark";
 

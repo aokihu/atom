@@ -1,3 +1,11 @@
+/**
+ * Tests for Input Pane view logic.
+ *
+ * Purpose:
+ * - Verify placeholder/hint/rail-state mapping from input view models.
+ * - Keep editor prompt semantics stable across refactors.
+ */
+
 import { describe, expect, test } from "bun:test";
 
 import { buildInputPaneViewState } from "./input_pane";

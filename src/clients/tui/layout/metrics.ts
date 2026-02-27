@@ -1,3 +1,11 @@
+/**
+ * Terminal layout metric helpers.
+ *
+ * Purpose:
+ * - Compute stable layout sizes from terminal dimensions.
+ * - Keep panel sizing rules centralized and testable.
+ */
+
 import type { CliRenderer } from "@opentui/core";
 
 export type LayoutMode = "full" | "compact" | "tiny";

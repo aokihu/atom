@@ -1,3 +1,11 @@
+/**
+ * TUI UI bundle assembly.
+ *
+ * Purpose:
+ * - Construct top-level UI tree and component controllers.
+ * - Expose mount/unmount/dispose lifecycle for the app coordinator.
+ */
+
 import { Box, instantiate } from "@opentui/core";
 import type { BoxRenderable, CliRenderer } from "@opentui/core";
 

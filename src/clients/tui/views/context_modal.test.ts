@@ -1,3 +1,11 @@
+/**
+ * Tests for Context Modal view controller.
+ *
+ * Purpose:
+ * - Verify open/close/focus/scroll helper behavior.
+ * - Protect modal keyboard handling and state sync integration.
+ */
+
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 

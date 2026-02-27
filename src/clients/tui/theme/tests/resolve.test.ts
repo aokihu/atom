@@ -1,3 +1,11 @@
+/**
+ * Tests for TUI theme resolution.
+ *
+ * Purpose:
+ * - Verify default/fallback behavior and unknown-name warning logic.
+ * - Keep runtime theme selection behavior stable.
+ */
+
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { DEFAULT_TUI_THEME_NAME, resolveTuiTheme } from "../core/resolve";

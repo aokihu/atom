@@ -1,3 +1,11 @@
+/**
+ * Nord semantic theme definition.
+ *
+ * Purpose:
+ * - Map semantic UI color keys to Nord palette values.
+ * - Provide the default visual identity for TUI mode.
+ */
+
 import type { TuiTheme } from "../core/types";
 import { NORD_PALETTE as palette } from "../palettes/nord";
 

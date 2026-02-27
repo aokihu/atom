@@ -1,3 +1,11 @@
+/**
+ * Tests for task-flow summary helpers.
+ *
+ * Purpose:
+ * - Verify task completion and failure summary formatting logic.
+ * - Keep stop-reason edge cases stable across runtime changes.
+ */
+
 import { describe, expect, test } from "bun:test";
 
 import { summarizeCompletedTask } from "./task_flow";

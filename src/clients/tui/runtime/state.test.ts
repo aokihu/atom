@@ -1,3 +1,11 @@
+/**
+ * Tests for TUI runtime state model.
+ *
+ * Purpose:
+ * - Validate state mutation behavior and tool-message patching logic.
+ * - Ensure reducer-like updates remain backward compatible.
+ */
+
 import { describe, expect, test } from "bun:test";
 
 import { TuiClientState } from "./state";

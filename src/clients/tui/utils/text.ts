@@ -1,3 +1,11 @@
+/**
+ * Text utility helpers for TUI rendering.
+ *
+ * Purpose:
+ * - Provide display-width-aware truncation and summarization helpers.
+ * - Keep formatting behavior consistent across view components.
+ */
+
 const ELLIPSIS = "...";
 
 const isWideCodePoint = (codePoint: number): boolean => {

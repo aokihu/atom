@@ -1,3 +1,11 @@
+/**
+ * TUI client application entry (coordinator layer).
+ *
+ * Purpose:
+ * - Wire renderer lifecycle, network flows, keyboard routing, and state.
+ * - Delegate all concrete UI rendering to view controllers.
+ */
+
 import { sleep } from "bun";
 import { BoxRenderable, createCliRenderer } from "@opentui/core";
 import type { CliRenderer, KeyEvent } from "@opentui/core";

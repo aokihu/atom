@@ -1,3 +1,11 @@
+/**
+ * Runtime state model for TUI client.
+ *
+ * Purpose:
+ * - Store app/session state used by the TUI coordinator.
+ * - Provide focused mutation helpers for logs, chat stream, and modal flags.
+ */
+
 import type { TerminalSize } from "../layout/metrics";
 import type { SlashCommandOption } from "../state/slash_commands";
 import type { ToolDisplayEnvelope } from "../../../types/http";

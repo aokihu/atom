@@ -1,3 +1,11 @@
+/**
+ * Tests for Message Pane transformation logic.
+ *
+ * Purpose:
+ * - Validate tool-group/todo-card collapse rules.
+ * - Prevent chat card grouping regressions in complex message streams.
+ */
+
 import { describe, expect, test } from "bun:test";
 
 import {

@@ -1,3 +1,11 @@
+/**
+ * Built-in TUI theme registry.
+ *
+ * Purpose:
+ * - Register built-in themes by stable name.
+ * - Export registry metadata for resolve and tests.
+ */
+
 import { NORD_THEME } from "../themes/nord_theme";
 import { SOLARIZED_DARK_THEME } from "../themes/solarized_dark_theme";
 import type { TuiTheme } from "./types";

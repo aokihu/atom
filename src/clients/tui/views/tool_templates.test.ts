@@ -1,3 +1,11 @@
+/**
+ * Tests for tool card template rendering helpers.
+ *
+ * Purpose:
+ * - Verify structured tool output formatting and fallback behavior.
+ * - Keep semantic tone mapping consistent for tool summaries.
+ */
+
 import { describe, expect, test } from "bun:test";
 
 import type { ToolDisplayEnvelope } from "../../../types/http";

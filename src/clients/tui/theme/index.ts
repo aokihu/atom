@@ -1,3 +1,11 @@
+/**
+ * Public exports for TUI theme module.
+ *
+ * Purpose:
+ * - Provide a single import surface for theme types and resolvers.
+ * - Re-export built-in theme definitions and registry constants.
+ */
+
 export type { TuiPalette, TuiTheme, TuiThemeColors } from "./core/types";
 export { NORD_THEME } from "./themes/nord_theme";
 export { SOLARIZED_DARK_THEME } from "./themes/solarized_dark_theme";

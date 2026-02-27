@@ -1,3 +1,11 @@
+/**
+ * Tests for Slash Modal view controller.
+ *
+ * Purpose:
+ * - Verify modal open/close, selection navigation, and key-action mapping.
+ * - Ensure command selection behavior stays stable after refactors.
+ */
+
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 

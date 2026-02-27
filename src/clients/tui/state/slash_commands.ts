@@ -1,3 +1,11 @@
+/**
+ * Slash command registry for TUI.
+ *
+ * Purpose:
+ * - Define built-in slash commands and enabled flags.
+ * - Provide query filtering used by slash modal controller.
+ */
+
 export type SlashCommandOption = {
   name: string;
   description: string;

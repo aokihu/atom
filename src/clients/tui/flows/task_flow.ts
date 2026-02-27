@@ -1,3 +1,11 @@
+/**
+ * Task-flow domain helpers for TUI.
+ *
+ * Purpose:
+ * - Normalize task state transitions and summary output.
+ * - Provide reusable pure logic for task-related UI messaging.
+ */
+
 import {
   TaskStatus,
   isTaskExecutionStopReason,

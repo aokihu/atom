@@ -1,3 +1,11 @@
+/**
+ * TUI context command controller.
+ *
+ * Purpose:
+ * - Execute the "/context" command flow.
+ * - Coordinate gateway calls and lifecycle callbacks without view coupling.
+ */
+
 import type { GatewayClient } from "../../../libs/channel/channel";
 
 type WithConnectionTracking = <T>(operation: () => Promise<T>) => Promise<T>;

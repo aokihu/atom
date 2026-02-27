@@ -1,3 +1,11 @@
+/**
+ * Nord palette tokens for TUI themes.
+ *
+ * Purpose:
+ * - Hold raw Nord color values.
+ * - Keep palette data independent from semantic color mapping.
+ */
+
 export const NORD_PALETTE = {
   nord0: "#2E3440",
   nord1: "#3B4252",

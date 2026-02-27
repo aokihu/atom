@@ -1,3 +1,11 @@
+/**
+ * Tests for TUI context command controller.
+ *
+ * Purpose:
+ * - Validate success/failure callback sequencing.
+ * - Protect context command behavior from regression during refactors.
+ */
+
 import { describe, expect, test } from "bun:test";
 import { executeContextCommand } from "./context_command";
 

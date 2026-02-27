@@ -1,3 +1,11 @@
+/**
+ * Solarized Dark palette tokens for TUI themes.
+ *
+ * Purpose:
+ * - Hold raw Solarized Dark color values.
+ * - Serve as palette source for semantic theme mapping.
+ */
+
 export const SOLARIZED_DARK_PALETTE = {
   base03: "#002B36",
   base02: "#073642",

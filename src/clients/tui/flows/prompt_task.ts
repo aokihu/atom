@@ -1,3 +1,11 @@
+/**
+ * Prompt task execution flow for TUI mode.
+ *
+ * Purpose:
+ * - Drive submit/poll/finalize sequence for user prompts.
+ * - Emit structured callbacks so UI layers can react declaratively.
+ */
+
 import type { GatewayClient } from "../../../libs/channel/channel";
 import type { TaskOutputMessage, TaskStatusResponse } from "../../../types/http";
 import { summarizeCompletedTask, isTaskStillRunning, type CompletedTaskSummary } from "./task_flow";

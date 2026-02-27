@@ -1,3 +1,11 @@
+/**
+ * TUI theme type contracts.
+ *
+ * Purpose:
+ * - Define palette, semantic color slots, and theme object shapes.
+ * - Keep UI color usage type-safe and decoupled from raw palette names.
+ */
+
 export type TuiPalette = Record<string, string>;
 
 export type TuiThemeColors = {

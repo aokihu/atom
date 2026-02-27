@@ -1,3 +1,11 @@
+/**
+ * Tests for TUI theme registry.
+ *
+ * Purpose:
+ * - Verify built-in registry integrity and semantic color completeness.
+ * - Catch accidental theme registration regressions.
+ */
+
 import { describe, expect, test } from "bun:test";
 
 import { BUILTIN_TUI_THEME_NAMES, BUILTIN_TUI_THEMES } from "../core/registry";

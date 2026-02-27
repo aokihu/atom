@@ -1,3 +1,11 @@
+/**
+ * TUI command routing helpers.
+ *
+ * Purpose:
+ * - Parse slash-command text into typed command actions.
+ * - Keep command intent mapping centralized for the TUI coordinator.
+ */
+
 export type SlashCommandAction =
   | { type: "exit" }
   | { type: "open_context" }

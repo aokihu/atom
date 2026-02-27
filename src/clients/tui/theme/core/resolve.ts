@@ -1,3 +1,11 @@
+/**
+ * TUI theme resolver.
+ *
+ * Purpose:
+ * - Resolve theme by configured name.
+ * - Fallback to default theme with one-time warning for unknown names.
+ */
+
 import { BUILTIN_TUI_THEMES } from "./registry";
 import type { TuiTheme } from "./types";
 
