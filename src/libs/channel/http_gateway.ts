@@ -1,5 +1,13 @@
 import type { RuntimeGateway } from "./channel";
 import type {
+  AgentMemoryDeleteRequest,
+  AgentMemoryFeedbackRequest,
+  AgentMemoryGetRequest,
+  AgentMemoryListRecentRequest,
+  AgentMemorySearchRequest,
+  AgentMemoryTagResolveRequest,
+  AgentMemoryUpdateRequest,
+  AgentMemoryUpsertRequest,
   ApiErrorCode,
   ApiErrorResponse,
   ApiSuccessResponse,
@@ -103,6 +111,177 @@ const parseCreateTaskRequest = (body: unknown): CreateTaskRequest => {
     input: rawInput,
     priority: rawPriority,
     type: typeof rawType === "string" ? rawType : undefined,
+  };
+};
+
+const parseMemorySearchRequest = (body: unknown): AgentMemorySearchRequest => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "Request body must be a JSON object");
+  }
+
+  const record = body as Record<string, unknown>;
+  if (typeof record.query !== "string" || record.query.trim() === "") {
+    throw new HttpApiError(400, "BAD_REQUEST", "`query` must be a non-empty string");
+  }
+  if (record.limit !== undefined && (!Number.isInteger(record.limit) || (record.limit as number) <= 0)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`limit` must be a positive integer");
+  }
+  if (
+    record.mode !== undefined &&
+    record.mode !== "auto" &&
+    record.mode !== "fts" &&
+    record.mode !== "like"
+  ) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`mode` must be one of auto|fts|like");
+  }
+
+  return {
+    query: record.query.trim(),
+    ...(typeof record.limit === "number" ? { limit: record.limit } : {}),
+    ...(typeof record.mode === "string" ? { mode: record.mode as "auto" | "fts" | "like" } : {}),
+    ...(typeof record.hydrateTagRefs === "boolean" ? { hydrateTagRefs: record.hydrateTagRefs } : {}),
+  };
+};
+
+const parseMemoryGetRequest = (body: unknown): AgentMemoryGetRequest => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "Request body must be a JSON object");
+  }
+  const record = body as Record<string, unknown>;
+  const entryId = typeof record.entryId === "number" ? Math.trunc(record.entryId) : undefined;
+  const blockId = typeof record.blockId === "string" ? record.blockId.trim() : undefined;
+
+  if ((entryId === undefined || entryId <= 0) && (!blockId || blockId.length === 0)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`entryId` or `blockId` is required");
+  }
+
+  return {
+    ...(entryId !== undefined && entryId > 0 ? { entryId } : {}),
+    ...(blockId ? { blockId } : {}),
+  };
+};
+
+const parseMemoryUpsertRequest = (body: unknown): AgentMemoryUpsertRequest => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "Request body must be a JSON object");
+  }
+  const record = body as Record<string, unknown>;
+  if (!Array.isArray(record.items) || record.items.length === 0) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`items` must be a non-empty array");
+  }
+
+  const items = record.items.map((item, index) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new HttpApiError(400, "BAD_REQUEST", `items[${index}] must be an object`);
+    }
+    const entry = item as Record<string, unknown>;
+    if (typeof entry.blockId !== "string" || entry.blockId.trim() === "") {
+      throw new HttpApiError(400, "BAD_REQUEST", `items[${index}].blockId must be a non-empty string`);
+    }
+    if (typeof entry.content !== "string" || entry.content.trim() === "") {
+      throw new HttpApiError(400, "BAD_REQUEST", `items[${index}].content must be a non-empty string`);
+    }
+
+    return {
+      blockId: entry.blockId.trim(),
+      content: entry.content.trim(),
+      ...(entry.sourceTier === "core" || entry.sourceTier === "longterm"
+        ? { sourceTier: entry.sourceTier as "core" | "longterm" }
+        : {}),
+      ...(typeof entry.type === "string" && entry.type.trim()
+        ? { type: entry.type.trim() }
+        : {}),
+      ...(Array.isArray(entry.tags)
+        ? { tags: entry.tags.filter((tag): tag is string => typeof tag === "string") }
+        : {}),
+      ...(typeof entry.confidence === "number" ? { confidence: entry.confidence } : {}),
+      ...(typeof entry.decay === "number" ? { decay: entry.decay } : {}),
+      ...(typeof entry.round === "number" ? { round: Math.trunc(entry.round) } : {}),
+      ...(typeof entry.sourceTaskId === "string" ? { sourceTaskId: entry.sourceTaskId } : {}),
+    };
+  });
+
+  return { items };
+};
+
+const parseMemoryUpdateRequest = (body: unknown): AgentMemoryUpdateRequest => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "Request body must be a JSON object");
+  }
+  const record = body as Record<string, unknown>;
+  if (typeof record.entryId !== "number" || !Number.isInteger(record.entryId) || record.entryId <= 0) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`entryId` must be a positive integer");
+  }
+  if (typeof record.patch !== "object" || record.patch === null || Array.isArray(record.patch)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`patch` must be an object");
+  }
+
+  return {
+    entryId: Math.trunc(record.entryId),
+    patch: record.patch as AgentMemoryUpdateRequest["patch"],
+  };
+};
+
+const parseMemoryDeleteRequest = (body: unknown): AgentMemoryDeleteRequest => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "Request body must be a JSON object");
+  }
+  const record = body as Record<string, unknown>;
+  const entryId = typeof record.entryId === "number" ? Math.trunc(record.entryId) : undefined;
+  const blockId = typeof record.blockId === "string" ? record.blockId.trim() : undefined;
+  if ((entryId === undefined || entryId <= 0) && (!blockId || blockId.length === 0)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`entryId` or `blockId` is required");
+  }
+  return {
+    ...(entryId !== undefined && entryId > 0 ? { entryId } : {}),
+    ...(blockId ? { blockId } : {}),
+  };
+};
+
+const parseMemoryFeedbackRequest = (body: unknown): AgentMemoryFeedbackRequest => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "Request body must be a JSON object");
+  }
+  const record = body as Record<string, unknown>;
+  if (typeof record.entryId !== "number" || !Number.isInteger(record.entryId) || record.entryId <= 0) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`entryId` must be a positive integer");
+  }
+  if (record.direction !== "positive" && record.direction !== "negative") {
+    throw new HttpApiError(400, "BAD_REQUEST", "`direction` must be positive|negative");
+  }
+  return {
+    entryId: Math.trunc(record.entryId),
+    direction: record.direction,
+  };
+};
+
+const parseMemoryTagResolveRequest = (body: unknown): AgentMemoryTagResolveRequest => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "Request body must be a JSON object");
+  }
+  const record = body as Record<string, unknown>;
+  if (typeof record.tagId !== "string" || record.tagId.trim() === "") {
+    throw new HttpApiError(400, "BAD_REQUEST", "`tagId` must be a non-empty string");
+  }
+  return {
+    tagId: record.tagId.trim(),
+    ...(typeof record.hydrateEntries === "boolean" ? { hydrateEntries: record.hydrateEntries } : {}),
+  };
+};
+
+const parseMemoryListRecentRequest = (body: unknown): AgentMemoryListRecentRequest => {
+  if (body === undefined || body === null) {
+    return {};
+  }
+  if (typeof body !== "object" || Array.isArray(body)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "Request body must be a JSON object");
+  }
+  const record = body as Record<string, unknown>;
+  if (record.limit !== undefined && (!Number.isInteger(record.limit) || (record.limit as number) <= 0)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`limit` must be a positive integer");
+  }
+  return {
+    ...(typeof record.limit === "number" ? { limit: Math.trunc(record.limit) } : {}),
   };
 };
 
@@ -229,6 +408,114 @@ export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayS
           }
 
           return ok(await runtime.getAgentMessages());
+        }
+
+        if (pathname === "/v1/agent/memory/search") {
+          if (request.method !== "POST") {
+            return methodNotAllowed(["POST"]);
+          }
+          if (!runtime.memorySearch) {
+            throw new HttpApiError(404, "NOT_FOUND", "Memory API unavailable");
+          }
+          const payload = parseMemorySearchRequest(await parseJsonBody(request));
+          return ok(await runtime.memorySearch(payload));
+        }
+
+        if (pathname === "/v1/agent/memory/get") {
+          if (request.method !== "POST") {
+            return methodNotAllowed(["POST"]);
+          }
+          if (!runtime.memoryGet) {
+            throw new HttpApiError(404, "NOT_FOUND", "Memory API unavailable");
+          }
+          const payload = parseMemoryGetRequest(await parseJsonBody(request));
+          return ok(await runtime.memoryGet(payload));
+        }
+
+        if (pathname === "/v1/agent/memory/upsert") {
+          if (request.method !== "POST") {
+            return methodNotAllowed(["POST"]);
+          }
+          if (!runtime.memoryUpsert) {
+            throw new HttpApiError(404, "NOT_FOUND", "Memory API unavailable");
+          }
+          const payload = parseMemoryUpsertRequest(await parseJsonBody(request));
+          return ok(await runtime.memoryUpsert(payload));
+        }
+
+        if (pathname === "/v1/agent/memory/update") {
+          if (request.method !== "POST") {
+            return methodNotAllowed(["POST"]);
+          }
+          if (!runtime.memoryUpdate) {
+            throw new HttpApiError(404, "NOT_FOUND", "Memory API unavailable");
+          }
+          const payload = parseMemoryUpdateRequest(await parseJsonBody(request));
+          return ok(await runtime.memoryUpdate(payload));
+        }
+
+        if (pathname === "/v1/agent/memory/delete") {
+          if (request.method !== "POST") {
+            return methodNotAllowed(["POST"]);
+          }
+          if (!runtime.memoryDelete) {
+            throw new HttpApiError(404, "NOT_FOUND", "Memory API unavailable");
+          }
+          const payload = parseMemoryDeleteRequest(await parseJsonBody(request));
+          return ok(await runtime.memoryDelete(payload));
+        }
+
+        if (pathname === "/v1/agent/memory/feedback") {
+          if (request.method !== "POST") {
+            return methodNotAllowed(["POST"]);
+          }
+          if (!runtime.memoryFeedback) {
+            throw new HttpApiError(404, "NOT_FOUND", "Memory API unavailable");
+          }
+          const payload = parseMemoryFeedbackRequest(await parseJsonBody(request));
+          return ok(await runtime.memoryFeedback(payload));
+        }
+
+        if (pathname === "/v1/agent/memory/tag_resolve") {
+          if (request.method !== "POST") {
+            return methodNotAllowed(["POST"]);
+          }
+          if (!runtime.memoryTagResolve) {
+            throw new HttpApiError(404, "NOT_FOUND", "Memory API unavailable");
+          }
+          const payload = parseMemoryTagResolveRequest(await parseJsonBody(request));
+          return ok(await runtime.memoryTagResolve(payload));
+        }
+
+        if (pathname === "/v1/agent/memory/stats") {
+          if (request.method !== "GET") {
+            return methodNotAllowed(["GET"]);
+          }
+          if (!runtime.memoryStats) {
+            throw new HttpApiError(404, "NOT_FOUND", "Memory API unavailable");
+          }
+          return ok(await runtime.memoryStats());
+        }
+
+        if (pathname === "/v1/agent/memory/compact") {
+          if (request.method !== "POST") {
+            return methodNotAllowed(["POST"]);
+          }
+          if (!runtime.memoryCompact) {
+            throw new HttpApiError(404, "NOT_FOUND", "Memory API unavailable");
+          }
+          return ok(await runtime.memoryCompact());
+        }
+
+        if (pathname === "/v1/agent/memory/list_recent") {
+          if (request.method !== "POST") {
+            return methodNotAllowed(["POST"]);
+          }
+          if (!runtime.memoryListRecent) {
+            throw new HttpApiError(404, "NOT_FOUND", "Memory API unavailable");
+          }
+          const payload = parseMemoryListRecentRequest(await parseJsonBody(request));
+          return ok(await runtime.memoryListRecent(payload));
         }
 
         return notFound();

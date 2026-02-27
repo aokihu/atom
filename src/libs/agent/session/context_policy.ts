@@ -4,6 +4,7 @@ export const CONTEXT_MEMORY_TIERS: readonly ContextMemoryTier[] = [
   "core",
   "working",
   "ephemeral",
+  "longterm",
 ];
 
 export type ContextTierPolicy = {
@@ -20,8 +21,8 @@ export type RawContextRetentionPolicy = {
 };
 
 export const CONTEXT_POLICY = {
-  version: 2.4,
-  projectionPolicyVersion: "v2.3-projection",
+  version: 3.0,
+  projectionPolicyVersion: "v3.0-projection",
   defaultConfidence: 0.5,
   contentMaxLength: 512,
   tagsMaxItems: 8,
@@ -45,12 +46,19 @@ export const CONTEXT_POLICY = {
       maxItems: 24,
       maxAgeRounds: 3,
     },
+    longterm: {
+      maxDecay: 0.45,
+      minConfidence: 0.6,
+      maxItems: 48,
+      maxAgeRounds: undefined,
+    },
   } satisfies Record<ContextMemoryTier, ContextTierPolicy>,
   rawRetention: {
     tiers: {
       core: { maxItems: 200 },
       working: { maxItems: 500 },
       ephemeral: { maxItems: 200 },
+      longterm: { maxItems: 2000 },
     },
     workingTerminalMaxAgeRounds: 120,
     ephemeralMaxAgeRounds: 30,

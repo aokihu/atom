@@ -3,7 +3,7 @@
   "module": "index.ts",
   "description": "Atom 智能生命体",
   "type": "module",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "scripts": {
     "dev": "bun run src/index.ts --workspace=./Playground",
     "test:server-chat": "bun run src/scripts/server_chat_eval.ts ./Playground 8789",

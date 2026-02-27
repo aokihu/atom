@@ -227,4 +227,58 @@ describe("tool registry", () => {
       ["memory:throw", false],
     ]);
   });
+
+  test("blocks tool execution when beforeToolExecution denies", async () => {
+    const events: Array<{ toolName: string; ok: boolean; error?: string }> = [];
+    const messages: TaskOutputMessageDraft[] = [];
+    const registry = createToolRegistry({
+      context: {
+        beforeToolExecution: ({ toolName }) =>
+          toolName === "memory:search"
+            ? {
+                allow: false,
+                reason: "blocked by intent policy",
+                stopReason: "tool_policy_blocked",
+              }
+            : { allow: true },
+        onToolExecutionSettled: (event) => {
+          events.push({
+            toolName: event.toolName,
+            ok: event.ok,
+            error: typeof event.error === "string" ? event.error : undefined,
+          });
+        },
+        onOutputMessage: (message) => {
+          messages.push(message);
+        },
+      },
+      mcpTools: {
+        "memory:search": {
+          execute: async () => ({ items: [] }),
+        } as any,
+      },
+    });
+
+    await expect((registry["memory:search"] as any).execute({ query: "q" })).rejects.toThrow(
+      "blocked by intent policy",
+    );
+
+    expect(events).toEqual([
+      {
+        toolName: "memory:search",
+        ok: false,
+        error: "blocked by intent policy",
+      },
+    ]);
+
+    const resultMessage = messages.find(
+      (message) =>
+        message.category === "tool" &&
+        message.type === "tool.result" &&
+        message.toolName === "memory:search",
+    );
+    expect(resultMessage && "ok" in resultMessage ? resultMessage.ok : undefined).toBe(false);
+    expect(resultMessage && "errorMessage" in resultMessage ? resultMessage.errorMessage : undefined)
+      .toBe("blocked by intent policy");
+  });
 });

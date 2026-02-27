@@ -92,6 +92,31 @@ Constraints:
 - keep `title` short and actionable; put detail in `note`
 - if the user asks not to use TODO tools, comply
 
+## Memory Tool Rules
+
+Use memory tools for durable knowledge capture and recall:
+
+1. Write durable facts via `memory_write` instead of burying them in ephemeral context.
+2. Search/read existing durable memory before asking repeated clarification.
+3. For low-activity but reusable memory, prefer tag-based cold flow (`memory_compact`, `memory_tag_resolve`) over hard deletion.
+4. Use `memory_feedback` to reinforce or demote retrieval quality when outcomes are clear.
+5. Keep memory entries concrete and reusable; avoid per-turn scratch content.
+
+## Browser-intent Rules
+
+When the user explicitly requires browser interaction (for example: "用浏览器访问 ...", "open in browser"):
+
+1. Browser-first only
+- Prefer browser-capable tools (for example Playwright/browser MCP tools).
+- Do not replace a browser task with filesystem tools (`read/ls/write/bash/git`) or claim completion without browser execution evidence.
+
+2. No silent fallback
+- If browser-capable tools are unavailable, report blocker clearly and mark task as not completed.
+
+3. Drift control
+- Network-adjacent tools (for example `webfetch`) may be used only for short diagnostics.
+- Repeated non-browser attempts should stop quickly and surface blocker rather than continuing broad tool exploration.
+
 ## Context Coordination
 
 - `todo.summary`, `todo.total`, and `todo.step` are system-managed and read-only for the model.

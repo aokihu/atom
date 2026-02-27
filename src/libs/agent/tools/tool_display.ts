@@ -899,6 +899,86 @@ const buildTodoResultDisplay = (
   });
 };
 
+const buildMemoryCallDisplay = (toolName: string, input: Record<string, unknown>) =>
+  makeEnvelope(toolName, "call", `builtin.${toolName}.call`, {
+    summary: `Memory ${toolName.replace(/^memory_/, "")}`,
+    fields: compactFields([
+      createField("entryId", getNumber(input, "entry_id")),
+      createField("blockId", getString(input, "block_id")),
+      createField("query", getString(input, "query")),
+      createField("tagId", getString(input, "tag_id")),
+      createField("sourceTier", getString(input, "source_tier")),
+      createField("limit", getNumber(input, "limit")),
+    ]),
+  });
+
+const buildMemoryResultDisplay = (
+  toolName: string,
+  input: Record<string, unknown> | undefined,
+  result: Record<string, unknown>,
+  errorMessage?: string,
+) => {
+  if (errorMessage) {
+    return buildGenericErrorResult(toolName, `builtin.${toolName}.result`, errorMessage, [
+      createField("entryId", input ? getNumber(input, "entry_id") : undefined),
+      createField("blockId", input ? getString(input, "block_id") : undefined),
+      createField("query", input ? getString(input, "query") : undefined),
+      createField("tagId", input ? getString(input, "tag_id") : undefined),
+    ]);
+  }
+
+  const success = getBoolean(result, "success");
+  const count = getNumber(result, "count") ??
+    (Array.isArray(result.entries) ? result.entries.length : undefined) ??
+    (Array.isArray(result.hits) ? result.hits.length : undefined);
+  const summary = typeof result.error === "string"
+    ? `Failed: ${result.error}`
+    : `${toolName.replace(/^memory_/, "memory ")} completed`;
+
+  const previewLines = (() => {
+    const lines: string[] = [];
+    const source = Array.isArray(result.entries)
+      ? result.entries
+      : Array.isArray(result.hits)
+        ? result.hits
+        : [];
+    for (const item of source.slice(0, MAX_PREVIEW_ARRAY_ITEMS)) {
+      if (!isRecord(item)) continue;
+      const blockId = getString(item, "block_id");
+      const entryId = getNumber(item, "id");
+      const entrySummary = getString(item, "summary");
+      if (blockId || entryId !== undefined || entrySummary) {
+        lines.push(
+          `${entryId !== undefined ? `#${entryId} ` : ""}${blockId ? `${blockId} ` : ""}${clipLine(entrySummary ?? "", 80)}`.trim(),
+        );
+      }
+    }
+    return lines;
+  })();
+
+  return makeEnvelope(toolName, "result", `builtin.${toolName}.result`, {
+    summary,
+    fields: compactFields([
+      createField("success", toYesNo(success)),
+      createField("count", count),
+      createField("mode", getString(result, "mode")),
+      createField("entryId", getNumber(result, "entry_id")),
+      createField("tagId", getString(result, "tag_id")),
+      createField("error", getString(result, "error")),
+    ]),
+    previews: compactPreviews([
+      previewLines.length > 0
+        ? {
+            title: "Memory Entries",
+            lines: previewLines,
+            truncated: (Array.isArray(result.entries) && result.entries.length > previewLines.length) ||
+              (Array.isArray(result.hits) && result.hits.length > previewLines.length),
+          }
+        : undefined,
+    ]),
+  });
+};
+
 export const buildToolCallDisplay = (
   toolName: string,
   input: unknown,
@@ -932,6 +1012,16 @@ export const buildToolCallDisplay = (
     case "todo_remove":
     case "todo_clear_done":
       return buildTodoCallDisplay(toolName, input);
+    case "memory_write":
+    case "memory_search":
+    case "memory_get":
+    case "memory_update":
+    case "memory_delete":
+    case "memory_feedback":
+    case "memory_tag_resolve":
+    case "memory_compact":
+    case "memory_list_recent":
+      return buildMemoryCallDisplay(toolName, input);
     case "webfetch":
       return buildWebfetchCallDisplay(toolName, input);
     default:
@@ -982,6 +1072,16 @@ export const buildToolResultDisplay = (
     case "todo_remove":
     case "todo_clear_done":
       return buildTodoResultDisplay(toolName, inputRecord, result, errorMessage);
+    case "memory_write":
+    case "memory_search":
+    case "memory_get":
+    case "memory_update":
+    case "memory_delete":
+    case "memory_feedback":
+    case "memory_tag_resolve":
+    case "memory_compact":
+    case "memory_list_recent":
+      return buildMemoryResultDisplay(toolName, inputRecord, result, errorMessage);
     default:
       return undefined;
   }

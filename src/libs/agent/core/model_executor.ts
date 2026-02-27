@@ -10,7 +10,7 @@ import type { AgentModelParams } from "../../../types/agent";
 import type { ToolDefinitionMap } from "../tools";
 import { buildToolCallDisplay, buildToolResultDisplay } from "../tools/tool_display";
 import { getToolErrorMessageFromOutput } from "../tools/tool_output_error";
-import { ToolBudgetExceededError } from "../tools/types";
+import { ToolBudgetExceededError, ToolPolicyBlockedError } from "../tools/types";
 import {
   emitOutputMessage,
   type AgentOutputMessageSink,
@@ -215,7 +215,7 @@ export class AISDKModelExecutor {
         stepCount,
       };
     } catch (error) {
-      if (error instanceof ToolBudgetExceededError) {
+      if (error instanceof ToolBudgetExceededError || error instanceof ToolPolicyBlockedError) {
         throw error;
       }
 

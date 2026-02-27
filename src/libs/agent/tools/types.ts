@@ -1,6 +1,8 @@
 import type { ToolSet } from "ai";
 import type { AgentToolsPermission } from "../../../types/agent";
+import type { TaskExecutionStopReason } from "../../../types/task";
 import type { AgentOutputMessageSink } from "../core/output_messages";
+import type { PersistentMemoryCoordinator } from "../memory/persistent_coordinator";
 
 export const BUILTIN_TOOL_NAMES = [
   "ls",
@@ -15,6 +17,15 @@ export const BUILTIN_TOOL_NAMES = [
   "todo_reopen",
   "todo_remove",
   "todo_clear_done",
+  "memory_write",
+  "memory_search",
+  "memory_get",
+  "memory_update",
+  "memory_delete",
+  "memory_feedback",
+  "memory_tag_resolve",
+  "memory_compact",
+  "memory_list_recent",
   "cp",
   "mv",
   "git",
@@ -57,11 +68,29 @@ export type ToolExecutionSettledEvent = {
   error?: unknown;
 };
 
+export type ToolExecutionGuardDecision =
+  | {
+      allow: true;
+    }
+  | {
+      allow: false;
+      reason: string;
+      stopReason?: TaskExecutionStopReason;
+    };
+
+export type ToolExecutionGuardEvent = {
+  toolName: string;
+  input: unknown;
+  toolCallId?: string;
+};
+
 export type ToolExecutionContext = {
   permissions?: ToolPermissionSource;
   workspace?: string;
+  persistentMemoryCoordinator?: PersistentMemoryCoordinator;
   onOutputMessage?: AgentOutputMessageSink;
   toolBudget?: ToolBudgetController;
+  beforeToolExecution?: (event: ToolExecutionGuardEvent) => ToolExecutionGuardDecision | Promise<ToolExecutionGuardDecision>;
   toolOutputMessageSource?: "registry" | "sdk_hooks";
   onToolExecutionSettled?: (event: ToolExecutionSettledEvent) => void | Promise<void>;
 };
@@ -94,5 +123,21 @@ export class ToolBudgetExceededError extends Error {
     this.used = args.used;
     this.remaining = args.remaining;
     this.limit = args.limit;
+  }
+}
+
+export class ToolPolicyBlockedError extends Error {
+  readonly toolName: string;
+  readonly stopReason: TaskExecutionStopReason;
+
+  constructor(args: {
+    toolName: string;
+    reason: string;
+    stopReason?: TaskExecutionStopReason;
+  }) {
+    super(args.reason);
+    this.name = "ToolPolicyBlockedError";
+    this.toolName = args.toolName;
+    this.stopReason = args.stopReason ?? "tool_policy_blocked";
   }
 }

@@ -3,6 +3,17 @@ import { backgroundTool } from "./background";
 import { cpTool } from "./cp";
 import { gitTool } from "./git";
 import { lsTool } from "./ls";
+import {
+  memoryCompactTool,
+  memoryDeleteTool,
+  memoryFeedbackTool,
+  memoryGetTool,
+  memoryListRecentTool,
+  memorySearchTool,
+  memoryTagResolveTool,
+  memoryUpdateTool,
+  memoryWriteTool,
+} from "./memory_tools";
 import { mvTool } from "./mv";
 import { readTool } from "./read";
 import { ripgrepTool } from "./ripgrep";
@@ -25,6 +36,7 @@ import {
   type ToolExecutionContext,
   type ToolFactory,
   ToolBudgetExceededError,
+  ToolPolicyBlockedError,
 } from "./types";
 import { emitOutputMessage, summarizeOutputValue, toOutputErrorMessage } from "../core/output_messages";
 import { buildToolCallDisplay, buildToolResultDisplay } from "./tool_display";
@@ -43,6 +55,15 @@ const BUILTIN_TOOL_FACTORIES: Record<BuiltinToolName, ToolFactory> = {
   todo_reopen: todoReopenTool,
   todo_remove: todoRemoveTool,
   todo_clear_done: todoClearDoneTool,
+  memory_write: memoryWriteTool,
+  memory_search: memorySearchTool,
+  memory_get: memoryGetTool,
+  memory_update: memoryUpdateTool,
+  memory_delete: memoryDeleteTool,
+  memory_feedback: memoryFeedbackTool,
+  memory_tag_resolve: memoryTagResolveTool,
+  memory_compact: memoryCompactTool,
+  memory_list_recent: memoryListRecentTool,
   cp: cpTool,
   mv: mvTool,
   git: gitTool,
@@ -125,6 +146,38 @@ const wrapToolDefinition = (
         });
       }
 
+      const guardDecision = await context.beforeToolExecution?.({
+        toolName,
+        input,
+        toolCallId,
+      });
+      if (guardDecision && !guardDecision.allow) {
+        await emitToolSettled({
+          ok: false,
+          error: guardDecision.reason,
+        });
+
+        if (emitToolMessages) {
+          emitOutputMessage(context.onOutputMessage, {
+            category: "tool",
+            type: "tool.result",
+            toolName,
+            toolCallId,
+            ok: false,
+            errorMessage: guardDecision.reason,
+            outputDisplay: buildToolResultDisplay(toolName, input, {
+              error: guardDecision.reason,
+            }, guardDecision.reason),
+          });
+        }
+
+        throw new ToolPolicyBlockedError({
+          toolName,
+          reason: guardDecision.reason,
+          stopReason: guardDecision.stopReason,
+        });
+      }
+
       try {
         const result = await execute.apply(definition, args);
         const errorMessage = getToolErrorMessageFromOutput(result);
@@ -180,7 +233,12 @@ const wrapToolRegistryWithOutput = (
   const emitsToolMessages =
     context.toolOutputMessageSource !== "sdk_hooks" && context.onOutputMessage !== undefined;
 
-  if (!emitsToolMessages && !context.toolBudget && !context.onToolExecutionSettled) {
+  if (
+    !emitsToolMessages &&
+    !context.toolBudget &&
+    !context.onToolExecutionSettled &&
+    !context.beforeToolExecution
+  ) {
     return registry;
   }
 

@@ -203,3 +203,160 @@ export type AgentContextResponse = {
 export type AgentMessagesResponse = {
   messages: ModelMessage[];
 };
+
+export type MemorySourceTier = "core" | "longterm";
+export type MemoryContentState = "active" | "tag_ref";
+
+export type AgentMemoryEntry = {
+  id: number;
+  block_id: string;
+  source_tier: MemorySourceTier;
+  type: string;
+  summary: string;
+  content: string;
+  content_state: MemoryContentState;
+  tag_id: string | null;
+  tag_summary: string | null;
+  tags: string[];
+  confidence: number;
+  decay: number;
+  status: string | null;
+  first_seen_round: number;
+  last_seen_round: number;
+  source_task_id: string | null;
+  created_at: number;
+  updated_at: number;
+  last_recalled_at: number | null;
+  rehydrated_at: number | null;
+  recall_count: number;
+  feedback_positive: number;
+  feedback_negative: number;
+};
+
+export type AgentMemorySearchHit = AgentMemoryEntry & {
+  text_score: number;
+  confidence_score: number;
+  recency_score: number;
+  recall_score: number;
+  feedback_score: number;
+  reuse_probability: number;
+  final_score: number;
+};
+
+export type AgentMemorySearchRequest = {
+  query: string;
+  limit?: number;
+  mode?: "auto" | "fts" | "like";
+  hydrateTagRefs?: boolean;
+};
+
+export type AgentMemorySearchResponse = {
+  modeUsed: "fts" | "like";
+  hits: AgentMemorySearchHit[];
+};
+
+export type AgentMemoryGetRequest = {
+  entryId?: number;
+  blockId?: string;
+};
+
+export type AgentMemoryGetResponse = {
+  entry: AgentMemoryEntry | null;
+};
+
+export type AgentMemoryUpsertItem = {
+  blockId: string;
+  content: string;
+  sourceTier?: MemorySourceTier;
+  type?: string;
+  tags?: string[];
+  confidence?: number;
+  decay?: number;
+  round?: number;
+  sourceTaskId?: string | null;
+};
+
+export type AgentMemoryUpsertRequest = {
+  items: AgentMemoryUpsertItem[];
+};
+
+export type AgentMemoryUpsertResponse = {
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+};
+
+export type AgentMemoryUpdateRequest = {
+  entryId: number;
+  patch: Partial<{
+    content: string;
+    summary: string;
+    tags: string[];
+    confidence: number;
+    decay: number;
+    status: string | null;
+    sourceTier: MemorySourceTier;
+    contentState: MemoryContentState;
+    tagId: string | null;
+    tagSummary: string | null;
+    sourceTaskId: string | null;
+  }>;
+};
+
+export type AgentMemoryUpdateResponse = {
+  entry: AgentMemoryEntry | null;
+};
+
+export type AgentMemoryDeleteRequest = {
+  entryId?: number;
+  blockId?: string;
+};
+
+export type AgentMemoryDeleteResponse = {
+  deleted: boolean;
+};
+
+export type AgentMemoryFeedbackRequest = {
+  entryId: number;
+  direction: "positive" | "negative";
+};
+
+export type AgentMemoryFeedbackResponse = {
+  ok: boolean;
+};
+
+export type AgentMemoryTagResolveRequest = {
+  tagId: string;
+  hydrateEntries?: boolean;
+};
+
+export type AgentMemoryTagResolveResponse = {
+  tag_id: string;
+  content: string | null;
+  hydrated_entries: AgentMemoryEntry[];
+};
+
+export type AgentMemoryStatsResponse = {
+  total: number;
+  active: number;
+  tag_ref: number;
+  by_tier: Record<MemorySourceTier, number>;
+};
+
+export type AgentMemoryCompactResponse = {
+  scanned: number;
+  tagged: number;
+  deleted: number;
+  skipped: number;
+  mode: "scheduler" | "manual";
+  threshold: number;
+};
+
+export type AgentMemoryListRecentRequest = {
+  limit?: number;
+};
+
+export type AgentMemoryListRecentResponse = {
+  entries: AgentMemoryEntry[];
+};

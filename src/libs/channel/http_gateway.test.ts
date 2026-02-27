@@ -19,6 +19,36 @@ const createRuntime = (): RuntimeGateway => ({
   getAgentMessages() {
     throw new Error("not implemented");
   },
+  memorySearch() {
+    throw new Error("not implemented");
+  },
+  memoryGet() {
+    throw new Error("not implemented");
+  },
+  memoryUpsert() {
+    throw new Error("not implemented");
+  },
+  memoryUpdate() {
+    throw new Error("not implemented");
+  },
+  memoryDelete() {
+    throw new Error("not implemented");
+  },
+  memoryFeedback() {
+    throw new Error("not implemented");
+  },
+  memoryTagResolve() {
+    throw new Error("not implemented");
+  },
+  memoryStats() {
+    throw new Error("not implemented");
+  },
+  memoryCompact() {
+    throw new Error("not implemented");
+  },
+  memoryListRecent() {
+    throw new Error("not implemented");
+  },
   forceAbort() {
     return {
       abortedCurrent: false,

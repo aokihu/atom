@@ -10,12 +10,15 @@ import {
   type AgentContext,
   type AgentExecutionConfig,
   type AgentModelParams,
+  type ResolvedAgentIntentGuardConfig,
   type ResolvedAgentExecutionConfig,
 } from "../../../types/agent";
 import type { TaskExecutionStopReason } from "../../../types/task";
 import {
+  BUILTIN_TOOL_NAMES,
   createToolRegistry,
   ToolBudgetExceededError,
+  ToolPolicyBlockedError,
   type ToolDefinitionMap,
   type ToolBudgetController,
   type ToolExecutionSettledEvent,
@@ -32,6 +35,12 @@ import type {
   PersistentMemoryAfterTaskMeta,
   PersistentMemoryHooks,
 } from "../memory/persistent_types";
+import {
+  createTaskIntentGuard,
+  detectTaskIntent,
+  type TaskIntent,
+  type TaskIntentGuard,
+} from "./intent_guard";
 
 export type AgentRunStopReason =
   | "completed"
@@ -81,6 +90,12 @@ export type AgentDependencies = {
   ) => LanguageModelV3Middleware;
   executionConfig?: AgentExecutionConfig;
   persistentMemoryHooks?: PersistentMemoryHooks;
+  detectTaskIntent?: (args: {
+    model: LanguageModelV3;
+    question: string;
+    config: ResolvedAgentIntentGuardConfig;
+    abortSignal?: AbortSignal;
+  }) => Promise<TaskIntent>;
   maxSteps?: number;
 };
 
@@ -102,6 +117,12 @@ export class AgentRunner {
   ) => LanguageModelV3Middleware;
   private readonly executionConfig: ResolvedAgentExecutionConfig;
   private readonly persistentMemoryHooks?: PersistentMemoryHooks;
+  private readonly detectTaskIntent: (args: {
+    model: LanguageModelV3;
+    question: string;
+    config: ResolvedAgentIntentGuardConfig;
+    abortSignal?: AbortSignal;
+  }) => Promise<TaskIntent>;
 
   constructor(args: {
     model: LanguageModelV3;
@@ -126,6 +147,7 @@ export class AgentRunner {
       legacyMaxSteps: deps.maxSteps,
     });
     this.persistentMemoryHooks = deps.persistentMemoryHooks;
+    this.detectTaskIntent = deps.detectTaskIntent ?? detectTaskIntent;
   }
 
   private readonly model: LanguageModelV3;
@@ -164,6 +186,7 @@ export class AgentRunner {
     let continuationRuns = 0;
     let finalText = "";
     let finalFinishReason = "unknown";
+    let intentGuard: TaskIntentGuard | null = null;
 
     const model = this.createContextAwareModel((context) => {
       session.mergeModelExtractedContext(context);
@@ -175,6 +198,23 @@ export class AgentRunner {
 
     try {
       await this.invokePersistentMemoryBeforeTask(session, question);
+      intentGuard = await this.createTaskIntentGuardForRun(question, model, abortController.signal);
+      const preflightFailure = intentGuard?.getPreflightFailure();
+      if (preflightFailure) {
+        const result: AgentRunDetailedResult = {
+          text: preflightFailure.message,
+          finishReason: preflightFailure.stopReason,
+          stepCount: 0,
+          totalModelSteps,
+          totalToolCalls: toolBudget.usedCount,
+          segmentCount,
+          completed: false,
+          stopReason: preflightFailure.stopReason,
+        };
+        persistentAfterTaskMeta = this.toPersistentAfterTaskMeta(result, "detailed");
+        this.emitTerminalMessages(options, result);
+        return result;
+      }
 
       while (true) {
         const nextSegmentIndex = segmentCount + 1;
@@ -209,7 +249,7 @@ export class AgentRunner {
             messages: session.getMessages(),
             modelParams: this.modelParams,
             abortSignal: abortController.signal,
-            tools: this.createToolRegistryForRun(session, options, { toolBudget }),
+            tools: this.createToolRegistryForRun(session, options, { toolBudget, intentGuard }),
             stopWhen: stepCountIs(this.executionConfig.maxModelStepsPerRun),
             onOutputMessage: options?.onOutputMessage,
             onUsage: (usage) => {
@@ -241,6 +281,29 @@ export class AgentRunner {
             this.emitTerminalMessages(options, result);
             return result;
           }
+
+          if (error instanceof ToolPolicyBlockedError) {
+            this.refreshTodoProgressContext(session);
+            this.writeExecutionBudgetContext(session, {
+              segmentIndex: nextSegmentIndex,
+              continuationRuns,
+              totalModelSteps,
+              toolBudget,
+            });
+            const result: AgentRunDetailedResult = {
+              text: error.message,
+              finishReason: error.stopReason,
+              stepCount: 0,
+              totalModelSteps,
+              totalToolCalls: toolBudget.usedCount,
+              segmentCount: Math.max(segmentCount, nextSegmentIndex),
+              completed: false,
+              stopReason: error.stopReason,
+            };
+            persistentAfterTaskMeta = this.toPersistentAfterTaskMeta(result, "detailed");
+            this.emitTerminalMessages(options, result);
+            return result;
+          }
           throw error;
         }
 
@@ -266,6 +329,23 @@ export class AgentRunner {
         });
 
         if (decision.kind === "completed") {
+          const intentCompletionFailure = intentGuard?.getCompletionFailure();
+          if (intentCompletionFailure) {
+            const result: AgentRunDetailedResult = {
+              text: intentCompletionFailure.message,
+              finishReason: intentCompletionFailure.stopReason,
+              stepCount: segmentResult.stepCount,
+              totalModelSteps,
+              totalToolCalls: toolBudget.usedCount,
+              segmentCount,
+              completed: false,
+              stopReason: intentCompletionFailure.stopReason,
+            };
+            persistentAfterTaskMeta = this.toPersistentAfterTaskMeta(result, "detailed");
+            this.emitTerminalMessages(options, result);
+            return result;
+          }
+
           const result: AgentRunDetailedResult = {
             text: finalText,
             finishReason: finalFinishReason,
@@ -324,13 +404,30 @@ export class AgentRunner {
 
     const abortController = this.createAbortController();
     this.currentAbortController = abortController;
+    const intentGuard = await this.createTaskIntentGuardForRun(question, model, abortController.signal);
+    const preflightFailure = intentGuard?.getPreflightFailure();
+    if (preflightFailure) {
+      await this.invokePersistentMemoryAfterTask(session, {
+        completed: false,
+        mode: "stream",
+        stopReason: preflightFailure.stopReason,
+      });
+      if (this.currentAbortController === abortController) {
+        this.currentAbortController = null;
+      }
+      throw new ToolPolicyBlockedError({
+        toolName: "intent_guard",
+        reason: preflightFailure.message,
+        stopReason: preflightFailure.stopReason,
+      });
+    }
 
     const stream = this.modelExecutor.stream({
       model,
       messages: session.getMessages(),
       modelParams: this.modelParams,
       abortSignal: abortController.signal,
-      tools: this.createToolRegistryForRun(session, options),
+      tools: this.createToolRegistryForRun(session, options, { intentGuard }),
       stopWhen: stepCountIs(this.executionConfig.maxModelStepsPerRun),
       onOutputMessage: options?.onOutputMessage,
       onUsage: (usage) => {
@@ -366,16 +463,24 @@ export class AgentRunner {
   private createToolRegistryForRun(
     session: AgentSession,
     options?: AgentRunOptions,
-    extras?: { toolBudget?: ToolBudgetController },
+    extras?: { toolBudget?: ToolBudgetController; intentGuard?: TaskIntentGuard | null },
   ): ToolDefinitionMap {
     return this.createToolRegistry({
       context: {
         ...this.baseToolContext,
         onOutputMessage: options?.onOutputMessage,
         toolBudget: extras?.toolBudget,
+        beforeToolExecution: (event) => {
+          const guard = extras?.intentGuard;
+          if (!guard) {
+            return { allow: true };
+          }
+
+          return guard.beforeToolExecution(event.toolName);
+        },
         toolOutputMessageSource: "sdk_hooks",
         onToolExecutionSettled: async (event) => {
-          await this.handleToolExecutionSettledForContext(session, event);
+          await this.handleToolExecutionSettledForContext(session, event, extras?.intentGuard ?? null);
         },
       },
       mcpTools: this.mcpTools,
@@ -405,18 +510,29 @@ export class AgentRunner {
   private async handleToolExecutionSettledForContext(
     session: AgentSession,
     event: ToolExecutionSettledEvent,
+    intentGuard?: TaskIntentGuard | null,
   ) {
-    if (!isTodoToolName(event.toolName)) {
-      return;
-    }
+    intentGuard?.onToolSettled({
+      toolName: event.toolName,
+      ok: event.ok,
+    });
 
     if (!event.ok) {
       return;
     }
 
-    this.refreshTodoProgressContext(session, {
-      todoOverride: getTodoProgressContextFromToolOutput(event.result),
-    });
+    if (isTodoToolName(event.toolName)) {
+      this.refreshTodoProgressContext(session, {
+        todoOverride: getTodoProgressContextFromToolOutput(event.result),
+      });
+    }
+
+    if (isMemoryToolName(event.toolName)) {
+      const contextPatch = getContextPatchFromToolOutput(event.result);
+      if (contextPatch) {
+        session.mergeSystemContextPatch(contextPatch);
+      }
+    }
   }
 
   private refreshTodoProgressContext(
@@ -508,6 +624,41 @@ export class AgentRunner {
     ].join("\n");
   }
 
+  private getAvailableToolNamesForIntentGuard(): string[] {
+    const names = new Set<string>();
+    for (const name of BUILTIN_TOOL_NAMES) {
+      names.add(name);
+    }
+    for (const name of Object.keys(this.mcpTools ?? {})) {
+      names.add(name);
+    }
+    return [...names];
+  }
+
+  private async createTaskIntentGuardForRun(
+    question: string,
+    model: LanguageModelV3,
+    abortSignal?: AbortSignal,
+  ): Promise<TaskIntentGuard | null> {
+    const config = this.executionConfig.intentGuard;
+    if (!config.enabled) {
+      return null;
+    }
+
+    const intent = await this.detectTaskIntent({
+      model,
+      question,
+      config,
+      abortSignal,
+    });
+
+    return createTaskIntentGuard({
+      intent,
+      config,
+      availableToolNames: this.getAvailableToolNamesForIntentGuard(),
+    });
+  }
+
   private createContextAwareModel(
     onExtractContext: (context: Partial<AgentContext>) => void,
   ): LanguageModelV3 {
@@ -562,6 +713,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const isTodoToolName = (toolName: string) => /^todo_/.test(toolName);
+const isMemoryToolName = (toolName: string) => /^memory_/.test(toolName);
 
 const getTodoProgressContextFromToolOutput = (
   value: unknown,
@@ -580,6 +732,13 @@ const getTodoProgressContextFromToolOutput = (
     total,
     step: Math.min(step, total),
   };
+};
+
+const getContextPatchFromToolOutput = (value: unknown): Partial<AgentContext> | null => {
+  if (!isRecord(value)) return null;
+  const patch = value.context_patch;
+  if (!isRecord(patch)) return null;
+  return patch as Partial<AgentContext>;
 };
 
 type TodoCursorReconcileResult =
@@ -632,9 +791,19 @@ const resolveExecutionConfig = (args: {
 }): ResolvedAgentExecutionConfig => {
   const config = args.config ?? {};
   const legacyMaxSteps = args.legacyMaxSteps;
+  const mergedIntentGuard: ResolvedAgentIntentGuardConfig = {
+    ...DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard,
+    ...(config.intentGuard ?? {}),
+    browser: {
+      ...DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard.browser,
+      ...(config.intentGuard?.browser ?? {}),
+    },
+  };
+
   return {
     ...DEFAULT_AGENT_EXECUTION_CONFIG,
     ...config,
+    intentGuard: mergedIntentGuard,
     maxModelStepsPerRun:
       legacyMaxSteps ?? config.maxModelStepsPerRun ?? DEFAULT_AGENT_EXECUTION_CONFIG.maxModelStepsPerRun,
   };
@@ -757,5 +926,6 @@ export const __agentRunnerInternals = {
   shouldAutoContinue,
   classifySegmentOutcome,
   getTodoProgressContextFromToolOutput,
+  getContextPatchFromToolOutput,
   reconcileTodoCursor,
 };

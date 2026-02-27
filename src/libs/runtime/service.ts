@@ -4,6 +4,24 @@ import { PriorityTaskQueue, createTask } from "./queue";
 
 import type { RuntimeGateway } from "../channel/channel";
 import type {
+  AgentMemoryCompactResponse,
+  AgentMemoryDeleteRequest,
+  AgentMemoryDeleteResponse,
+  AgentMemoryFeedbackRequest,
+  AgentMemoryFeedbackResponse,
+  AgentMemoryGetRequest,
+  AgentMemoryGetResponse,
+  AgentMemoryListRecentRequest,
+  AgentMemoryListRecentResponse,
+  AgentMemorySearchRequest,
+  AgentMemorySearchResponse,
+  AgentMemoryStatsResponse,
+  AgentMemoryTagResolveRequest,
+  AgentMemoryTagResolveResponse,
+  AgentMemoryUpdateRequest,
+  AgentMemoryUpdateResponse,
+  AgentMemoryUpsertRequest,
+  AgentMemoryUpsertResponse,
   AgentContextResponse,
   AgentMessagesResponse,
   CreateTaskRequest,
@@ -19,6 +37,7 @@ import type {
 import type { TaskItem } from "../../types/task";
 import type { TaskExecutionStopReason } from "../../types/task";
 import { TaskStatus, isTaskExecutionStopReason } from "../../types/task";
+import type { PersistentMemoryCoordinator } from "../agent/memory";
 
 const DEFAULT_AGENT_SESSION_ID = "default";
 const CONTEXT_OVERFLOW_CANCEL_REASON = "contextoverflow";
@@ -59,12 +78,17 @@ export class AgentRuntimeService implements RuntimeGateway {
   private taskRegistry = new Map<string, TaskItem<string, string>>();
   private readonly taskMessages = new Map<string, TaskMessageBuffer>();
   private readonly agentSessions = new Map<string, Agent>();
+  private readonly persistentMemoryCoordinator?: PersistentMemoryCoordinator;
   private started = false;
 
   constructor(
     private readonly agent: Agent,
     private readonly logger: Pick<Console, "log"> = console,
+    options?: {
+      persistentMemoryCoordinator?: PersistentMemoryCoordinator;
+    },
   ) {
+    this.persistentMemoryCoordinator = options?.persistentMemoryCoordinator;
     this.agentSessions.set(DEFAULT_AGENT_SESSION_ID, this.agent);
     this.taskQueue = new PriorityTaskQueue(
       async (task: TaskItem<string, string>) => {
@@ -313,11 +337,13 @@ export class AgentRuntimeService implements RuntimeGateway {
           core: context.memory.core.length,
           working: context.memory.working.length,
           ephemeral: context.memory.ephemeral.length,
+          longterm: context.memory.longterm.length,
         },
         injectedCounts: {
           core: context.memory.core.length,
           working: context.memory.working.length,
           ephemeral: context.memory.ephemeral.length,
+          longterm: context.memory.longterm.length,
         },
         droppedByReason: {
           working_status_terminal: 0,
@@ -336,6 +362,94 @@ export class AgentRuntimeService implements RuntimeGateway {
     return {
       messages: this.getAgent().getMessagesSnapshot(),
     };
+  }
+
+  private getOperationalMemoryCoordinator(): PersistentMemoryCoordinator {
+    const coordinator = this.persistentMemoryCoordinator;
+    if (!coordinator || !coordinator.status.available) {
+      throw new Error("Persistent memory unavailable");
+    }
+    return coordinator;
+  }
+
+  async memorySearch(request: AgentMemorySearchRequest): Promise<AgentMemorySearchResponse> {
+    const coordinator = this.getOperationalMemoryCoordinator();
+    const result = await coordinator.search({
+      query: request.query,
+      limit: request.limit,
+      mode: request.mode,
+      hydrateTagRefs: request.hydrateTagRefs,
+    });
+    return result as AgentMemorySearchResponse;
+  }
+
+  async memoryGet(request: AgentMemoryGetRequest): Promise<AgentMemoryGetResponse> {
+    const coordinator = this.getOperationalMemoryCoordinator();
+    const entry = await coordinator.get({
+      entryId: request.entryId,
+      blockId: request.blockId,
+    });
+    return { entry } as AgentMemoryGetResponse;
+  }
+
+  async memoryUpsert(request: AgentMemoryUpsertRequest): Promise<AgentMemoryUpsertResponse> {
+    const coordinator = this.getOperationalMemoryCoordinator();
+    return await coordinator.upsert({
+      items: request.items,
+    }) as AgentMemoryUpsertResponse;
+  }
+
+  async memoryUpdate(request: AgentMemoryUpdateRequest): Promise<AgentMemoryUpdateResponse> {
+    const coordinator = this.getOperationalMemoryCoordinator();
+    const entry = await coordinator.update({
+      entryId: request.entryId,
+      patch: request.patch,
+    });
+    return { entry } as AgentMemoryUpdateResponse;
+  }
+
+  async memoryDelete(request: AgentMemoryDeleteRequest): Promise<AgentMemoryDeleteResponse> {
+    const coordinator = this.getOperationalMemoryCoordinator();
+    return await coordinator.delete({
+      entryId: request.entryId,
+      blockId: request.blockId,
+    }) as AgentMemoryDeleteResponse;
+  }
+
+  async memoryFeedback(request: AgentMemoryFeedbackRequest): Promise<AgentMemoryFeedbackResponse> {
+    const coordinator = this.getOperationalMemoryCoordinator();
+    return await coordinator.feedback({
+      entryId: request.entryId,
+      direction: request.direction,
+    }) as AgentMemoryFeedbackResponse;
+  }
+
+  async memoryTagResolve(
+    request: AgentMemoryTagResolveRequest,
+  ): Promise<AgentMemoryTagResolveResponse> {
+    const coordinator = this.getOperationalMemoryCoordinator();
+    return await coordinator.resolveTag({
+      tagId: request.tagId,
+      hydrateEntries: request.hydrateEntries,
+    }) as AgentMemoryTagResolveResponse;
+  }
+
+  async memoryStats(): Promise<AgentMemoryStatsResponse> {
+    const coordinator = this.getOperationalMemoryCoordinator();
+    return await coordinator.getStats() as AgentMemoryStatsResponse;
+  }
+
+  async memoryCompact(): Promise<AgentMemoryCompactResponse> {
+    const coordinator = this.getOperationalMemoryCoordinator();
+    return await coordinator.compactNow() as AgentMemoryCompactResponse;
+  }
+
+  async memoryListRecent(
+    request?: AgentMemoryListRecentRequest,
+  ): Promise<AgentMemoryListRecentResponse> {
+    const coordinator = this.getOperationalMemoryCoordinator();
+    const entries = await coordinator.listRecent(request?.limit ?? 20);
+    return { entries } as AgentMemoryListRecentResponse;
   }
 
   forceAbort(): ForceAbortResponse {

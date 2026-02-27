@@ -21,6 +21,7 @@ const createBaseContext = (): AgentContext => ({
     core: [],
     working: [],
     ephemeral: [],
+    longterm: [],
   },
 });
 
@@ -217,6 +218,7 @@ describe("context_sanitizer", () => {
             content: "keep",
           },
         ],
+        longterm: [],
       },
     } as AgentContext;
 
@@ -229,8 +231,8 @@ describe("context_sanitizer", () => {
     expect(result.injectedContext.memory.ephemeral.map((x) => x.id)).toEqual(["temp-keep"]);
 
     expect(result.debug.round).toBe(10);
-    expect(result.debug.rawCounts).toEqual({ core: 1, working: 3, ephemeral: 2 });
-    expect(result.debug.injectedCounts).toEqual({ core: 1, working: 1, ephemeral: 1 });
+    expect(result.debug.rawCounts).toEqual({ core: 1, working: 3, ephemeral: 2, longterm: 0 });
+    expect(result.debug.injectedCounts).toEqual({ core: 1, working: 1, ephemeral: 1, longterm: 0 });
     expect(result.debug.droppedByReason.working_status_terminal).toBe(1);
     expect(result.debug.droppedByReason.threshold_confidence).toBe(1);
     expect(result.debug.droppedByReason.expired_by_round).toBe(1);
@@ -307,6 +309,7 @@ describe("context_sanitizer", () => {
             content: "expired by raw retention ttl",
           },
         ],
+        longterm: [],
       },
     } as unknown as AgentContext;
 

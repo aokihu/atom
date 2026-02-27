@@ -44,6 +44,7 @@ type StartTuiClientOptions = {
   serverUrl?: string;
   mode?: "hybrid" | "tui" | "tui-client";
   agentName?: string;
+  version?: string;
   themeName?: string;
 };
 
@@ -53,6 +54,7 @@ type CoreTuiClientOptions = {
   serverUrl?: string;
   mode?: "hybrid" | "tui" | "tui-client";
   agentName?: string;
+  version?: string;
   themeName?: string;
 };
 
@@ -186,10 +188,12 @@ class CoreTuiClientApp {
     this.mode = options.mode;
     this.theme = resolveTuiTheme(options.themeName);
     const initialAgentName = options.agentName?.trim() || DEFAULT_AGENT_NAME;
+    const initialVersion = options.version?.trim() || "unknown";
     this.state = new TuiClientState({
       terminal: getTerminalSize(renderer),
       agentName: initialAgentName,
     });
+    this.state.serverVersion = initialVersion;
 
     this.ui = createTuiClientUiBundle(renderer, {
       theme: this.theme,
@@ -1085,7 +1089,7 @@ class CoreTuiClientApp {
 }
 
 export const startTuiClient = async (options: StartTuiClientOptions): Promise<void> => {
-  const { client, pollIntervalMs = 500, serverUrl, mode, agentName, themeName } = options;
+  const { client, pollIntervalMs = 500, serverUrl, mode, agentName, version, themeName } = options;
 
   let resolveExit: (() => void) | undefined;
   const waitForExit = new Promise<void>((resolve) => {
@@ -1108,6 +1112,7 @@ export const startTuiClient = async (options: StartTuiClientOptions): Promise<vo
       serverUrl,
       mode,
       agentName,
+      version,
       themeName,
     });
 

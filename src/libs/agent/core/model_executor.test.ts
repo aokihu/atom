@@ -118,6 +118,49 @@ describe("AISDKModelExecutor", () => {
       .toBe("permission denied");
   });
 
+  test("generate marks MCP isError tool output as failed results", async () => {
+    const messages: TaskOutputMessageDraft[] = [];
+
+    const executor = new AISDKModelExecutor({
+      generateTextFn: (async (options: any) => {
+        await options.experimental_onToolCallStart?.({
+          stepNumber: 1,
+          toolCall: {
+            toolCallId: "call-mcp-1",
+            toolName: "browser__navigate",
+            input: { url: "https://example.com" },
+          },
+        });
+        await options.experimental_onToolCallFinish?.({
+          stepNumber: 1,
+          toolCall: {
+            toolCallId: "call-mcp-1",
+            toolName: "browser__navigate",
+            input: { url: "https://example.com" },
+          },
+          success: true,
+          output: {
+            isError: true,
+            content: [{ type: "text", text: "blocked by policy" }],
+          },
+          durationMs: 3,
+        });
+        await options.onStepFinish?.({ finishReason: "stop" });
+        return { text: "done", finishReason: "stop" };
+      }) as any,
+    });
+
+    await executor.generate(makeBaseInput(messages));
+
+    const toolResult = messages.find(
+      (m) => m.category === "tool" && m.type === "tool.result" && m.toolCallId === "call-mcp-1",
+    );
+
+    expect(toolResult && "ok" in toolResult ? toolResult.ok : undefined).toBe(false);
+    expect(toolResult && "errorMessage" in toolResult ? toolResult.errorMessage : undefined)
+      .toBe("blocked by policy");
+  });
+
   test("generate maps tool hook execution errors to failed tool results", async () => {
     const messages: TaskOutputMessageDraft[] = [];
 
@@ -211,4 +254,3 @@ describe("AISDKModelExecutor", () => {
     expect(sequence.indexOf("tool:tool.result")).toBeLessThan(sequence.indexOf("other:step.finish"));
   });
 });
-

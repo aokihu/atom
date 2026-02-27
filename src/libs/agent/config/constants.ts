@@ -9,6 +9,7 @@ export const BUILTIN_TOOL_PERMISSION_SECTIONS = [
   "ripgrep",
   "write",
   "todo",
+  "memory",
   "cp",
   "mv",
   "git",

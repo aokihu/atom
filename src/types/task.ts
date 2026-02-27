@@ -11,6 +11,8 @@ export const CONTROLLED_TASK_STOP_REASONS = [
   "step_limit_segment_continue",
   "model_step_budget_exhausted",
   "continuation_limit_reached",
+  "tool_policy_blocked",
+  "intent_execution_failed",
 ] as const;
 
 export type TaskExecutionStopReason = (typeof CONTROLLED_TASK_STOP_REASONS)[number];

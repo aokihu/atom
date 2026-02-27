@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { DEFAULT_AGENT_EXECUTION_CONFIG } from "../../../types/agent";
+import { ToolPolicyBlockedError } from "../tools";
 import { AgentSession } from "../session/agent_session";
 import { AgentRunner, __agentRunnerInternals } from "./agent_runner";
 
@@ -124,16 +125,22 @@ describe("agent_runner persistent memory hooks", () => {
 
   const createRunnerForTest = (args: {
     generateResults?: Array<{ text: string; finishReason: string; stepCount: number }>;
+    generateImpl?: () => Promise<{ text: string; finishReason: string; stepCount: number }>;
     streamParts?: string[];
     hooks?: {
       beforeTask?: (...args: any[]) => any;
       afterTask?: (...args: any[]) => any;
     };
     executionConfig?: Partial<typeof DEFAULT_AGENT_EXECUTION_CONFIG>;
+    createToolRegistry?: (...args: any[]) => any;
+    detectTaskIntent?: (...args: any[]) => Promise<any>;
   }) => {
     const generateResults = [...(args.generateResults ?? [{ text: "ok", finishReason: "stop", stepCount: 1 }])];
     const modelExecutor = {
       generate: async () => {
+        if (args.generateImpl) {
+          return await args.generateImpl();
+        }
         const next = generateResults.shift();
         if (!next) {
           throw new Error("No stub generate result left");
@@ -153,12 +160,13 @@ describe("agent_runner persistent memory hooks", () => {
       model: {} as any,
       dependencies: {
         modelExecutor,
-        createToolRegistry: () => ({} as any),
+        createToolRegistry: args.createToolRegistry ?? (() => ({} as any)),
         createExtractContextMiddleware: () => (({ doGenerate }: any) => doGenerate?.({}) ?? {}) as any,
         executionConfig: {
           ...DEFAULT_AGENT_EXECUTION_CONFIG,
           ...(args.executionConfig ?? {}),
         },
+        detectTaskIntent: args.detectTaskIntent,
         persistentMemoryHooks: {
           beforeTask: async (...hookArgs: unknown[]) => {
             await args.hooks?.beforeTask?.(...hookArgs);
@@ -274,5 +282,42 @@ describe("agent_runner persistent memory hooks", () => {
 
     expect(parts).toEqual(["a", "b"]);
     expect(calls).toEqual(["before", "after"]);
+  });
+
+  test("marks browser-intent task as failed when no browser-capable tool exists", async () => {
+    const runner = createRunnerForTest({
+      detectTaskIntent: async () => ({
+        kind: "browser_access",
+        confidence: 0.99,
+        source: "model",
+        reason: "test",
+      }),
+    });
+
+    const result = await runner.runTaskDetailed(createSession(), "用浏览器访问 www.19lou.com");
+    expect(result.completed).toBe(false);
+    expect(result.stopReason).toBe("intent_execution_failed");
+  });
+
+  test("returns controlled stop when tool policy blocks execution", async () => {
+    const runner = createRunnerForTest({
+      detectTaskIntent: async () => ({
+        kind: "general",
+        confidence: 0.7,
+        source: "heuristic",
+        reason: "test",
+      }),
+      generateImpl: async () => {
+        throw new ToolPolicyBlockedError({
+          toolName: "read",
+          reason: "blocked by intent policy",
+          stopReason: "tool_policy_blocked",
+        });
+      },
+    });
+
+    const result = await runner.runTaskDetailed(createSession(), "question");
+    expect(result.completed).toBe(false);
+    expect(result.stopReason).toBe("tool_policy_blocked");
   });
 });

@@ -41,6 +41,17 @@ const coreBlock = (overrides: Partial<Record<string, unknown>> = {}) => ({
   ...overrides,
 });
 
+const longtermBlock = (overrides: Partial<Record<string, unknown>> = {}) => ({
+  id: "longterm:ops:sites",
+  type: "reference",
+  decay: 0.2,
+  confidence: 0.88,
+  round: 1,
+  tags: ["ops", "sites"],
+  content: "google => https://www.google.com",
+  ...overrides,
+});
+
 describe("persistent memory db/store", () => {
   test("initializes schema when .agent exists", async () => {
     const workspace = await createTempWorkspace(true);
@@ -344,6 +355,182 @@ describe("persistent memory coordinator", () => {
           (block) => (block as any).persistent_block_id === "core:project:ts-style",
         ),
       ).toBe(false);
+
+      await coordinator.dispose();
+    } finally {
+      await cleanupWorkspace(workspace);
+    }
+  });
+
+  test("manual compact tags low-importance reusable memory and tag_resolve restores content", async () => {
+    const workspace = await createTempWorkspace(true);
+    try {
+      const coordinator = PersistentMemoryCoordinator.initialize({
+        workspace,
+        config: {
+          enabled: true,
+          autoCapture: true,
+          autoRecall: true,
+          searchMode: "like",
+          maxRecallItems: 6,
+          minCaptureConfidence: 0.5,
+          tagging: {
+            reuseProbabilityThreshold: 0.15,
+            placeholderSummaryMaxLen: 120,
+            scheduler: {
+              enabled: false,
+            },
+          },
+        },
+      });
+      expect(coordinator.status.available).toBe(true);
+
+      const session = createSession(workspace);
+      session.mergeSystemContextPatch({
+        memory: {
+          core: [
+            coreBlock({
+              id: "core:tag:candidate",
+              decay: 0.92,
+              confidence: 0.9,
+              content: "Frequently useful but currently inactive operational note",
+              tags: ["ops", "inactive"],
+            }),
+          ],
+        },
+      } as any);
+      await coordinator.hooks.afterTask(session, {
+        mode: "detailed",
+        completed: true,
+        finishReason: "stop",
+      });
+
+      const compactResult = await coordinator.compactNow();
+      expect(compactResult.tagged).toBeGreaterThan(0);
+
+      const taggedEntry = await coordinator.get({ blockId: "core:tag:candidate" });
+      expect(taggedEntry?.content_state).toBe("tag_ref");
+      expect(typeof taggedEntry?.tag_id).toBe("string");
+
+      const resolved = await coordinator.resolveTag({
+        tagId: String(taggedEntry?.tag_id),
+        hydrateEntries: true,
+      });
+      expect(typeof resolved.content).toBe("string");
+      expect(resolved.content).toContain("operational note");
+      expect(Array.isArray(resolved.hydrated_entries)).toBe(true);
+      expect((resolved.hydrated_entries[0] as any)?.content_state).toBe("active");
+
+      await coordinator.dispose();
+    } finally {
+      await cleanupWorkspace(workspace);
+    }
+  });
+
+  test("captures longterm memory and recalls into longterm tier", async () => {
+    const workspace = await createTempWorkspace(true);
+    try {
+      const coordinator = PersistentMemoryCoordinator.initialize({
+        workspace,
+        config: {
+          enabled: true,
+          autoCapture: true,
+          autoRecall: true,
+          searchMode: "like",
+          maxRecallItems: 2,
+          maxRecallLongtermItems: 3,
+          minCaptureConfidence: 0.6,
+          tagging: {
+            scheduler: {
+              enabled: false,
+            },
+          },
+        },
+      });
+      expect(coordinator.status.available).toBe(true);
+
+      const captureSession = createSession(workspace);
+      captureSession.mergeSystemContextPatch({
+        memory: {
+          longterm: [longtermBlock()],
+        },
+      } as any);
+      await coordinator.hooks.afterTask(captureSession, {
+        mode: "detailed",
+        completed: true,
+        finishReason: "stop",
+      });
+
+      const recallSession = createSession(workspace);
+      await coordinator.hooks.beforeTask(recallSession, "google 网站地址是什么?");
+      const snapshot = recallSession.getContextSnapshot();
+      expect(
+        snapshot.memory.longterm.some((block) =>
+          block.id === "persistent:longterm:ops:sites" && block.type === "persistent_longterm_recall"),
+      ).toBe(true);
+
+      await coordinator.dispose();
+    } finally {
+      await cleanupWorkspace(workspace);
+    }
+  });
+
+  test("captures qualified working memory into longterm persistent entries", async () => {
+    const workspace = await createTempWorkspace(true);
+    try {
+      const coordinator = PersistentMemoryCoordinator.initialize({
+        workspace,
+        config: {
+          enabled: true,
+          autoCapture: true,
+          autoRecall: true,
+          minCaptureConfidence: 0.6,
+          tagging: {
+            scheduler: {
+              enabled: false,
+            },
+          },
+        },
+      });
+      expect(coordinator.status.available).toBe(true);
+
+      const session = createSession(workspace);
+      session.mergeSystemContextPatch({
+        memory: {
+          working: [
+            {
+              id: "work:site:google",
+              type: "reference",
+              decay: 0.32,
+              confidence: 0.86,
+              round: 1,
+              tags: ["site", "url"],
+              content: "google 对应网址是 https://www.google.com",
+              status: "open",
+            },
+          ],
+        },
+      } as any);
+
+      await coordinator.hooks.afterTask(session, {
+        mode: "detailed",
+        completed: true,
+        finishReason: "stop",
+      });
+
+      const captured = await coordinator.get({
+        blockId: "working:work:site:google",
+      });
+      expect(captured?.source_tier).toBe("longterm");
+      expect(captured?.content).toContain("google");
+
+      const recallSession = createSession(workspace);
+      await coordinator.hooks.beforeTask(recallSession, "google 常用网址");
+      const recalledSnapshot = recallSession.getContextSnapshot();
+      expect(
+        recalledSnapshot.memory.longterm.some((block) =>
+          block.id === "persistent:working:work:site:google"),
+      ).toBe(true);
 
       await coordinator.dispose();
     } finally {

@@ -24,6 +24,8 @@ import { cleanupTodoDbOnStartup } from "./libs/agent/tools/todo_store";
 import { PersistentMemoryCoordinator } from "./libs/agent/memory";
 import { createAgentPromptWatcher, loadOrCompileSystemPrompt } from "./libs/agent/prompt_cache";
 
+declare const BUILD_VERSION: string | undefined;
+
 const DEFAULT_AGENT_NAME = "Atom";
 const HELP_TEXT = `Usage: atom [options]
 
@@ -46,6 +48,13 @@ Examples:
 `;
 
 const getAppVersion = (): string => {
+  if (typeof BUILD_VERSION === "string") {
+    const bundledVersion = BUILD_VERSION.trim();
+    if (bundledVersion.length > 0) {
+      return bundledVersion;
+    }
+  }
+
   try {
     const packageJsonUrl = new URL("../package.json", import.meta.url);
     const packageJson = JSON.parse(readFileSync(packageJsonUrl, "utf8")) as {
@@ -247,7 +256,11 @@ const initializeRuntimeService = async (
       model,
       modelParams: agentConfig.agent?.params,
       workspace: cliOptions.workspace,
-      toolContext: { permissions: agentConfig, workspace: cliOptions.workspace },
+      toolContext: {
+        permissions: agentConfig,
+        workspace: cliOptions.workspace,
+        persistentMemoryCoordinator: activePersistentMemoryCoordinator,
+      },
       mcpTools,
       dependencies: {
         executionConfig: agentConfig.agent?.execution,
@@ -259,6 +272,9 @@ const initializeRuntimeService = async (
     const runtimeService = new AgentRuntimeService(
       taskAgent,
       cliOptions.mode === "tui" ? { log: () => {} } : console,
+      {
+        persistentMemoryCoordinator: activePersistentMemoryCoordinator,
+      },
     );
     runtimeService.start();
     const getMcpStatus = createMCPHealthStatusProvider({
@@ -321,6 +337,7 @@ const main = async () => {
       serverUrl,
       mode: "tui-client",
       agentName: DEFAULT_AGENT_NAME,
+      version,
     });
     return;
   }
@@ -428,6 +445,7 @@ const main = async () => {
         serverUrl: gateway.baseUrl,
         mode: "tui",
         agentName,
+        version,
         themeName: agentConfig.tui?.theme,
       });
     } finally {
@@ -450,10 +468,8 @@ const main = async () => {
   }
 };
 
-try {
-  await main();
-} catch (error) {
+void main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`[startup] failed: ${message}`);
   process.exit(1);
-}
+});

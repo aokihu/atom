@@ -1,6 +1,24 @@
 import type { GatewayClient } from "./channel";
 import type { GetTaskOptions } from "./channel";
 import type {
+  AgentMemoryCompactResponse,
+  AgentMemoryDeleteRequest,
+  AgentMemoryDeleteResponse,
+  AgentMemoryFeedbackRequest,
+  AgentMemoryFeedbackResponse,
+  AgentMemoryGetRequest,
+  AgentMemoryGetResponse,
+  AgentMemoryListRecentRequest,
+  AgentMemoryListRecentResponse,
+  AgentMemorySearchRequest,
+  AgentMemorySearchResponse,
+  AgentMemoryStatsResponse,
+  AgentMemoryTagResolveRequest,
+  AgentMemoryTagResolveResponse,
+  AgentMemoryUpdateRequest,
+  AgentMemoryUpdateResponse,
+  AgentMemoryUpsertRequest,
+  AgentMemoryUpsertResponse,
   ApiErrorResponse,
   ApiSuccessResponse,
   CreateTaskRequest,
@@ -79,6 +97,100 @@ export class HttpGatewayClient implements GatewayClient {
 
   async getAgentMessages(): Promise<AgentMessagesResponse> {
     return await this.request<AgentMessagesResponse>("/v1/agent/messages", { method: "GET" });
+  }
+
+  async memorySearch(request: AgentMemorySearchRequest): Promise<AgentMemorySearchResponse> {
+    return await this.request<AgentMemorySearchResponse>("/v1/agent/memory/search", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+  }
+
+  async memoryGet(request: AgentMemoryGetRequest): Promise<AgentMemoryGetResponse> {
+    return await this.request<AgentMemoryGetResponse>("/v1/agent/memory/get", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+  }
+
+  async memoryUpsert(request: AgentMemoryUpsertRequest): Promise<AgentMemoryUpsertResponse> {
+    return await this.request<AgentMemoryUpsertResponse>("/v1/agent/memory/upsert", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+  }
+
+  async memoryUpdate(request: AgentMemoryUpdateRequest): Promise<AgentMemoryUpdateResponse> {
+    return await this.request<AgentMemoryUpdateResponse>("/v1/agent/memory/update", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+  }
+
+  async memoryDelete(request: AgentMemoryDeleteRequest): Promise<AgentMemoryDeleteResponse> {
+    return await this.request<AgentMemoryDeleteResponse>("/v1/agent/memory/delete", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+  }
+
+  async memoryFeedback(request: AgentMemoryFeedbackRequest): Promise<AgentMemoryFeedbackResponse> {
+    return await this.request<AgentMemoryFeedbackResponse>("/v1/agent/memory/feedback", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+  }
+
+  async memoryTagResolve(
+    request: AgentMemoryTagResolveRequest,
+  ): Promise<AgentMemoryTagResolveResponse> {
+    return await this.request<AgentMemoryTagResolveResponse>("/v1/agent/memory/tag_resolve", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+  }
+
+  async memoryStats(): Promise<AgentMemoryStatsResponse> {
+    return await this.request<AgentMemoryStatsResponse>("/v1/agent/memory/stats", {
+      method: "GET",
+    });
+  }
+
+  async memoryCompact(): Promise<AgentMemoryCompactResponse> {
+    return await this.request<AgentMemoryCompactResponse>("/v1/agent/memory/compact", {
+      method: "POST",
+    });
+  }
+
+  async memoryListRecent(request?: AgentMemoryListRecentRequest): Promise<AgentMemoryListRecentResponse> {
+    return await this.request<AgentMemoryListRecentResponse>("/v1/agent/memory/list_recent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request ?? {}),
+    });
   }
 
   async forceAbort(): Promise<ForceAbortResponse> {

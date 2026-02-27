@@ -1,6 +1,6 @@
 # Context Protocol --- Hybrid Mode (Text + JSON Snapshot)
 
-Version: 2.4
+Version: 3.0
 
 ------------------------------------------------------------------------
 
@@ -35,7 +35,7 @@ If contextMode = disabled:
    - `todo.step`
 9. `todo.cursor` is the ONLY `todo` subfield the model may update (optional).
    - If emitting `todo.cursor`, it MUST follow the strict schema defined below.
-10. Memory blocks MUST be emitted only under `memory.core`, `memory.working`, or `memory.ephemeral`.
+10. Memory blocks MUST be emitted only under `memory.core`, `memory.working`, `memory.ephemeral`, or `memory.longterm`.
 11. Every memory block MUST contain all required fields:
     - `id`
     - `type`
@@ -66,7 +66,7 @@ No markdown wrapping around JSON. No XML tags. No comments inside JSON.
 ## Context JSON Template
 
 {
-  "version": 2.4,
+  "version": 3.0,
   "runtime": {
     "round": 1,
     "workspace": "/workspace/path/",
@@ -105,6 +105,17 @@ No markdown wrapping around JSON. No XML tags. No comments inside JSON.
         "round": 1,
         "tags": ["temporary"],
         "content": "临时上下文信息"
+      }
+    ],
+    "longterm": [
+      {
+        "id": "longterm-001",
+        "type": "knowledge",
+        "decay": 0.25,
+        "confidence": 0.85,
+        "round": 1,
+        "tags": ["reference", "persistent"],
+        "content": "可长期复用的业务知识"
       }
     ]
   },
@@ -164,9 +175,17 @@ Rules:
 - `core`: long-term persistent memory
 - `working`: multi-round task memory
 - `ephemeral`: short-lived temporary memory
+- `longterm`: durable reusable memory pool (may include restored `tag_ref` content)
 - When persistent memory is enabled, `memory.core` may be saved across sessions.
 - Put only stable, high-value, reusable facts/preferences/constraints in `memory.core`.
 - Put temporary progress and short-lived reasoning in `memory.working` or `memory.ephemeral`.
+- Put broadly reusable but less-frequently-accessed knowledge into `memory.longterm`.
 - Prefer reusing the same `memory.core[].id` when updating an existing long-term memory.
+
+For tag-based cold memory placeholders:
+- `content_state = "tag_ref"` means this block is a placeholder.
+- `tag_id` links to the cold payload storage.
+- `tag_summary` keeps a short human-readable placeholder summary.
+- When tag payload is restored, `content_state` returns to `active`, and `rehydrated_at` may be set.
 
 Memory lifecycle is governed by `decay`, `confidence`, and round progression.

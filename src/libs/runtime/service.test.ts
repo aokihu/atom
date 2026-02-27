@@ -81,6 +81,7 @@ describe("AgentRuntimeService", () => {
             core: [],
             working: [],
             ephemeral: [],
+            longterm: [],
           },
         };
       },
@@ -163,6 +164,7 @@ describe("AgentRuntimeService", () => {
             core: [],
             working: [],
             ephemeral: [],
+            longterm: [],
           },
         };
       },
@@ -216,6 +218,7 @@ describe("AgentRuntimeService", () => {
             core: [],
             working: [],
             ephemeral: [],
+            longterm: [],
           },
         };
       },
@@ -285,6 +288,7 @@ describe("AgentRuntimeService", () => {
             core: [],
             working: [],
             ephemeral: [],
+            longterm: [],
           },
         };
       },
@@ -327,6 +331,7 @@ describe("AgentRuntimeService", () => {
         core: [],
         working: [{ id: "w1" }],
         ephemeral: [],
+        longterm: [],
       },
     } as any;
 
@@ -356,8 +361,8 @@ describe("AgentRuntimeService", () => {
           injectedContext,
           projectionDebug: {
             round: 2,
-            rawCounts: { core: 0, working: 1, ephemeral: 0 },
-            injectedCounts: { core: 0, working: 0, ephemeral: 0 },
+            rawCounts: { core: 0, working: 1, ephemeral: 0, longterm: 0 },
+            injectedCounts: { core: 0, working: 0, ephemeral: 0, longterm: 0 },
             droppedByReason: {
               working_status_terminal: 1,
               threshold_decay: 0,
@@ -460,7 +465,7 @@ describe("AgentRuntimeService", () => {
             datetime: new Date().toISOString(),
             startup_at: Date.now(),
           },
-          memory: { core: [], working: [], ephemeral: [] },
+          memory: { core: [], working: [], ephemeral: [], longterm: [] },
         };
       },
       getMessagesSnapshot() {
@@ -563,7 +568,7 @@ describe("AgentRuntimeService", () => {
             datetime: new Date().toISOString(),
             startup_at: Date.now(),
           },
-          memory: { core: [], working: [], ephemeral: [] },
+          memory: { core: [], working: [], ephemeral: [], longterm: [] },
         };
       },
       getMessagesSnapshot() {
@@ -649,7 +654,7 @@ describe("AgentRuntimeService", () => {
             datetime: new Date().toISOString(),
             startup_at: Date.now(),
           },
-          memory: { core: [], working: [], ephemeral: [] },
+          memory: { core: [], working: [], ephemeral: [], longterm: [] },
         };
       },
       getMessagesSnapshot() {
@@ -694,7 +699,7 @@ describe("AgentRuntimeService", () => {
             datetime: new Date().toISOString(),
             startup_at: Date.now(),
           },
-          memory: { core: [], working: [], ephemeral: [] },
+          memory: { core: [], working: [], ephemeral: [], longterm: [] },
         };
       },
       getMessagesSnapshot() {
@@ -735,7 +740,7 @@ describe("AgentRuntimeService", () => {
             datetime: new Date().toISOString(),
             startup_at: Date.now(),
           },
-          memory: { core: [], working: [], ephemeral: [] },
+          memory: { core: [], working: [], ephemeral: [], longterm: [] },
         };
       },
       getMessagesSnapshot() {

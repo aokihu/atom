@@ -29,6 +29,7 @@ describe("executeContextCommand", () => {
                 core: [],
                 working: [{ id: "raw-work" }],
                 ephemeral: [],
+                longterm: [],
               },
             } as any,
             injectedContext: {
@@ -43,12 +44,13 @@ describe("executeContextCommand", () => {
                 core: [],
                 working: [],
                 ephemeral: [],
+                longterm: [],
               },
             } as any,
             projectionDebug: {
               round: 1,
-              rawCounts: { core: 0, working: 1, ephemeral: 0 },
-              injectedCounts: { core: 0, working: 0, ephemeral: 0 },
+              rawCounts: { core: 0, working: 1, ephemeral: 0, longterm: 0 },
+              injectedCounts: { core: 0, working: 0, ephemeral: 0, longterm: 0 },
               droppedByReason: {
                 working_status_terminal: 1,
                 threshold_decay: 0,

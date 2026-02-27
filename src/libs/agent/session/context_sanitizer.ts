@@ -487,12 +487,14 @@ const createEmptyMemory = (): AgentContextMemory => ({
   core: [],
   working: [],
   ephemeral: [],
+  longterm: [],
 });
 
 const createZeroTierCounts = (): Record<ContextMemoryTier, number> => ({
   core: 0,
   working: 0,
   ephemeral: 0,
+  longterm: 0,
 });
 
 const createProjectionDebug = (round: number): ContextProjectionDebug => ({
@@ -618,6 +620,7 @@ export const mergeContextWithMemoryPolicy = (
       core: [...merged.memory.core],
       working: [...merged.memory.working],
       ephemeral: [...merged.memory.ephemeral],
+      longterm: [...merged.memory.longterm],
     };
 
     for (const tier of CONTEXT_MEMORY_TIERS) {

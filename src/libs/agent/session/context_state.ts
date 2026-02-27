@@ -37,6 +37,7 @@ const createInitialContext = (
     core: [],
     working: [],
     ephemeral: [],
+    longterm: [],
   },
   todo: {
     summary: "暂无TODO",

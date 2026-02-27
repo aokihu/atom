@@ -79,6 +79,8 @@ docs/
 - `/healthz` 返回 `name/version/startupAt/queue`
 - 统一响应结构：`{ ok: true, data }` / `{ ok: false, error }`
 - `POST /v1/tasks` 支持请求体校验（`input` 必填，`priority` 范围 `0..4`，`type` 可选）
+- `POST /v1/agent/memory/*` 提供记忆管理 API（search/get/upsert/update/delete/feedback/tag_resolve/compact/list_recent）
+- `GET /v1/agent/memory/stats` 提供持久化记忆状态统计
 
 ### `src/libs/runtime`
 - 负责任务执行编排，不负责 I/O 展示。
@@ -86,10 +88,22 @@ docs/
   - `service.ts`: `AgentRuntimeService`（Agent + Queue + TaskRegistry）
   - `queue/`: 队列实现与 `createTask`
 - 运行时能力（限流、取消、持久化队列、任务 TTL）应优先放在这里。
+- 记忆相关职责：
+  - 通过 `PersistentMemoryCoordinator` 暴露 RuntimeGateway memory API
+  - 保持 `/v1/tasks` 主流程与记忆 API 解耦
 
 ### `src/libs/agent`
 - 负责模型调用、上下文注入、工具执行集成。
 - 不处理 HTTP 或客户端等传输/交互细节。
+- 持久化记忆由 `libs/agent/memory` 管理：
+  - context tier: `core/working/ephemeral/longterm`
+  - content state: `active/tag_ref`
+  - 后台整理：仅定时 + 自适应周期（带抖动）
+  - 标签化冷记忆：低重要性且 `P(reuse) > threshold` 时写入 tag payload，原位保留 `tag_id + tag_summary`
+- 任务意图护栏由 `libs/agent/core` 驱动：
+  - 启动阶段识别任务 intent（`model` 或 `heuristic`）
+  - 对工具调用执行 Browser-first 作用域约束
+  - 不满足浏览器任务达成条件时返回受控停止（如 `intent_execution_failed` / `tool_policy_blocked`）
 
 ### `src/types`
 - 存放跨层类型：

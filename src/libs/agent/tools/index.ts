@@ -8,10 +8,12 @@ export type {
   ToolBudgetController,
   ToolDefinitionMap,
   ToolExecutionContext,
+  ToolExecutionGuardDecision,
+  ToolExecutionGuardEvent,
   ToolExecutionSettledEvent,
 } from "./types";
 export { BUILTIN_TOOL_NAMES } from "./types";
-export { ToolBudgetExceededError } from "./types";
+export { ToolBudgetExceededError, ToolPolicyBlockedError } from "./types";
 export { createBuiltinToolRegistry, createToolRegistry } from "./registry";
 
 export default (context: ToolExecutionContext): ToolDefinitionMap =>
