@@ -102,5 +102,21 @@
       "allow": ["^https://(docs\\.|developer\\.)?example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
     }
+  },
+  "telegram": {
+    "botToken": "YOUR_TELEGRAM_BOT_TOKEN",
+    "allowedChatId": "123456789",
+    "transport": {
+      "type": "polling",
+      "pollingIntervalMs": 1000,
+      "longPollTimeoutSec": 30,
+      "dropPendingUpdatesOnStart": true,
+      "webhookPath": "/telegram/webhook",
+      "webhookSecretToken": "YOUR_WEBHOOK_SECRET"
+    },
+    "message": {
+      "parseMode": "MarkdownV2",
+      "chunkSize": 3500
+    }
   }
 }

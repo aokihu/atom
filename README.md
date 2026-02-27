@@ -42,7 +42,7 @@ bun run src/index.ts --workspace=./Playground
 
 ## 0.2.0 Breaking Changes
 
-- `--mode repl` 已移除；当前使用 `--mode tui`（组合模式）或 `--mode tui-client`（仅客户端）
+- `--mode repl` 已移除；当前使用 `--mode tui`（组合模式）、`--mode tui-client`（仅 TUI 客户端）、`--mode telegram`（Telegram 组合模式）或 `--mode telegram-client`（仅 Telegram 客户端）
 - 本地客户端命令改为 slash 命令：`/help`、`/messages`、`/context`、`/exit`
 - 裸命令 `messages` / `context` / `exit` 不再保留兼容
 
@@ -51,7 +51,7 @@ bun run src/index.ts --workspace=./Playground
 ```text
 src/
   index.ts                # 启动入口与模式编排
-  clients/                # 客户端实现（当前为 OpenTUI TUI）
+  clients/                # 客户端实现（OpenTUI TUI / Telegram）
   libs/
     agent/                # Agent 核心与工具
     channel/              # 通道契约与 HTTP 网关/客户端
@@ -79,16 +79,18 @@ docs/
 - `--config <path>` / `--config=<path>`
   - 指定配置文件路径，可选。
   - 未传时默认读取 `<workspace>/agent.config.json`。
-- `--mode <tui|server|tui-client>`
+- `--mode <tui|server|tui-client|telegram|telegram-client>`
   - `tui`（默认，旧名 `hybrid`）：启动 HTTP 服务端 + 本地 OpenTUI TUI 客户端（HTTP 通讯）。
   - `server`：仅启动 HTTP 服务端。
   - `tui-client`：仅启动 OpenTUI TUI 客户端，通过 HTTP 连接到服务端。
+  - `telegram`：启动 HTTP 服务端 + Telegram 机器人客户端（轮询模式）。
+  - `telegram-client`：仅启动 Telegram 机器人客户端，通过 HTTP 连接到服务端。
 - `--http-host <host>`
   - HTTP 服务监听地址，默认 `127.0.0.1`（仅本机访问）。
 - `--http-port <port>`
   - HTTP 服务监听端口，默认 `8787`。
 - `--server-url <url>`
-  - `tui-client` 模式连接的服务端地址（优先级高于 `--http-host/--http-port`）。
+  - `tui-client` / `telegram-client` 模式连接的服务端地址（优先级高于 `--http-host/--http-port`）。
 
 示例：
 
@@ -101,6 +103,12 @@ bun run src/index.ts --mode server --workspace ./Playground --http-port 8787
 
 # 仅启动 OpenTUI TUI 客户端（连接到已运行服务）
 bun run src/index.ts --mode tui-client --server-url http://127.0.0.1:8787
+
+# Telegram 组合模式（本地启动服务端 + Telegram 机器人）
+bun run src/index.ts --mode telegram --workspace ./Playground
+
+# 仅启动 Telegram 客户端（连接到已运行服务）
+bun run src/index.ts --mode telegram-client --server-url http://127.0.0.1:8787
 
 # 指定配置文件
 bun run src/index.ts --workspace ./Playground --config ./agent.config.json
@@ -166,6 +174,16 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
   - OpenAI-compatible（内置默认 `base_url`）：`openai`、`siliconflow`、`moonshot`、`dashscope`、`groq`、`together`、`xai`、`ollama`
   - 通用：`openai-compatible`（需要显式配置 `providers[].base_url`）
 - `providers[].api_key` 为明文配置，请避免提交真实密钥到仓库。
+
+### Telegram 配置
+
+- 在 `agent.config.json` 中新增 `telegram` 段用于机器人通道：
+  - `allowedChatId`：允许访问的唯一 chat_id（白名单）。
+  - `botToken`：Bot Token（可被环境变量 `TELEGRAM_BOT_TOKEN` 覆盖）。
+  - `transport.type`：`polling`（可用）或 `webhook`（仅占位，当前未实现）。
+  - `message.parseMode`：`MarkdownV2`（默认）或 `plain`。
+  - `message.chunkSize`：单条消息分片长度（默认 `3500`）。
+- 当前 webhook 仅完成配置与接口预留；若设置 `transport.type=webhook`，启动会直接报错提示使用 polling。
 
 常用模型示例（以供应商控制台最新可用列表为准）：
 
@@ -255,6 +273,20 @@ Atom 会在启动时加载 `agent.config.json`（默认路径为 `<workspace>/ag
     "webfetch": {
       "allow": ["^https://docs\\.example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
+    }
+  },
+  "telegram": {
+    "botToken": "YOUR_TELEGRAM_BOT_TOKEN",
+    "allowedChatId": "123456789",
+    "transport": {
+      "type": "polling",
+      "pollingIntervalMs": 1000,
+      "longPollTimeoutSec": 30,
+      "dropPendingUpdatesOnStart": true
+    },
+    "message": {
+      "parseMode": "MarkdownV2",
+      "chunkSize": 3500
     }
   }
 }

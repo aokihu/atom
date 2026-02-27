@@ -1,4 +1,4 @@
-import { Agent } from "../agent/agent";
+import { Agent, type AgentRunDetailedResult } from "../agent/agent";
 import { ControlledTaskStopError } from "./errors";
 import { PriorityTaskQueue, createTask } from "./queue";
 
@@ -18,7 +18,7 @@ import type {
 } from "../../types/http";
 import type { TaskItem } from "../../types/task";
 import type { TaskExecutionStopReason } from "../../types/task";
-import { TaskStatus } from "../../types/task";
+import { TaskStatus, isTaskExecutionStopReason } from "../../types/task";
 
 const DEFAULT_AGENT_SESSION_ID = "default";
 const CONTEXT_OVERFLOW_CANCEL_REASON = "contextoverflow";
@@ -83,33 +83,37 @@ export class AgentRuntimeService implements RuntimeGateway {
           });
 
           if (!result.completed) {
-            task.metadata = {
-              ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
-              execution: {
-                completed: false,
+            if (isTaskExecutionStopReason(result.stopReason)) {
+              task.metadata = {
+                ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
+                execution: {
+                  completed: false,
+                  stopReason: result.stopReason,
+                  segmentCount: result.segmentCount,
+                  totalToolCalls: result.totalToolCalls,
+                  totalModelSteps: result.totalModelSteps,
+                  retrySuppressed: true,
+                },
+              };
+
+              this.appendTaskMessage(task.id, {
+                category: "other",
+                type: "task.status",
+                text: `Task not completed: stopped by ${result.stopReason} (tools ${result.totalToolCalls}, model steps ${result.totalModelSteps})`,
+              });
+
+              throw new ControlledTaskStopError({
                 stopReason: result.stopReason,
-                segmentCount: result.segmentCount,
-                totalToolCalls: result.totalToolCalls,
-                totalModelSteps: result.totalModelSteps,
-                retrySuppressed: true,
-              },
-            };
+                message: `Task not completed: ${result.stopReason}`,
+                details: {
+                  segmentCount: result.segmentCount,
+                  totalToolCalls: result.totalToolCalls,
+                  totalModelSteps: result.totalModelSteps,
+                },
+              });
+            }
 
-            this.appendTaskMessage(task.id, {
-              category: "other",
-              type: "task.status",
-              text: `Task not completed: stopped by ${result.stopReason} (tools ${result.totalToolCalls}, model steps ${result.totalModelSteps})`,
-            });
-
-            throw new ControlledTaskStopError({
-              stopReason: result.stopReason,
-              message: `Task not completed: ${result.stopReason}`,
-              details: {
-                segmentCount: result.segmentCount,
-                totalToolCalls: result.totalToolCalls,
-                totalModelSteps: result.totalModelSteps,
-              },
-            });
+            throw new Error(`Task not completed: ${result.stopReason}`);
           }
 
           return result.text;
@@ -202,7 +206,7 @@ export class AgentRuntimeService implements RuntimeGateway {
   ): Promise<{
     text: string;
     completed: boolean;
-    stopReason: TaskExecutionStopReason | "completed";
+    stopReason: AgentRunDetailedResult["stopReason"];
     segmentCount: number;
     totalToolCalls: number;
     totalModelSteps: number;
@@ -214,14 +218,7 @@ export class AgentRuntimeService implements RuntimeGateway {
         options?: {
           onOutputMessage?: (message: TaskOutputMessageDraft) => void;
         },
-      ) => Promise<{
-        text: string;
-        completed: boolean;
-        stopReason: TaskExecutionStopReason | "completed";
-        segmentCount: number;
-        totalToolCalls: number;
-        totalModelSteps: number;
-      }>;
+      ) => Promise<AgentRunDetailedResult>;
     };
 
     if (typeof maybeDetailed.runTaskDetailed === "function") {

@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { bootstrap } from "./libs/agent/boot";
 import { workspace_check } from "./libs/utils/workspace_check";
 import { Agent } from "./libs/agent/agent";
-import { loadAgentConfig } from "./libs/agent/config";
+import { loadAgentConfig, resolveTelegramConfig } from "./libs/agent/config";
 import {
   createLanguageModelFromAgentConfig,
   isOpenAICompatibleProvider,
@@ -17,7 +17,7 @@ import { parseCliOptions, type CliOptions } from "./libs/utils/cli";
 import { initMCPTools } from "./libs/mcp";
 import { AgentRuntimeService } from "./libs/runtime";
 import { HttpGatewayClient, startHttpGateway } from "./libs/channel";
-import { startTuiClient } from "./clients";
+import { startTelegramClient, startTuiClient } from "./clients";
 import { cleanupInvalidBackgroundBashSessionsOnStartup } from "./libs/agent/tools/background_sessions";
 import { cleanupTodoDbOnStartup } from "./libs/agent/tools/todo_store";
 
@@ -55,6 +55,19 @@ const printStartupBanner = (
 
 const printTuiCommands = () => {
   console.log("Commands: `/help`, `/messages`, `/context`, `/exit`");
+};
+
+const resolveRequiredTelegramConfig = (
+  config: Awaited<ReturnType<typeof loadAgentConfig>>,
+) => {
+  const telegramConfig = resolveTelegramConfig(config);
+  if (!telegramConfig) {
+    throw new Error(
+      "telegram config is required for telegram modes. Add `telegram` in agent.config.json",
+    );
+  }
+
+  return telegramConfig;
 };
 
 const printModelSelection = (
@@ -222,6 +235,27 @@ const main = async () => {
     return;
   }
 
+  if (cliOptions.mode === "telegram-client") {
+    logStage("loading agent config...");
+    const agentConfig = await loadAgentConfig({
+      workspace: cliOptions.workspace,
+      configPath: cliOptions.configPath,
+    });
+    logStage("agent config loaded");
+    const agentName = resolveAgentName(agentConfig.agent?.name);
+    printStartupBanner(agentName, version, cliOptions.mode);
+
+    const serverUrl = buildServerUrl(cliOptions);
+    const telegramConfig = resolveRequiredTelegramConfig(agentConfig);
+    console.log(`[telegram] server = ${serverUrl}`);
+    logStage(`ready in ${formatDuration(startupStartTime)}`);
+    await startTelegramClient({
+      client: new HttpGatewayClient(serverUrl),
+      config: telegramConfig,
+    });
+    return;
+  }
+
   logStage("checking workspace...");
   await workspace_check(cliOptions.workspace);
   logStage("workspace ready");
@@ -292,16 +326,30 @@ const main = async () => {
     return;
   }
 
-  printTuiCommands();
+  if (cliOptions.mode === "tui") {
+    printTuiCommands();
+    try {
+      await startTuiClient({
+        client: new HttpGatewayClient(gateway.baseUrl),
+        serverUrl: gateway.baseUrl,
+        mode: "tui",
+        agentName,
+      });
+    } finally {
+      await shutdown.run("tui exit");
+      shutdown.dispose();
+    }
+    return;
+  }
+
+  const telegramConfig = resolveRequiredTelegramConfig(agentConfig);
   try {
-    await startTuiClient({
+    await startTelegramClient({
       client: new HttpGatewayClient(gateway.baseUrl),
-      serverUrl: gateway.baseUrl,
-      mode: "tui",
-      agentName,
+      config: telegramConfig,
     });
   } finally {
-    await shutdown.run("tui exit");
+    await shutdown.run("telegram exit");
     shutdown.dispose();
   }
 };

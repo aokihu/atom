@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 export type CliOptions = {
-  mode: "tui" | "server" | "tui-client";
+  mode: "tui" | "server" | "tui-client" | "telegram" | "telegram-client";
   workspace: string;
   configPath?: string;
   httpHost: string;
@@ -49,10 +49,12 @@ export const parseCliOptions = (
     rawMode !== "hybrid" &&
     rawMode !== "server" &&
     rawMode !== "tui" &&
-    rawMode !== "tui-client"
+    rawMode !== "tui-client" &&
+    rawMode !== "telegram" &&
+    rawMode !== "telegram-client"
   ) {
     throw new Error(
-      "Invalid --mode. Supported values: tui, server, tui-client (legacy alias: hybrid)",
+      "Invalid --mode. Supported values: tui, server, tui-client, telegram, telegram-client (legacy alias: hybrid)",
     );
   }
 
