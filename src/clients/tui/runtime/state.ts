@@ -46,6 +46,13 @@ export type SlashModalState = {
   selectedIndex: number;
 };
 
+export type TuiTokenUsage = {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cumulative_total_tokens?: number;
+};
+
 const MAX_RENDER_ENTRIES = 200;
 const MAX_CHAT_STREAM_ITEMS = 200;
 
@@ -77,7 +84,9 @@ export class TuiClientState {
   contextModalOpen = false;
   contextModalText = "";
   contextModalTitle = "Context";
+  contextModalSaveResult = "";
   contextWorkspace?: string;
+  tokenUsage?: TuiTokenUsage;
   slashModalState: SlashModalState = {
     open: false,
     filteredQuery: "",
@@ -204,5 +213,9 @@ export class TuiClientState {
     this.slashModalState.filteredQuery = "";
     this.slashModalState.selectedIndex = 0;
     this.slashFilteredCommands = [];
+  }
+
+  setTokenUsage(next?: TuiTokenUsage): void {
+    this.tokenUsage = next ? { ...next } : undefined;
   }
 }

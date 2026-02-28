@@ -10,7 +10,11 @@ import {
 import type { CliRenderer, KeyEvent } from "@opentui/core";
 
 import type { GatewayClient } from "../../libs/channel/channel";
-import type { AgentContextResponse, TaskOutputMessage } from "../../types/http";
+import type {
+  AgentContextLiteResponse,
+  AgentContextResponse,
+  TaskOutputMessage,
+} from "../../types/http";
 import { TaskStatus, isTaskExecutionStopReason } from "../../types/task";
 import { resolveSlashCommandAction } from "./controllers/commands";
 import { executeContextCommand } from "./controllers/context_command";
@@ -43,6 +47,8 @@ import {
 } from "./views/message_pane";
 import { buildSlashModalLayoutState } from "./views/slash_modal";
 import { buildStatusStripRows } from "./views/status_strip";
+
+type ContextEnvelope = AgentContextResponse | AgentContextLiteResponse;
 
 type StartTuiClientOptions = {
   client: GatewayClient;
@@ -119,6 +125,44 @@ const extractContextWorkspace = (context: unknown): string | null => {
   return workspace;
 };
 
+const extractContextWorkspaceFromEnvelope = (contextEnvelope: ContextEnvelope): string | null => {
+  if ("modelContext" in contextEnvelope) {
+    return extractContextWorkspace(contextEnvelope.modelContext);
+  }
+  return extractContextWorkspace(contextEnvelope.injectedContext ?? contextEnvelope.context);
+};
+
+const extractTaskTokenUsage = (
+  task: Record<string, unknown> | undefined,
+): { input_tokens: number; output_tokens: number; total_tokens: number; cumulative_total_tokens?: number } | undefined => {
+  if (!task || typeof task !== "object") return undefined;
+  const metadata = (task as Record<string, unknown>).metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
+  const execution = (metadata as Record<string, unknown>).execution;
+  const executionTokenUsage =
+    execution && typeof execution === "object" && !Array.isArray(execution)
+      ? (execution as Record<string, unknown>).tokenUsage
+      : undefined;
+  const tokenUsage = executionTokenUsage ?? (metadata as Record<string, unknown>).tokenUsage;
+  if (!tokenUsage || typeof tokenUsage !== "object" || Array.isArray(tokenUsage)) return undefined;
+
+  const usage = tokenUsage as Record<string, unknown>;
+  const input = typeof usage.input_tokens === "number" ? usage.input_tokens : undefined;
+  const output = typeof usage.output_tokens === "number" ? usage.output_tokens : undefined;
+  const total = typeof usage.total_tokens === "number" ? usage.total_tokens : undefined;
+  if (input === undefined || output === undefined || total === undefined) return undefined;
+
+  return {
+    input_tokens: input,
+    output_tokens: output,
+    total_tokens: total,
+    cumulative_total_tokens:
+      typeof usage.cumulative_total_tokens === "number"
+        ? usage.cumulative_total_tokens
+        : undefined,
+  };
+};
+
 class CoreTuiClientApp {
   private readonly client: GatewayClient;
   private readonly pollIntervalMs: number;
@@ -172,6 +216,7 @@ class CoreTuiClientApp {
   private readonly contextModalBox: BoxRenderable;
   private readonly contextModalTitleText: TextRenderable;
   private readonly contextModalHintText: TextRenderable;
+  private readonly contextModalSaveResultText: TextRenderable;
   private readonly contextModalScroll: ScrollBoxRenderable;
   private readonly contextModalContentBox: BoxRenderable;
   private readonly contextModalBodyText: TextRenderable;
@@ -280,6 +325,7 @@ class CoreTuiClientApp {
     this.contextModalBox = this.ui.contextModalBox;
     this.contextModalTitleText = this.ui.contextModalTitleText;
     this.contextModalHintText = this.ui.contextModalHintText;
+    this.contextModalSaveResultText = this.ui.contextModalSaveResultText;
     this.contextModalScroll = this.ui.contextModalScroll;
     this.contextModalContentBox = this.ui.contextModalContentBox;
     this.contextModalBodyText = this.ui.contextModalBodyText;
@@ -441,6 +487,7 @@ class CoreTuiClientApp {
       activeTaskId: this.state.activeTaskId,
       serverUrl: this.serverUrl,
       statusNotice: this.state.statusNotice,
+      tokenUsage: this.state.tokenUsage,
     });
 
     for (let index = 0; index < this.statusRowTexts.length; index += 1) {
@@ -519,6 +566,7 @@ class CoreTuiClientApp {
       terminal: this.state.terminal,
       title: this.state.contextModalTitle,
       body: this.state.contextModalText,
+      saveResult: this.state.contextModalSaveResult,
     });
 
     this.contextModalBox.width = viewState.width;
@@ -529,6 +577,7 @@ class CoreTuiClientApp {
     this.contextModalHintText.content = viewState.hintText;
     this.contextModalScroll.height = viewState.scrollHeight;
     this.contextModalBodyText.content = viewState.bodyText;
+    this.contextModalSaveResultText.content = viewState.saveResultText;
   }
 
   private syncFocus(): void {
@@ -709,6 +758,7 @@ class CoreTuiClientApp {
   private openContextModal(title: string, body: string): void {
     this.state.contextModalTitle = title;
     this.state.contextModalText = body;
+    this.state.contextModalSaveResult = "";
     this.state.contextModalOpen = true;
     this.closeSlashModal();
     this.refreshAll();
@@ -733,16 +783,20 @@ class CoreTuiClientApp {
     let workspace = this.state.contextWorkspace?.trim();
 
     try {
-      const latestContext = await this.withConnectionTracking(
-        () => this.client.getAgentContext(),
-      );
+      const latestContext: ContextEnvelope =
+        typeof this.client.getAgentContextLite === "function"
+          ? await this.withConnectionTracking(() => this.client.getAgentContextLite!())
+          : await this.withConnectionTracking(() => this.client.getAgentContext());
       contextBody = this.buildLatestContextBodyForLog(latestContext);
-      const latestWorkspace = extractContextWorkspace(latestContext.context);
+      const latestWorkspace = extractContextWorkspaceFromEnvelope(latestContext);
       if (latestWorkspace) {
         workspace = latestWorkspace;
         this.state.contextWorkspace = latestWorkspace;
       }
-      this.state.contextModalText = formatJson(latestContext.context);
+      this.state.contextModalText =
+        "modelContext" in latestContext
+          ? formatJson(latestContext.modelContext)
+          : formatJson(latestContext.injectedContext ?? latestContext.context);
       this.syncContextModalLayout(this.getLayout());
       this.renderer.requestRender();
     } catch (error) {
@@ -755,12 +809,18 @@ class CoreTuiClientApp {
     if (contextBody.length === 0) {
       this.appendLog("error", "Context is empty, nothing to save.");
       this.setStatusNotice("Context is empty, nothing to save.");
+      this.state.contextModalSaveResult = "Save failed: context is empty.";
+      this.syncContextModalLayout(this.getLayout());
+      this.renderer.requestRender();
       return;
     }
 
     if (!workspace) {
       this.appendLog("error", "Context workspace unknown, cannot save log.");
       this.setStatusNotice("Context workspace unknown, cannot save log.");
+      this.state.contextModalSaveResult = "Save failed: workspace unknown.";
+      this.syncContextModalLayout(this.getLayout());
+      this.renderer.requestRender();
       return;
     }
 
@@ -771,14 +831,20 @@ class CoreTuiClientApp {
       });
       this.appendLog("system", `Context saved: ${filepath}`);
       this.setStatusNotice(`Context saved: ${truncateToDisplayWidth(filepath, 48)}`);
+      this.state.contextModalSaveResult = `Saved: ${filepath}`;
+      this.syncContextModalLayout(this.getLayout());
+      this.renderer.requestRender();
     } catch (error) {
       const message = formatErrorMessage(error);
       this.appendLog("error", `Context save failed: ${message}`);
       this.setStatusNotice(`Context save failed: ${message}`);
+      this.state.contextModalSaveResult = `Save failed: ${message}`;
+      this.syncContextModalLayout(this.getLayout());
+      this.renderer.requestRender();
     }
   }
 
-  private buildLatestContextBodyForLog(contextResponse: AgentContextResponse): string {
+  private buildLatestContextBodyForLog(contextResponse: ContextEnvelope): string {
     return buildContextLogPayload({
       contextResponse,
     });
@@ -1120,6 +1186,14 @@ class CoreTuiClientApp {
           this.appendLog("system", `Task created: ${taskId}`);
           this.setStatusNotice(`Task created: ${taskId}`);
           this.setClientPhase("polling");
+        },
+        onTaskStatus: (task) => {
+          const usage = extractTaskTokenUsage(task as Record<string, unknown>);
+          if (usage) {
+            this.state.setTokenUsage(usage);
+            this.syncStatusStrip();
+            this.renderer.requestRender();
+          }
         },
         onTaskMessages: (taskId, messages) => {
           let hasUiUpdate = false;

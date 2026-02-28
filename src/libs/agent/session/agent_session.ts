@@ -2,6 +2,8 @@ import { sep } from "node:path";
 import type { ModelMessage } from "ai";
 import type { AgentContext } from "../../../types/agent";
 import { buildContextBlock, CONTEXT_TAG_START } from "./context_codec";
+import type { ContextProjectionOptions } from "./context_projection_v2";
+import { projectContextSnapshotV2 } from "./context_projection_v2";
 import {
   AgentContextState,
   type AgentContextClock,
@@ -50,6 +52,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 export class AgentSession {
   private readonly workspace: string;
   private readonly contextState: AgentContextState;
+  private readonly injectLiteContext: boolean;
   private rawContext = "";
   private messages: ModelMessage[];
 
@@ -57,6 +60,7 @@ export class AgentSession {
     workspace: string;
     systemPrompt: string;
     contextClock?: AgentContextClock;
+    injectLiteContext?: boolean;
   }) {
     const workspace = args.workspace.endsWith(sep)
       ? args.workspace
@@ -67,6 +71,7 @@ export class AgentSession {
       workspace: this.workspace,
       clock: args.contextClock,
     });
+    this.injectLiteContext = args.injectLiteContext ?? true;
     this.messages = [{ role: "system", content: args.systemPrompt }];
   }
 
@@ -189,8 +194,24 @@ export class AgentSession {
     this.contextState.merge(sanitizedPatch);
   }
 
-  prepareUserTurn(question: string) {
-    this.injectContext({ advanceRound: true });
+  updateRuntimeDiagnostics(fields: {
+    budget?: AgentContext["runtime"]["budget"];
+    token_usage?: AgentContext["runtime"]["token_usage"];
+  }) {
+    this.contextState.updateRuntimeDiagnostics(fields);
+  }
+
+  prepareUserTurn(
+    question: string,
+    options?: {
+      advanceRound?: boolean;
+      projectionOptions?: ContextProjectionOptions;
+    },
+  ) {
+    this.injectContext({
+      advanceRound: options?.advanceRound ?? true,
+      projectionOptions: options?.projectionOptions,
+    });
     this.messages.push({
       role: "user",
       content: question,
@@ -201,13 +222,31 @@ export class AgentSession {
     question: string,
     options?: {
       advanceRound?: boolean;
+      projectionOptions?: ContextProjectionOptions;
     },
   ) {
-    this.injectContext({ advanceRound: options?.advanceRound ?? false });
+    this.injectContext({
+      advanceRound: options?.advanceRound ?? false,
+      projectionOptions: options?.projectionOptions,
+    });
     this.messages.push({
       role: "user",
       content: question,
     });
+  }
+
+  replaceLatestUserTurn(question: string): boolean {
+    for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+      const message = this.messages[index];
+      if (message?.role === "user") {
+        this.messages[index] = {
+          ...message,
+          content: question,
+        };
+        return true;
+      }
+    }
+    return false;
   }
 
   getMessages() {
@@ -222,6 +261,10 @@ export class AgentSession {
     return this.contextState.snapshot();
   }
 
+  getContextProjectionSnapshot(options?: ContextProjectionOptions) {
+    return projectContextSnapshotV2(this.contextState.getCurrentContext(), options);
+  }
+
   snapshot(): AgentSessionSnapshot {
     return {
       messages: this.getMessagesSnapshot(),
@@ -229,10 +272,15 @@ export class AgentSession {
     };
   }
 
-  private injectContext(options?: { advanceRound?: boolean }) {
+  private injectContext(options?: { advanceRound?: boolean; projectionOptions?: ContextProjectionOptions }) {
     this.contextState.refreshRuntime({ advanceRound: options?.advanceRound ?? true });
 
-    const contextContent = buildContextBlock(this.contextState.getCurrentContext());
+    const projection = projectContextSnapshotV2(
+      this.contextState.getCurrentContext(),
+      options?.projectionOptions,
+    );
+    const payload = this.injectLiteContext ? projection.modelContext : projection.injectedContext;
+    const contextContent = buildContextBlock(payload);
     this.rawContext = contextContent;
 
     const firstMessage = this.messages[0];

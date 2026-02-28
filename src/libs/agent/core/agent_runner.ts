@@ -9,6 +9,7 @@ import {
   DEFAULT_AGENT_EXECUTION_CONFIG,
   type AgentContext,
   type AgentExecutionConfig,
+  type AgentIntentDetectorMode,
   type AgentModelParams,
   type ResolvedAgentExecutionConfig,
 } from "../../../types/agent";
@@ -22,6 +23,8 @@ import {
 } from "../tools";
 import { AgentSession } from "../session/agent_session";
 import { AISDKModelExecutor } from "./model_executor";
+import { planContextBudget } from "./context_budget";
+import { runIntentGuard } from "./intent_guard";
 import {
   emitOutputMessage,
   type AgentOutputMessageSink,
@@ -41,6 +44,16 @@ export type AgentRunDetailedResult = {
   segmentCount: number;
   completed: boolean;
   stopReason: AgentRunStopReason;
+  tokenUsage?: {
+    source: "ai-sdk";
+    updated_at: number;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    reasoning_tokens: number;
+    cached_input_tokens: number;
+    cumulative_total_tokens: number;
+  };
 };
 
 export class AgentControlledStopError extends Error {
@@ -155,10 +168,39 @@ export class AgentRunner {
     let continuationRuns = 0;
     let finalText = "";
     let finalFinishReason = "unknown";
+    let latestTokenUsage: AgentRunDetailedResult["tokenUsage"] | undefined;
+    let cumulativeTotalTokens = 0;
 
     const model = this.createContextAwareModel((context) => {
       session.mergeExtractedContext(context);
     });
+
+    const intentResult = await runIntentGuard({
+      model: this.model,
+      input: question,
+      config: this.executionConfig.intentGuard,
+    });
+    if (intentResult.decision.action === "fail") {
+      const result: AgentRunDetailedResult = {
+        text: "",
+        finishReason: "intent_guard_blocked",
+        stepCount: 0,
+        totalModelSteps: 0,
+        totalToolCalls: 0,
+        segmentCount: 0,
+        completed: false,
+        stopReason: "intent_guard_blocked",
+      };
+      this.emitTerminalMessages(options, result);
+      return result;
+    }
+    const guardedQuestion =
+      intentResult.decision.action === "soft_fail"
+        ? [
+            "[Intent Guard Notice] Prioritize safe, least-privilege execution.",
+            question,
+          ].join("\n")
+        : question;
 
     const abortController = this.createAbortController();
     this.currentAbortController = abortController;
@@ -173,28 +215,84 @@ export class AgentRunner {
           toolBudget,
         });
 
+        const segmentQuestion =
+          segmentCount === 0
+            ? guardedQuestion
+            : this.buildContinuationPrompt({
+                segmentIndex: nextSegmentIndex,
+                continuationRuns,
+                totalModelSteps,
+                toolBudget,
+              });
+
+        const budgetPlan = this.executionConfig.contextBudget.enabled
+          ? planContextBudget({
+              baseMessages: session.getMessagesSnapshot(),
+              context: session.getContextSnapshot(),
+              userInput: segmentQuestion,
+              executionBudget: this.executionConfig.contextBudget,
+              contextWindowTokens: this.executionConfig.contextBudget.contextWindowTokens,
+              requestedOutputTokens:
+                this.modelParams?.maxOutputTokens ??
+                this.executionConfig.contextBudget.reserveOutputTokensMax,
+            })
+          : {
+              stop: false,
+              outputLimitTokens:
+                this.modelParams?.maxOutputTokens ??
+                this.executionConfig.contextBudget.reserveOutputTokensMax,
+              projectionOptions: undefined,
+              rewrittenInput: segmentQuestion,
+              budget: undefined,
+            };
+
+        if (budgetPlan.budget) {
+          session.updateRuntimeDiagnostics({
+            budget: budgetPlan.budget,
+          });
+        }
+
+        if (budgetPlan.stop) {
+          const result: AgentRunDetailedResult = {
+            text: finalText,
+            finishReason: "context_budget_exhausted",
+            stepCount: 0,
+            totalModelSteps,
+            totalToolCalls: toolBudget.usedCount,
+            segmentCount: Math.max(segmentCount, nextSegmentIndex),
+            completed: false,
+            stopReason: "context_budget_exhausted",
+            tokenUsage: latestTokenUsage,
+          };
+          this.emitTerminalMessages(options, result);
+          return result;
+        }
+
+        const effectiveQuestion = budgetPlan.rewrittenInput ?? segmentQuestion;
         if (segmentCount === 0) {
-          session.prepareUserTurn(question);
+          session.prepareUserTurn(effectiveQuestion, {
+            projectionOptions: budgetPlan.projectionOptions,
+          });
         } else {
           session.prepareInternalContinuationTurn(
-            this.buildContinuationPrompt({
-              segmentIndex: nextSegmentIndex,
-              continuationRuns,
-              totalModelSteps,
-              toolBudget,
-            }),
+            effectiveQuestion,
             {
               advanceRound: !this.executionConfig.continueWithoutAdvancingContextRound,
+              projectionOptions: budgetPlan.projectionOptions,
             },
           );
         }
 
         let segmentResult;
+        const segmentModelParams = {
+          ...(this.modelParams ?? {}),
+          maxOutputTokens: budgetPlan.outputLimitTokens,
+        };
         try {
           segmentResult = await this.modelExecutor.generate({
             model,
             messages: session.getMessages(),
-            modelParams: this.modelParams,
+            modelParams: segmentModelParams,
             abortSignal: abortController.signal,
             tools: this.createToolRegistryForRun(options, { toolBudget }),
             stopWhen: stepCountIs(this.executionConfig.maxModelStepsPerRun),
@@ -219,6 +317,7 @@ export class AgentRunner {
               segmentCount: Math.max(segmentCount, nextSegmentIndex),
               completed: false,
               stopReason: "tool_budget_exhausted",
+              tokenUsage: latestTokenUsage,
             };
             this.emitTerminalMessages(options, result);
             return result;
@@ -230,6 +329,25 @@ export class AgentRunner {
         totalModelSteps += segmentResult.stepCount;
         finalText = segmentResult.text;
         finalFinishReason = segmentResult.finishReason;
+        if (segmentResult.tokenUsage) {
+          const inputTokens = segmentResult.tokenUsage.inputTokens ?? 0;
+          const outputTokens = segmentResult.tokenUsage.outputTokens ?? 0;
+          const totalTokens = segmentResult.tokenUsage.totalTokens ?? inputTokens + outputTokens;
+          cumulativeTotalTokens += totalTokens;
+          latestTokenUsage = {
+            source: "ai-sdk",
+            updated_at: Date.now(),
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
+            total_tokens: totalTokens,
+            reasoning_tokens: segmentResult.tokenUsage.reasoningTokens ?? 0,
+            cached_input_tokens: segmentResult.tokenUsage.cachedInputTokens ?? 0,
+            cumulative_total_tokens: cumulativeTotalTokens,
+          };
+          session.updateRuntimeDiagnostics({
+            token_usage: latestTokenUsage,
+          });
+        }
 
         this.writeExecutionBudgetContext(session, {
           segmentIndex: segmentCount,
@@ -256,6 +374,7 @@ export class AgentRunner {
             segmentCount,
             completed: true,
             stopReason: "completed",
+            tokenUsage: latestTokenUsage,
           };
           this.emitTerminalMessages(options, result);
           return result;
@@ -271,6 +390,7 @@ export class AgentRunner {
             segmentCount,
             completed: false,
             stopReason: decision.stopReason,
+            tokenUsage: latestTokenUsage,
           };
           this.emitTerminalMessages(options, result);
           return result;
@@ -435,9 +555,58 @@ const resolveExecutionConfig = (args: {
 }): ResolvedAgentExecutionConfig => {
   const config = args.config ?? {};
   const legacyMaxSteps = args.legacyMaxSteps;
+  const detector = config.intentGuard?.detector;
+  const resolvedDetector: AgentIntentDetectorMode =
+    typeof detector === "string"
+      ? detector
+      : detector?.mode ?? DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard.detector;
+  const detectorTimeoutMs =
+    typeof detector === "object" && detector !== null && typeof detector.timeoutMs === "number"
+      ? Math.max(1, Math.floor(detector.timeoutMs))
+      : DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard.detectorTimeoutMs;
+  const detectorModelMaxOutputTokens =
+    typeof detector === "object" &&
+    detector !== null &&
+    typeof detector.modelMaxOutputTokens === "number"
+      ? Math.max(1, Math.floor(detector.modelMaxOutputTokens))
+      : DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard.detectorModelMaxOutputTokens;
+
   return {
     ...DEFAULT_AGENT_EXECUTION_CONFIG,
     ...config,
+    contextV2: {
+      ...DEFAULT_AGENT_EXECUTION_CONFIG.contextV2,
+      ...(config.contextV2 ?? {}),
+    },
+    inputPolicy: {
+      ...DEFAULT_AGENT_EXECUTION_CONFIG.inputPolicy,
+      ...(config.inputPolicy ?? {}),
+    },
+    contextBudget: {
+      ...DEFAULT_AGENT_EXECUTION_CONFIG.contextBudget,
+      ...(config.contextBudget ?? {}),
+      outputStepDownTokens:
+        config.contextBudget?.outputStepDownTokens?.length
+          ? Array.from(
+              new Set(
+                config.contextBudget.outputStepDownTokens
+                  .map((item) => Math.max(1, Math.floor(item)))
+                  .filter((item) => Number.isFinite(item)),
+              ),
+            )
+          : DEFAULT_AGENT_EXECUTION_CONFIG.contextBudget.outputStepDownTokens,
+    },
+    overflowPolicy: {
+      ...DEFAULT_AGENT_EXECUTION_CONFIG.overflowPolicy,
+      ...(config.overflowPolicy ?? {}),
+    },
+    intentGuard: {
+      ...DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard,
+      ...(config.intentGuard ?? {}),
+      detector: resolvedDetector,
+      detectorTimeoutMs,
+      detectorModelMaxOutputTokens,
+    },
     maxModelStepsPerRun:
       legacyMaxSteps ?? config.maxModelStepsPerRun ?? DEFAULT_AGENT_EXECUTION_CONFIG.maxModelStepsPerRun,
   };

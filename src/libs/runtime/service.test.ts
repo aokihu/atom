@@ -38,7 +38,7 @@ const waitUntil = async (check: () => boolean, timeoutMs = 1000) => {
 };
 
 describe("AgentRuntimeService", () => {
-  test("clears pending queue and suppresses retry when context length overflow happens", async () => {
+  test("isolates context overflow to current task and keeps pending tasks running", async () => {
     const firstTaskGate = createDeferred();
     let runCount = 0;
 
@@ -108,6 +108,9 @@ describe("AgentRuntimeService", () => {
     }
 
     const firstSnapshot = service.getTask(first.taskId);
+    await waitUntil(() => service.getTask(second.taskId)?.task.status === TaskStatus.Success);
+    await waitUntil(() => service.getTask(third.taskId)?.task.status === TaskStatus.Success);
+
     const secondSnapshot = service.getTask(second.taskId);
     const thirdSnapshot = service.getTask(third.taskId);
 
@@ -120,15 +123,14 @@ describe("AgentRuntimeService", () => {
       ),
     ).toBe(true);
 
-    expect(secondSnapshot?.task.status).toBe(TaskStatus.Cancelled);
-    expect(secondSnapshot?.task.metadata?.cancelReason).toBe("contextoverflow");
-    expect(secondSnapshot?.messages?.items.some((item) => item.type === "task.status")).toBe(true);
+    expect(secondSnapshot?.task.status).toBe(TaskStatus.Success);
+    expect(secondSnapshot?.task.metadata?.cancelReason).toBeUndefined();
 
-    expect(thirdSnapshot?.task.status).toBe(TaskStatus.Cancelled);
-    expect(thirdSnapshot?.task.metadata?.cancelReason).toBe("contextoverflow");
+    expect(thirdSnapshot?.task.status).toBe(TaskStatus.Success);
+    expect(thirdSnapshot?.task.metadata?.cancelReason).toBeUndefined();
 
     expect(service.getQueueStats().size).toBe(0);
-    expect(runCount).toBe(1);
+    expect(runCount).toBe(3);
   });
 
   test("cleans task context on retry and terminal completion via agent lifecycle methods", async () => {

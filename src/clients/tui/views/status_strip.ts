@@ -19,6 +19,12 @@ export type StatusStripViewInput = {
   activeTaskId?: string;
   serverUrl?: string;
   statusNotice: string;
+  tokenUsage?: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    cumulative_total_tokens?: number;
+  };
 };
 
 export type StatusStripView = {
@@ -99,8 +105,15 @@ export const buildStatusStripRows = (input: StatusStripViewInput): string[] => {
           input.busyAnimationTick,
         );
   const versionLabel = (input.version?.trim() || "unknown").replace(/\s+/g, " ");
+  const tokenLabel = input.tokenUsage
+    ? `TOK in:${input.tokenUsage.input_tokens} out:${input.tokenUsage.output_tokens} total:${input.tokenUsage.total_tokens}${
+        typeof input.tokenUsage.cumulative_total_tokens === "number"
+          ? ` cum:${input.tokenUsage.cumulative_total_tokens}`
+          : ""
+      }`
+    : "TOK n/a";
 
-  const left = `${input.agentName}  Connect: ${connectLabel}  Status: ${statusLabel}`;
+  const left = `${input.agentName}  Connect: ${connectLabel}  Status: ${statusLabel}  ${tokenLabel}`;
   const right = versionLabel;
   const fillerWidth = input.rowWidth - stringDisplayWidth(left) - stringDisplayWidth(right);
 

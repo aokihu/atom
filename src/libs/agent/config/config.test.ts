@@ -111,6 +111,69 @@ describe("agent config", () => {
     ).not.toThrow();
   });
 
+  test("validateAgentConfig accepts agent.execution v2 extensions", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        agent: {
+          name: "Atom",
+          model: "deepseek/deepseek-chat",
+          execution: {
+            contextV2: {
+              enabled: true,
+              apiDualMode: true,
+              injectLiteOnly: true,
+            },
+            inputPolicy: {
+              enabled: true,
+              autoCompress: true,
+              maxInputTokens: 10000,
+              summarizeTargetTokens: 1600,
+            },
+            contextBudget: {
+              enabled: true,
+              contextWindowTokens: 131072,
+              reserveOutputTokensMax: 2048,
+              safetyMarginRatio: 0.12,
+              safetyMarginMinTokens: 6000,
+              outputStepDownTokens: [2048, 1024, 512],
+            },
+            overflowPolicy: {
+              isolateTaskOnContextOverflow: true,
+            },
+            intentGuard: {
+              enabled: true,
+              detector: {
+                mode: "hybrid",
+                timeoutMs: 600,
+                modelMaxOutputTokens: 80,
+              },
+            },
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  test("validateAgentConfig rejects invalid agent.execution.intentGuard.detector", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        agent: {
+          name: "Atom",
+          model: "deepseek/deepseek-chat",
+          execution: {
+            intentGuard: {
+              detector: {
+                mode: "invalid-mode",
+              } as any,
+            },
+          },
+        },
+      }),
+    ).toThrow("agent.execution.intentGuard.detector.mode must be one of");
+  });
+
   test("validateAgentConfig rejects invalid agent.execution.maxToolCallsPerTask", () => {
     expect(() =>
       validateAgentConfig({
@@ -304,6 +367,23 @@ describe("agent config", () => {
     ).toThrow("providers[0].headers.Authorization must be a string");
   });
 
+  test("validateAgentConfig accepts provider token limits", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        providers: [
+          {
+            provider_id: "deepseek",
+            model: "deepseek-chat",
+            api_key: "test-key",
+            max_context_tokens: 131072,
+            max_output_tokens: 8192,
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
   test("validateAgentConfig rejects duplicate MCP server ids", () => {
     expect(() =>
       validateAgentConfig({
@@ -359,6 +439,30 @@ describe("agent config", () => {
               },
             },
           ],
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  test("validateAgentConfig accepts memory.persistent pipeline", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        memory: {
+          persistent: {
+            enabled: true,
+            storagePath: "{workspace}/.agent/persistent-memory.jsonl",
+            walPath: "{workspace}/.agent/memory-queue.wal",
+            recallLimit: 24,
+            maxEntries: 4000,
+            pipeline: {
+              mode: "async_wal",
+              recallTimeoutMs: 40,
+              batchSize: 32,
+              flushIntervalMs: 200,
+              flushOnShutdownTimeoutMs: 3000,
+            },
+          },
         },
       }),
     ).not.toThrow();

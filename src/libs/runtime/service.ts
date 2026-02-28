@@ -1,10 +1,12 @@
-import { Agent } from "../agent/agent";
+import { Agent, type AgentRunDetailedResult } from "../agent/agent";
 import { ControlledTaskStopError } from "./errors";
 import { PriorityTaskQueue, createTask } from "./queue";
+import { applyTaskInputPolicy } from "./input_policy";
 
 import type { RuntimeGateway } from "../channel/channel";
 import type {
   AgentContextResponse,
+  AgentContextLiteResponse,
   AgentMessagesResponse,
   CreateTaskRequest,
   CreateTaskResponse,
@@ -18,11 +20,74 @@ import type {
 } from "../../types/http";
 import type { TaskItem } from "../../types/task";
 import type { TaskExecutionStopReason } from "../../types/task";
-import { TaskStatus } from "../../types/task";
+import { TaskStatus, isTaskExecutionStopReason } from "../../types/task";
+import {
+  DEFAULT_AGENT_EXECUTION_CONFIG,
+  type AgentExecutionConfig,
+  type ResolvedAgentExecutionConfig,
+} from "../../types/agent";
+import { buildContextLiteMeta } from "../agent/session/context_projection_v2";
 
 const DEFAULT_AGENT_SESSION_ID = "default";
 const CONTEXT_OVERFLOW_CANCEL_REASON = "contextoverflow";
 const CONTEXT_OVERFLOW_CANCELLED_BY = "system.contextoverflow";
+
+type AgentRuntimeServiceOptions = {
+  executionConfig?: AgentExecutionConfig;
+};
+
+const resolveRuntimeExecutionConfig = (
+  config?: AgentExecutionConfig,
+): ResolvedAgentExecutionConfig => ({
+  ...DEFAULT_AGENT_EXECUTION_CONFIG,
+  ...(config ?? {}),
+  contextV2: {
+    ...DEFAULT_AGENT_EXECUTION_CONFIG.contextV2,
+    ...(config?.contextV2 ?? {}),
+  },
+  inputPolicy: {
+    ...DEFAULT_AGENT_EXECUTION_CONFIG.inputPolicy,
+    ...(config?.inputPolicy ?? {}),
+  },
+  contextBudget: {
+    ...DEFAULT_AGENT_EXECUTION_CONFIG.contextBudget,
+    ...(config?.contextBudget ?? {}),
+    outputStepDownTokens:
+      config?.contextBudget?.outputStepDownTokens?.length
+        ? Array.from(
+            new Set(
+              config.contextBudget.outputStepDownTokens
+                .map((item) => Math.max(1, Math.floor(item)))
+                .filter((item) => Number.isFinite(item)),
+            ),
+          )
+        : DEFAULT_AGENT_EXECUTION_CONFIG.contextBudget.outputStepDownTokens,
+  },
+  overflowPolicy: {
+    ...DEFAULT_AGENT_EXECUTION_CONFIG.overflowPolicy,
+    ...(config?.overflowPolicy ?? {}),
+  },
+  intentGuard: {
+    ...DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard,
+    ...(config?.intentGuard ?? {}),
+    detector:
+      typeof config?.intentGuard?.detector === "string"
+        ? config.intentGuard.detector
+        : config?.intentGuard?.detector?.mode ?? DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard.detector,
+    detectorTimeoutMs:
+      typeof config?.intentGuard?.detector === "object" &&
+      config.intentGuard.detector !== null &&
+      typeof config.intentGuard.detector.timeoutMs === "number"
+        ? Math.max(1, Math.floor(config.intentGuard.detector.timeoutMs))
+        : DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard.detectorTimeoutMs,
+    detectorModelMaxOutputTokens:
+      typeof config?.intentGuard?.detector === "object" &&
+      config.intentGuard.detector !== null &&
+      typeof config.intentGuard.detector.modelMaxOutputTokens === "number"
+        ? Math.max(1, Math.floor(config.intentGuard.detector.modelMaxOutputTokens))
+        : DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard.detectorModelMaxOutputTokens,
+  },
+});
 
 type TaskMessageBuffer = {
   items: TaskOutputMessage[];
@@ -57,12 +122,15 @@ export class AgentRuntimeService implements RuntimeGateway {
   private taskRegistry = new Map<string, TaskItem<string, string>>();
   private readonly taskMessages = new Map<string, TaskMessageBuffer>();
   private readonly agentSessions = new Map<string, Agent>();
+  private readonly executionConfig: ResolvedAgentExecutionConfig;
   private started = false;
 
   constructor(
     private readonly agent: Agent,
     private readonly logger: Pick<Console, "log"> = console,
+    options?: AgentRuntimeServiceOptions,
   ) {
+    this.executionConfig = resolveRuntimeExecutionConfig(options?.executionConfig);
     this.agentSessions.set(DEFAULT_AGENT_SESSION_ID, this.agent);
     this.taskQueue = new PriorityTaskQueue(
       async (task: TaskItem<string, string>) => {
@@ -81,6 +149,10 @@ export class AgentRuntimeService implements RuntimeGateway {
           });
 
           if (!result.completed) {
+            if (!isTaskExecutionStopReason(result.stopReason)) {
+              throw new Error(`Task not completed: ${result.stopReason}`);
+            }
+
             task.metadata = {
               ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
               execution: {
@@ -90,6 +162,10 @@ export class AgentRuntimeService implements RuntimeGateway {
                 totalToolCalls: result.totalToolCalls,
                 totalModelSteps: result.totalModelSteps,
                 retrySuppressed: true,
+                tokenUsage:
+                  result.tokenUsage && typeof result.tokenUsage === "object"
+                    ? { ...result.tokenUsage }
+                    : undefined,
               },
             };
 
@@ -108,6 +184,13 @@ export class AgentRuntimeService implements RuntimeGateway {
                 totalModelSteps: result.totalModelSteps,
               },
             });
+          }
+
+          if (result.tokenUsage) {
+            task.metadata = {
+              ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
+              tokenUsage: { ...result.tokenUsage },
+            };
           }
 
           return result.text;
@@ -197,14 +280,7 @@ export class AgentRuntimeService implements RuntimeGateway {
     options?: {
       onOutputMessage?: (message: TaskOutputMessageDraft) => void;
     },
-  ): Promise<{
-    text: string;
-    completed: boolean;
-    stopReason: TaskExecutionStopReason | "completed";
-    segmentCount: number;
-    totalToolCalls: number;
-    totalModelSteps: number;
-  }> {
+  ): Promise<AgentRunDetailedResult> {
     const agent = this.getAgent();
     const maybeDetailed = agent as Agent & {
       runTaskDetailed?: (
@@ -212,14 +288,7 @@ export class AgentRuntimeService implements RuntimeGateway {
         options?: {
           onOutputMessage?: (message: TaskOutputMessageDraft) => void;
         },
-      ) => Promise<{
-        text: string;
-        completed: boolean;
-        stopReason: TaskExecutionStopReason | "completed";
-        segmentCount: number;
-        totalToolCalls: number;
-        totalModelSteps: number;
-      }>;
+      ) => Promise<AgentRunDetailedResult>;
     };
 
     if (typeof maybeDetailed.runTaskDetailed === "function") {
@@ -229,6 +298,8 @@ export class AgentRuntimeService implements RuntimeGateway {
     const text = await agent.runTask(task.input, options as any);
     return {
       text,
+      finishReason: "stop",
+      stepCount: 0,
       completed: true,
       stopReason: "completed",
       segmentCount: 1,
@@ -253,6 +324,25 @@ export class AgentRuntimeService implements RuntimeGateway {
     const task = createTask<string, string>(request.type ?? "http.input", request.input, {
       priority: request.priority ?? 2,
     });
+
+    const workspace = this.getAgent().getContextSnapshot().runtime.workspace;
+    const ingress = applyTaskInputPolicy({
+      taskId: task.id,
+      workspace,
+      input: request.input,
+      config: {
+        enabled: this.executionConfig.inputPolicy.enabled,
+        autoCompress: this.executionConfig.inputPolicy.autoCompress,
+        maxInputTokens: this.executionConfig.inputPolicy.maxInputTokens,
+        summarizeTargetTokens: this.executionConfig.inputPolicy.summarizeTargetTokens,
+      },
+    });
+
+    task.input = ingress.input;
+    task.metadata = {
+      ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
+      ingress: ingress.ingress,
+    };
 
     this.taskRegistry.set(task.id, task);
     this.ensureTaskMessageBuffer(task.id);
@@ -291,8 +381,19 @@ export class AgentRuntimeService implements RuntimeGateway {
   }
 
   getAgentContext(): AgentContextResponse {
+    const projection = this.getContextProjectionSnapshot();
     return {
-      context: this.getAgent().getContextSnapshot(),
+      context: projection.context,
+      injectedContext: projection.injectedContext,
+      projectionDebug: projection.projectionDebug,
+    };
+  }
+
+  getAgentContextLite(): AgentContextLiteResponse {
+    const projection = this.getContextProjectionSnapshot();
+    return {
+      modelContext: projection.modelContext,
+      meta: buildContextLiteMeta(projection),
     };
   }
 
@@ -382,18 +483,25 @@ export class AgentRuntimeService implements RuntimeGateway {
       retrySuppressed: true,
     };
 
-    const now = Date.now();
-    const pending = this.taskQueue.drainPending();
-    this.cancelPendingTasks(
-      pending,
-      now,
-      CONTEXT_OVERFLOW_CANCEL_REASON,
-      CONTEXT_OVERFLOW_CANCELLED_BY,
-      "Task cancelled: queue cleared after context length overflow",
-    );
+    if (!this.executionConfig.overflowPolicy.isolateTaskOnContextOverflow) {
+      const now = Date.now();
+      const pending = this.taskQueue.drainPending();
+      this.cancelPendingTasks(
+        pending,
+        now,
+        CONTEXT_OVERFLOW_CANCEL_REASON,
+        CONTEXT_OVERFLOW_CANCELLED_BY,
+        "Task cancelled: queue cleared after context length overflow",
+      );
+
+      this.logger.log(
+        `[runtime] context length overflow detected on task ${task.id}; cleared ${pending.length} pending task(s)`,
+      );
+      return;
+    }
 
     this.logger.log(
-      `[runtime] context length overflow detected on task ${task.id}; cleared ${pending.length} pending task(s)`,
+      `[runtime] context length overflow detected on task ${task.id}; task isolated, queue continues`,
     );
   }
 
@@ -426,5 +534,33 @@ export class AgentRuntimeService implements RuntimeGateway {
 
   private toErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  private getContextProjectionSnapshot() {
+    const agent = this.getAgent();
+    const withProjection = agent as Agent & {
+      getContextProjectionSnapshot?: () => ReturnType<Agent["getContextProjectionSnapshot"]>;
+    };
+
+    if (typeof withProjection.getContextProjectionSnapshot === "function") {
+      return withProjection.getContextProjectionSnapshot();
+    }
+
+    const context = agent.getContextSnapshot();
+    return {
+      context,
+      injectedContext: context,
+      modelContext: {
+        version: context.version,
+        runtime: {
+          round: context.runtime.round,
+          workspace: context.runtime.workspace,
+          datetime: context.runtime.datetime,
+          startup_at: context.runtime.startup_at,
+        },
+        memory: context.memory,
+      },
+      projectionDebug: undefined,
+    };
   }
 }

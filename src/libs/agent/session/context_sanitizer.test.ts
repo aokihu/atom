@@ -19,6 +19,7 @@ const createBaseContext = (): AgentContext => ({
     core: [],
     working: [],
     ephemeral: [],
+    longterm: [],
   },
 });
 
@@ -273,6 +274,7 @@ describe("context_sanitizer", () => {
           content: "keep-ephemeral",
         },
       ],
+      longterm: [],
     };
 
     const compacted = compactContextMemory(context);

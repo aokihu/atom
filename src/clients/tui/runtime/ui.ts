@@ -50,6 +50,7 @@ export type TuiClientUiBundle = {
   contextModalBox: BoxRenderable;
   contextModalTitleText: TextRenderable;
   contextModalHintText: TextRenderable;
+  contextModalSaveResultText: TextRenderable;
   contextModalSaveActionText: TextRenderable;
   contextModalScroll: ScrollBoxRenderable;
   contextModalContentBox: BoxRenderable;
@@ -156,6 +157,7 @@ export const createTuiClientUiBundle = (
     contextModalBox: contextModalView.modalBox,
     contextModalTitleText: contextModalView.titleText,
     contextModalHintText: contextModalView.hintText,
+    contextModalSaveResultText: contextModalView.saveResultText,
     contextModalSaveActionText: contextModalView.saveActionText,
     contextModalScroll: contextModalView.scroll,
     contextModalContentBox: contextModalView.contentBox,

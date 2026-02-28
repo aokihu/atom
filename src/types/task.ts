@@ -11,6 +11,8 @@ export const CONTROLLED_TASK_STOP_REASONS = [
   "step_limit_segment_continue",
   "model_step_budget_exhausted",
   "continuation_limit_reached",
+  "context_budget_exhausted",
+  "intent_guard_blocked",
 ] as const;
 
 export type TaskExecutionStopReason = (typeof CONTROLLED_TASK_STOP_REASONS)[number];
@@ -22,6 +24,7 @@ export type TaskExecutionMetadata = {
   totalToolCalls?: number;
   totalModelSteps?: number;
   retrySuppressed?: boolean;
+  tokenUsage?: Record<string, unknown>;
 };
 
 export type TaskMetadata = Record<string, any> & {

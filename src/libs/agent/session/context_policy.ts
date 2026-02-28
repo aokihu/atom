@@ -4,6 +4,7 @@ export const CONTEXT_MEMORY_TIERS: readonly ContextMemoryTier[] = [
   "core",
   "working",
   "ephemeral",
+  "longterm",
 ];
 
 export type ContextTierPolicy = {
@@ -37,6 +38,12 @@ export const CONTEXT_POLICY = {
       minConfidence: 0.4,
       maxItems: 24,
       maxAgeRounds: 3,
+    },
+    longterm: {
+      maxDecay: 0.55,
+      minConfidence: 0.7,
+      maxItems: 64,
+      maxAgeRounds: undefined,
     },
   } satisfies Record<ContextMemoryTier, ContextTierPolicy>,
 } as const;

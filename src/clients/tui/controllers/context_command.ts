@@ -21,8 +21,18 @@ export const executeContextCommand = async (input: ExecuteContextCommandInput): 
   const { client, withConnectionTracking, formatJson, formatErrorMessage, callbacks } = input;
   callbacks.onStart();
   try {
-    const data = await withConnectionTracking(() => client.getAgentContext());
-    callbacks.onSuccess(formatJson(data.context), data.context);
+    if (typeof client.getAgentContextLite === "function") {
+      try {
+        const lite = await withConnectionTracking(() => client.getAgentContextLite!());
+        callbacks.onSuccess(formatJson(lite.modelContext), lite.modelContext);
+        return;
+      } catch {
+        // fallback to legacy endpoint
+      }
+    }
+
+    const legacy = await withConnectionTracking(() => client.getAgentContext());
+    callbacks.onSuccess(formatJson(legacy.injectedContext ?? legacy.context), legacy.injectedContext ?? legacy.context);
   } catch (error) {
     callbacks.onError(formatErrorMessage(error));
   } finally {

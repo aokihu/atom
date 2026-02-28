@@ -29,6 +29,49 @@ export type ModelExecutionResult = {
   text: string;
   finishReason: string;
   stepCount: number;
+  tokenUsage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    reasoningTokens?: number;
+    cachedInputTokens?: number;
+  };
+};
+
+const toOptionalNumber = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const normalizeTokenUsage = (raw: unknown): ModelExecutionResult["tokenUsage"] => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return undefined;
+  }
+
+  const usage = raw as Record<string, unknown>;
+  const inputTokens =
+    toOptionalNumber(usage.inputTokens) ?? toOptionalNumber(usage.promptTokens);
+  const outputTokens =
+    toOptionalNumber(usage.outputTokens) ?? toOptionalNumber(usage.completionTokens);
+  const totalTokens = toOptionalNumber(usage.totalTokens);
+  const reasoningTokens = toOptionalNumber(usage.reasoningTokens);
+  const cachedInputTokens = toOptionalNumber(usage.cachedInputTokens);
+
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    totalTokens === undefined &&
+    reasoningTokens === undefined &&
+    cachedInputTokens === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    reasoningTokens,
+    cachedInputTokens,
+  };
 };
 
 export class AISDKModelExecutor {
@@ -78,6 +121,9 @@ export class AISDKModelExecutor {
         text: result.text,
         finishReason: String(result.finishReason),
         stepCount,
+        tokenUsage:
+          normalizeTokenUsage((result as unknown as { usage?: unknown }).usage) ??
+          normalizeTokenUsage((result as unknown as { totalUsage?: unknown }).totalUsage),
       };
     } catch (error) {
       if (error instanceof ToolBudgetExceededError) {

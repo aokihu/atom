@@ -12,7 +12,37 @@
       "maxToolCallsPerTask": 40,
       "maxContinuationRuns": 5,
       "maxModelStepsPerTask": 80,
-      "continueWithoutAdvancingContextRound": true
+      "continueWithoutAdvancingContextRound": true,
+      "contextV2": {
+        "enabled": true,
+        "apiDualMode": true,
+        "injectLiteOnly": true
+      },
+      "inputPolicy": {
+        "enabled": true,
+        "autoCompress": true,
+        "maxInputTokens": 12000,
+        "summarizeTargetTokens": 1800
+      },
+      "contextBudget": {
+        "enabled": true,
+        "contextWindowTokens": 131072,
+        "reserveOutputTokensMax": 2048,
+        "safetyMarginRatio": 0.12,
+        "safetyMarginMinTokens": 6000,
+        "outputStepDownTokens": [2048, 1024, 512]
+      },
+      "overflowPolicy": {
+        "isolateTaskOnContextOverflow": true
+      },
+      "intentGuard": {
+        "enabled": true,
+        "detector": {
+          "mode": "hybrid",
+          "timeoutMs": 600,
+          "modelMaxOutputTokens": 80
+        }
+      }
     }
   },
   "providers": [
@@ -20,6 +50,8 @@
       "provider_id": "deepseek",
       "model": "deepseek-chat",
       "api_key": "YOUR_DEEPSEEK_API_KEY",
+      "max_context_tokens": 131072,
+      "max_output_tokens": 8192,
       "enabled": true
     },
     {
@@ -97,6 +129,22 @@
     "webfetch": {
       "allow": ["^https://(docs\\.|developer\\.)?example\\.com/.*"],
       "deny": ["^https?://(localhost|127\\.0\\.0\\.1)(:.*)?/.*"]
+    }
+  },
+  "memory": {
+    "persistent": {
+      "enabled": true,
+      "storagePath": "{workspace}/.agent/persistent-memory.jsonl",
+      "walPath": "{workspace}/.agent/memory-queue.wal",
+      "recallLimit": 24,
+      "maxEntries": 4000,
+      "pipeline": {
+        "mode": "async_wal",
+        "recallTimeoutMs": 40,
+        "batchSize": 32,
+        "flushIntervalMs": 200,
+        "flushOnShutdownTimeoutMs": 3000
+      }
     }
   }
 }

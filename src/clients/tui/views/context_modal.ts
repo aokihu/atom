@@ -13,6 +13,7 @@ export type ContextModalLayoutInput = {
   terminal: TerminalSize;
   title: string;
   body: string;
+  saveResult?: string;
 };
 
 export type ContextModalLayoutState = {
@@ -25,6 +26,8 @@ export type ContextModalLayoutState = {
   hintText: string;
   scrollHeight: number;
   bodyText: string;
+  saveResultText: string;
+  saveActionText: string;
 };
 
 export type ContextModalView = {
@@ -33,10 +36,11 @@ export type ContextModalView = {
   modalBox: BoxRenderable;
   titleText: TextRenderable;
   hintText: TextRenderable;
-  saveActionText: TextRenderable;
   scroll: ScrollBoxRenderable;
   contentBox: BoxRenderable;
   bodyText: TextRenderable;
+  saveResultText: TextRenderable;
+  saveActionText: TextRenderable;
 };
 
 export const createContextModalView = (
@@ -125,13 +129,20 @@ export const createContextModalView = (
     width: "100%",
     wrapMode: "char",
   });
+  const saveResultText = new TextRenderable(ctx, {
+    content: "",
+    fg: NORD.nord10,
+    width: "100%",
+    truncate: true,
+  });
 
   contentBox.add(bodyText);
   scroll.add(contentBox);
   modalBox.add(titleText);
   modalBox.add(hintText);
-  modalBox.add(saveActionText);
   modalBox.add(scroll);
+  modalBox.add(saveResultText);
+  modalBox.add(saveActionText);
   overlay.add(backdrop);
   overlay.add(modalBox);
 
@@ -141,6 +152,7 @@ export const createContextModalView = (
     modalBox,
     titleText,
     hintText,
+    saveResultText,
     saveActionText,
     scroll,
     contentBox,
@@ -163,7 +175,9 @@ export const buildContextModalLayoutState = (input: ContextModalLayoutInput): Co
     innerWidth,
     titleText: truncateToDisplayWidth(input.title, innerWidth),
     hintText: truncateToDisplayWidth("Esc close · S save · Arrow/Page keys scroll", innerWidth),
-    scrollHeight: Math.max(1, height - 5),
+    scrollHeight: Math.max(1, height - 7),
     bodyText: input.body.length > 0 ? input.body : "No context loaded.",
+    saveResultText: truncateToDisplayWidth(input.saveResult ?? "", innerWidth),
+    saveActionText: truncateToDisplayWidth("[ Save Context ]", innerWidth),
   };
 };

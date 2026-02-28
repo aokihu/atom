@@ -32,6 +32,7 @@ const createInitialContext = (
     core: [],
     working: [],
     ephemeral: [],
+    longterm: [],
   },
 });
 
@@ -58,6 +59,19 @@ export class AgentContextState {
 
   updateRuntime() {
     this.refreshRuntime({ advanceRound: true });
+  }
+
+  updateRuntimeDiagnostics(fields: {
+    budget?: AgentContext["runtime"]["budget"];
+    token_usage?: AgentContext["runtime"]["token_usage"];
+  }) {
+    const runtime = this.context.runtime as Record<string, unknown>;
+    if (fields.budget !== undefined) {
+      runtime.budget = structuredClone(fields.budget);
+    }
+    if (fields.token_usage !== undefined) {
+      runtime.token_usage = structuredClone(fields.token_usage);
+    }
   }
 
   snapshot() {

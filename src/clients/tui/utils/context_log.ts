@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { AgentContextResponse } from "../../../types/http";
+import type { AgentContextLiteResponse, AgentContextResponse } from "../../../types/http";
 
 const sanitizeTimestampToken = (input: string): string =>
   input.replace(/[^0-9]/g, "").slice(0, 14);
@@ -38,12 +38,22 @@ export const saveContextLog = async (args: {
 };
 
 export const buildContextLogPayload = (args: {
-  contextResponse: AgentContextResponse;
+  contextResponse: AgentContextResponse | AgentContextLiteResponse;
   savedAt?: Date;
 }): string =>
-  JSON.stringify({
-    saved_at: (args.savedAt ?? new Date()).toISOString(),
-    context: args.contextResponse.context,
-    injectedContext: args.contextResponse.injectedContext,
-    projectionDebug: args.contextResponse.projectionDebug,
-  }, null, 2);
+  JSON.stringify(
+    "modelContext" in args.contextResponse
+      ? {
+          saved_at: (args.savedAt ?? new Date()).toISOString(),
+          modelContext: args.contextResponse.modelContext,
+          meta: args.contextResponse.meta,
+        }
+      : {
+          saved_at: (args.savedAt ?? new Date()).toISOString(),
+          context: args.contextResponse.context,
+          injectedContext: args.contextResponse.injectedContext,
+          projectionDebug: args.contextResponse.projectionDebug,
+        },
+    null,
+    2,
+  );

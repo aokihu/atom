@@ -106,4 +106,34 @@ describe("context_log", () => {
     expect(payload).toContain("\"injectedContext\"");
     expect(payload).toContain("\"projectionDebug\"");
   });
+
+  test("buildContextLogPayload serializes context-lite envelope", () => {
+    const payload = buildContextLogPayload({
+      contextResponse: {
+        modelContext: {
+          version: 3,
+          runtime: {
+            round: 2,
+            workspace: "/tmp/ws/",
+            datetime: "2026-02-28T07:20:41.382Z",
+            startup_at: 1,
+          },
+          memory: {
+            core: [],
+            working: [],
+            ephemeral: [],
+            longterm: [],
+          },
+        },
+        meta: {
+          rawContextBytes: 100,
+          modelContextBytes: 80,
+        },
+      },
+      savedAt: new Date("2026-02-28T01:02:03.000Z"),
+    });
+
+    expect(payload).toContain("\"modelContext\"");
+    expect(payload).toContain("\"meta\"");
+  });
 });

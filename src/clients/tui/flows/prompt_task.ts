@@ -7,6 +7,7 @@ type WithConnectionTracking = <T>(operation: () => Promise<T>) => Promise<T>;
 export type PromptTaskFlowCallbacks = {
   onBeforeSubmit: () => void;
   onTaskCreated: (taskId: string) => void;
+  onTaskStatus?: (task: TaskStatusResponse["task"]) => void;
   onTaskMessages?: (taskId: string, messages: TaskOutputMessage[]) => void;
   onTaskCompleted: (taskId: string, summary: CompletedTaskSummary) => void;
   onRequestError: (message: string) => void;
@@ -57,6 +58,7 @@ export const executePromptTaskFlow = async (input: ExecutePromptTaskFlowInput): 
       );
       const task = status.task;
       const delta = status.messages;
+      callbacks.onTaskStatus?.(task);
 
       if (delta) {
         afterSeq = delta.latestSeq;

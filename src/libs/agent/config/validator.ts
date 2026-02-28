@@ -70,6 +70,13 @@ const ensurePositiveInteger = (value: unknown, keyPath: string) => {
   }
 };
 
+const ensureLiteral = (value: unknown, keyPath: string, literals: readonly string[]) => {
+  if (value === undefined) return;
+  if (typeof value !== "string" || !literals.includes(value)) {
+    throw new Error(`${keyPath} must be one of: ${literals.join(", ")}`);
+  }
+};
+
 const ensureNumberInRange = (
   value: unknown,
   keyPath: string,
@@ -129,6 +136,105 @@ const validateAgentExecutionConfig = (value: unknown, keyPath: string) => {
     execution.continueWithoutAdvancingContextRound,
     `${keyPath}.continueWithoutAdvancingContextRound`,
   );
+
+  const contextV2 = execution.contextV2;
+  if (contextV2 !== undefined) {
+    if (typeof contextV2 !== "object" || contextV2 === null || Array.isArray(contextV2)) {
+      throw new Error(`${keyPath}.contextV2 must be a JSON object`);
+    }
+    const config = contextV2 as Record<string, unknown>;
+    ensureBoolean(config.enabled, `${keyPath}.contextV2.enabled`);
+    ensureBoolean(config.apiDualMode, `${keyPath}.contextV2.apiDualMode`);
+    ensureBoolean(config.injectLiteOnly, `${keyPath}.contextV2.injectLiteOnly`);
+  }
+
+  const inputPolicy = execution.inputPolicy;
+  if (inputPolicy !== undefined) {
+    if (typeof inputPolicy !== "object" || inputPolicy === null || Array.isArray(inputPolicy)) {
+      throw new Error(`${keyPath}.inputPolicy must be a JSON object`);
+    }
+    const config = inputPolicy as Record<string, unknown>;
+    ensureBoolean(config.enabled, `${keyPath}.inputPolicy.enabled`);
+    ensureBoolean(config.autoCompress, `${keyPath}.inputPolicy.autoCompress`);
+    ensurePositiveInteger(config.maxInputTokens, `${keyPath}.inputPolicy.maxInputTokens`);
+    ensurePositiveInteger(config.summarizeTargetTokens, `${keyPath}.inputPolicy.summarizeTargetTokens`);
+  }
+
+  const contextBudget = execution.contextBudget;
+  if (contextBudget !== undefined) {
+    if (typeof contextBudget !== "object" || contextBudget === null || Array.isArray(contextBudget)) {
+      throw new Error(`${keyPath}.contextBudget must be a JSON object`);
+    }
+    const config = contextBudget as Record<string, unknown>;
+    ensureBoolean(config.enabled, `${keyPath}.contextBudget.enabled`);
+    ensurePositiveInteger(config.contextWindowTokens, `${keyPath}.contextBudget.contextWindowTokens`);
+    ensurePositiveInteger(
+      config.reserveOutputTokensMax,
+      `${keyPath}.contextBudget.reserveOutputTokensMax`,
+    );
+    ensureNumberInRange(config.safetyMarginRatio, `${keyPath}.contextBudget.safetyMarginRatio`, {
+      min: 0,
+      max: 0.8,
+      minExclusive: true,
+    });
+    ensurePositiveInteger(
+      config.safetyMarginMinTokens,
+      `${keyPath}.contextBudget.safetyMarginMinTokens`,
+    );
+    if (config.outputStepDownTokens !== undefined && !Array.isArray(config.outputStepDownTokens)) {
+      throw new Error(`${keyPath}.contextBudget.outputStepDownTokens must be an array`);
+    }
+    if (Array.isArray(config.outputStepDownTokens)) {
+      config.outputStepDownTokens.forEach((item, index) => {
+        ensurePositiveInteger(item, `${keyPath}.contextBudget.outputStepDownTokens[${index}]`);
+      });
+    }
+  }
+
+  const overflowPolicy = execution.overflowPolicy;
+  if (overflowPolicy !== undefined) {
+    if (typeof overflowPolicy !== "object" || overflowPolicy === null || Array.isArray(overflowPolicy)) {
+      throw new Error(`${keyPath}.overflowPolicy must be a JSON object`);
+    }
+    const config = overflowPolicy as Record<string, unknown>;
+    ensureBoolean(
+      config.isolateTaskOnContextOverflow,
+      `${keyPath}.overflowPolicy.isolateTaskOnContextOverflow`,
+    );
+  }
+
+  const intentGuard = execution.intentGuard;
+  if (intentGuard !== undefined) {
+    if (typeof intentGuard !== "object" || intentGuard === null || Array.isArray(intentGuard)) {
+      throw new Error(`${keyPath}.intentGuard must be a JSON object`);
+    }
+    const config = intentGuard as Record<string, unknown>;
+    ensureBoolean(config.enabled, `${keyPath}.intentGuard.enabled`);
+
+    const detector = config.detector;
+    if (detector !== undefined) {
+      if (typeof detector === "string") {
+        ensureLiteral(detector, `${keyPath}.intentGuard.detector`, ["heuristic", "hybrid", "model"]);
+      } else if (typeof detector === "object" && detector !== null && !Array.isArray(detector)) {
+        const detectorConfig = detector as Record<string, unknown>;
+        ensureLiteral(detectorConfig.mode, `${keyPath}.intentGuard.detector.mode`, [
+          "heuristic",
+          "hybrid",
+          "model",
+        ]);
+        ensurePositiveInteger(
+          detectorConfig.timeoutMs,
+          `${keyPath}.intentGuard.detector.timeoutMs`,
+        );
+        ensurePositiveInteger(
+          detectorConfig.modelMaxOutputTokens,
+          `${keyPath}.intentGuard.detector.modelMaxOutputTokens`,
+        );
+      } else {
+        throw new Error(`${keyPath}.intentGuard.detector must be a string or JSON object`);
+      }
+    }
+  }
 };
 
 const parseAgentModelRef = (value: string) => {
@@ -190,6 +296,8 @@ const validateAgentAndProvidersConfig = (config: AgentConfig) => {
     ensureBoolean(provider.enabled, `${keyPath}.enabled`);
     ensureNonEmptyString(provider.base_url, `${keyPath}.base_url`);
     ensureStringRecord(provider.headers, `${keyPath}.headers`);
+    ensurePositiveInteger(provider.max_context_tokens, `${keyPath}.max_context_tokens`);
+    ensurePositiveInteger(provider.max_output_tokens, `${keyPath}.max_output_tokens`);
 
     if (typeof provider.base_url === "string") {
       try {
@@ -334,8 +442,43 @@ export const validateMcpConfig = (config: AgentConfig) => {
   });
 };
 
+export const validateMemoryConfig = (config: AgentConfig) => {
+  const memory = config.memory;
+  if (memory === undefined) return;
+  if (typeof memory !== "object" || memory === null || Array.isArray(memory)) {
+    throw new Error("memory must be a JSON object");
+  }
+
+  const persistent = memory.persistent;
+  if (persistent === undefined) return;
+  if (typeof persistent !== "object" || persistent === null || Array.isArray(persistent)) {
+    throw new Error("memory.persistent must be a JSON object");
+  }
+
+  ensureBoolean(persistent.enabled, "memory.persistent.enabled");
+  ensureNonEmptyString(persistent.storagePath, "memory.persistent.storagePath");
+  ensureNonEmptyString(persistent.walPath, "memory.persistent.walPath");
+  ensurePositiveInteger(persistent.recallLimit, "memory.persistent.recallLimit");
+  ensurePositiveInteger(persistent.maxEntries, "memory.persistent.maxEntries");
+
+  const pipeline = persistent.pipeline;
+  if (pipeline === undefined) return;
+  if (typeof pipeline !== "object" || pipeline === null || Array.isArray(pipeline)) {
+    throw new Error("memory.persistent.pipeline must be a JSON object");
+  }
+  ensureLiteral(pipeline.mode, "memory.persistent.pipeline.mode", ["sync", "async_wal"]);
+  ensurePositiveInteger(pipeline.recallTimeoutMs, "memory.persistent.pipeline.recallTimeoutMs");
+  ensurePositiveInteger(pipeline.batchSize, "memory.persistent.pipeline.batchSize");
+  ensurePositiveInteger(pipeline.flushIntervalMs, "memory.persistent.pipeline.flushIntervalMs");
+  ensurePositiveInteger(
+    pipeline.flushOnShutdownTimeoutMs,
+    "memory.persistent.pipeline.flushOnShutdownTimeoutMs",
+  );
+};
+
 export const validateAgentConfig = (config: AgentConfig) => {
   validateAgentAndProvidersConfig(config);
   validateToolsConfig(config);
   validateMcpConfig(config);
+  validateMemoryConfig(config);
 };

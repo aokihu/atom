@@ -19,6 +19,7 @@ import { AgentRuntimeService } from "./libs/runtime";
 import { HttpGatewayClient, startHttpGateway } from "./libs/channel";
 import { startTuiClient } from "./clients";
 import { cleanupInvalidBackgroundBashSessionsOnStartup } from "./libs/agent/tools/background_sessions";
+import type { AgentExecutionConfig } from "./types/agent";
 
 const DEFAULT_AGENT_NAME = "Atom";
 
@@ -77,6 +78,34 @@ const printModelSelection = (
   if (params && Object.keys(params).length > 0) {
     console.log(`[model.params] ${JSON.stringify(params)}`);
   }
+};
+
+const buildExecutionConfigWithProviderBudget = (
+  agentConfig: Awaited<ReturnType<typeof loadAgentConfig>>,
+): AgentExecutionConfig | undefined => {
+  const execution = structuredClone(agentConfig.agent?.execution ?? {});
+  const selection = resolveSelectedProvider(agentConfig);
+  const providerMaxContextTokens = selection.provider.max_context_tokens;
+  const providerMaxOutputTokens = selection.provider.max_output_tokens;
+
+  if (providerMaxContextTokens !== undefined || providerMaxOutputTokens !== undefined) {
+    execution.contextBudget = {
+      ...(execution.contextBudget ?? {}),
+    };
+  }
+
+  if (providerMaxContextTokens !== undefined) {
+    execution.contextBudget!.contextWindowTokens = providerMaxContextTokens;
+  }
+
+  if (providerMaxOutputTokens !== undefined) {
+    execution.contextBudget!.reserveOutputTokensMax = Math.min(
+      execution.contextBudget?.reserveOutputTokensMax ?? providerMaxOutputTokens,
+      providerMaxOutputTokens,
+    );
+  }
+
+  return execution;
 };
 
 type ShutdownController = {
@@ -178,21 +207,27 @@ const initializeRuntimeService = async (
       workspace: cliOptions.workspace,
       toolContext: { permissions: agentConfig, workspace: cliOptions.workspace },
       mcpTools,
+      memoryConfig: agentConfig.memory,
       dependencies: {
-        executionConfig: agentConfig.agent?.execution,
+        executionConfig: buildExecutionConfigWithProviderBudget(agentConfig),
       },
     });
+    await taskAgent.initialize();
 
     logStage("starting task runtime...");
     const runtimeService = new AgentRuntimeService(
       taskAgent,
       cliOptions.mode === "tui" ? { log: () => {} } : console,
+      {
+        executionConfig: buildExecutionConfigWithProviderBudget(agentConfig),
+      },
     );
     runtimeService.start();
 
     return {
       runtimeService,
       disposeMCP: mcp.dispose,
+      disposeAgent: () => taskAgent.shutdown(),
     };
   } catch (error) {
     await mcp.dispose();
@@ -253,7 +288,7 @@ const main = async () => {
   printStartupBanner(agentName, version, cliOptions.mode);
   printModelSelection(agentConfig);
 
-  const { runtimeService, disposeMCP } = await initializeRuntimeService(
+  const { runtimeService, disposeMCP, disposeAgent } = await initializeRuntimeService(
     cliOptions,
     agentConfig,
   );
@@ -271,6 +306,7 @@ const main = async () => {
   const shutdown = createShutdownController(async () => {
     gateway.stop();
     runtimeService.stop();
+    await disposeAgent();
     await disposeMCP();
   });
 
