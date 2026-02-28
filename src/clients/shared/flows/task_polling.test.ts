@@ -66,6 +66,7 @@ describe("executePolledTask", () => {
     const afterSeqCalls: Array<number | undefined> = [];
     const createdTaskIds: string[] = [];
     const receivedMessageCounts: number[] = [];
+    const statusSnapshots: TaskStatus[] = [];
     const client = createGatewayClient({
       responses: [
         {
@@ -127,6 +128,9 @@ describe("executePolledTask", () => {
       onTaskMessages: (_taskId, messages) => {
         receivedMessageCounts.push(messages.length);
       },
+      onTaskStatus: (_taskId, task) => {
+        statusSnapshots.push(task.status);
+      },
     });
 
     expect(result.stopped).toBe(false);
@@ -135,6 +139,7 @@ describe("executePolledTask", () => {
     expect(afterSeqCalls).toEqual([0, 1]);
     expect(createdTaskIds).toEqual(["task-1"]);
     expect(receivedMessageCounts).toEqual([1]);
+    expect(statusSnapshots).toEqual([TaskStatus.Running, TaskStatus.Success]);
   });
 
   test("stops before polling when shouldStop is true after task creation", async () => {

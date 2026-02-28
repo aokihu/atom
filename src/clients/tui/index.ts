@@ -11,7 +11,12 @@ import { BoxRenderable, createCliRenderer } from "@opentui/core";
 import type { CliRenderer, KeyEvent } from "@opentui/core";
 
 import type { GatewayClient } from "../../libs/channel/channel";
-import type { MCPHealthStatus, MessageGatewayHealthStatus, TaskOutputMessage } from "../../types/http";
+import type {
+  MCPHealthStatus,
+  MessageGatewayHealthStatus,
+  TaskOutputMessage,
+  TaskSnapshot,
+} from "../../types/http";
 import { TaskStatus, isTaskExecutionStopReason } from "../../types/task";
 import { resolveSlashCommandAction } from "./controllers/commands";
 import { executeContextCommand } from "./controllers/context_command";
@@ -74,6 +79,32 @@ const TEXTAREA_SUBMIT_KEY_BINDINGS = [
 ];
 const formatErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const toFiniteNonNegativeInteger = (value: unknown): number | undefined => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  const normalized = Math.trunc(value);
+  return normalized >= 0 ? normalized : undefined;
+};
+
+const extractTokenUsageFromTask = (task: TaskSnapshot) => {
+  const metadata = task.metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+  const tokenUsageRaw = (metadata as Record<string, unknown>).tokenUsage;
+  if (!tokenUsageRaw || typeof tokenUsageRaw !== "object" || Array.isArray(tokenUsageRaw)) {
+    return null;
+  }
+  const tokenUsage = tokenUsageRaw as Record<string, unknown>;
+  return {
+    inputTokens: toFiniteNonNegativeInteger(tokenUsage.inputTokens),
+    outputTokens: toFiniteNonNegativeInteger(tokenUsage.outputTokens),
+    totalTokens: toFiniteNonNegativeInteger(tokenUsage.totalTokens),
+    cumulativeTotalTokens: toFiniteNonNegativeInteger(tokenUsage.cumulativeTotalTokens),
+  };
+};
 const isEscapeKey = (key: KeyEvent): boolean => {
   if (key.name === "escape" || key.name === "esc") return true;
   if (key.code === "Escape") return true;
@@ -400,6 +431,10 @@ class CoreTuiClientApp {
       messageGatewayHealthAvailable: this.state.messageGatewayHealthAvailable,
       messageGatewayRunning: this.state.messageGatewayRunning,
       messageGatewayConfigured: this.state.messageGatewayConfigured,
+      tokenInputTokens: this.state.tokenInputTokens,
+      tokenOutputTokens: this.state.tokenOutputTokens,
+      tokenTotalTokens: this.state.tokenTotalTokens,
+      tokenCumulativeTokens: this.state.tokenCumulativeTokens,
     };
     this.ui.status.syncFromAppState(input);
   }
@@ -857,6 +892,26 @@ class CoreTuiClientApp {
     this.renderer.requestRender();
   }
 
+  private updateTokenUsageFromTaskSnapshot(task: TaskSnapshot): boolean {
+    const tokenUsage = extractTokenUsageFromTask(task);
+    if (!tokenUsage) {
+      return false;
+    }
+
+    const changed =
+      this.state.tokenInputTokens !== tokenUsage.inputTokens ||
+      this.state.tokenOutputTokens !== tokenUsage.outputTokens ||
+      this.state.tokenTotalTokens !== tokenUsage.totalTokens ||
+      this.state.tokenCumulativeTokens !== tokenUsage.cumulativeTotalTokens;
+
+    if (!changed) {
+      return false;
+    }
+
+    this.state.setTokenUsage(tokenUsage);
+    return true;
+  }
+
   private updateMessageGatewayHealth(status?: MessageGatewayHealthStatus): void {
     if (!status) {
       this.state.messageGatewayHealthAvailable = false;
@@ -1047,6 +1102,7 @@ class CoreTuiClientApp {
       formatErrorMessage,
       callbacks: {
         onBeforeSubmit: () => {
+          this.state.clearTokenUsage();
           this.setStatusNotice("Submitting request...");
           this.setClientPhase("submitting");
           this.setTaskId(undefined);
@@ -1056,6 +1112,12 @@ class CoreTuiClientApp {
           this.appendLog("system", `Task created: ${taskId}`);
           this.setStatusNotice(`Task created: ${taskId}`);
           this.setClientPhase("polling");
+        },
+        onTaskStatus: (_taskId, task) => {
+          if (this.updateTokenUsageFromTaskSnapshot(task)) {
+            this.syncStatusStrip();
+            this.renderer.requestRender();
+          }
         },
         onTaskMessages: (taskId, messages) => {
           let hasUiUpdate = false;

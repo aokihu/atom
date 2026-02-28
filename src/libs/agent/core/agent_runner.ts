@@ -9,6 +9,7 @@ import {
   AGENT_INTENT_GUARD_INTENT_KINDS,
   DEFAULT_AGENT_EXECUTION_CONFIG,
   type AgentContext,
+  type AgentContextRuntime,
   type AgentExecutionConfig,
   type AgentModelParams,
   type AgentIntentGuardIntentKind,
@@ -31,6 +32,7 @@ import {
 import { readTodoProgressStateForWorkspace } from "../tools/todo_store";
 import { AgentSession } from "../session/agent_session";
 import { AISDKModelExecutor } from "./model_executor";
+import { ContextBudgetOrchestrator } from "./context_budget";
 import {
   emitOutputMessage,
   type AgentOutputMessageSink,
@@ -120,6 +122,7 @@ export class AgentRunner {
     onExtractContext: (context: Partial<AgentContext>) => void,
   ) => LanguageModelV3Middleware;
   private readonly executionConfig: ResolvedAgentExecutionConfig;
+  private readonly contextBudgetOrchestrator: ContextBudgetOrchestrator;
   private readonly persistentMemoryHooks?: PersistentMemoryHooks;
   private readonly detectTaskIntent: (args: {
     model: LanguageModelV3;
@@ -150,6 +153,7 @@ export class AgentRunner {
       config: deps.executionConfig,
       legacyMaxSteps: deps.maxSteps,
     });
+    this.contextBudgetOrchestrator = new ContextBudgetOrchestrator(this.executionConfig.contextBudget);
     this.persistentMemoryHooks = deps.persistentMemoryHooks;
     this.detectTaskIntent = deps.detectTaskIntent ?? detectTaskIntent;
   }
@@ -191,6 +195,8 @@ export class AgentRunner {
     let finalText = "";
     let finalFinishReason = "unknown";
     let intentGuard: TaskIntentGuard | null = null;
+    let currentQuestion = question;
+    let latestBudgetContext: NonNullable<AgentContextRuntime["budget"]> | null = null;
 
     const model = this.createContextAwareModel((context) => {
       session.mergeModelExtractedContext(context);
@@ -222,28 +228,61 @@ export class AgentRunner {
 
       while (true) {
         const nextSegmentIndex = segmentCount + 1;
+        this.refreshTodoProgressContext(session);
+        let runModelParams = this.modelParams;
+
+        let currentTurnPrompt: string;
+        if (segmentCount === 0) {
+          currentTurnPrompt = currentQuestion;
+          session.prepareUserTurn(currentTurnPrompt);
+        } else {
+          currentTurnPrompt = this.buildContinuationPrompt({
+            segmentIndex: nextSegmentIndex,
+            continuationRuns,
+            totalModelSteps,
+            toolBudget,
+          });
+          session.prepareInternalContinuationTurn(
+            currentTurnPrompt,
+            {
+              advanceRound: !this.executionConfig.continueWithoutAdvancingContextRound,
+            },
+          );
+        }
+
+        const budgetResult = this.contextBudgetOrchestrator.apply({
+          session,
+          question: currentTurnPrompt,
+          modelParams: runModelParams,
+        });
+        runModelParams = budgetResult.modelParams;
+        latestBudgetContext = budgetResult.budget;
+        session.updateRuntimeBudget(latestBudgetContext);
+        if (segmentCount === 0) {
+          currentQuestion = budgetResult.question;
+        }
+
         this.writeExecutionBudgetContext(session, {
           segmentIndex: nextSegmentIndex,
           continuationRuns,
           totalModelSteps,
           toolBudget,
         });
-        this.refreshTodoProgressContext(session);
 
-        if (segmentCount === 0) {
-          session.prepareUserTurn(question);
-        } else {
-          session.prepareInternalContinuationTurn(
-            this.buildContinuationPrompt({
-              segmentIndex: nextSegmentIndex,
-              continuationRuns,
-              totalModelSteps,
-              toolBudget,
-            }),
-            {
-              advanceRound: !this.executionConfig.continueWithoutAdvancingContextRound,
-            },
-          );
+        if (budgetResult.exhausted) {
+          const result: AgentRunDetailedResult = {
+            text: "Task not completed: context budget exhausted before model execution.",
+            finishReason: "context_budget_exhausted",
+            stepCount: 0,
+            totalModelSteps,
+            totalToolCalls: toolBudget.usedCount,
+            segmentCount: Math.max(segmentCount, nextSegmentIndex),
+            completed: false,
+            stopReason: "context_budget_exhausted",
+          };
+          persistentAfterTaskMeta = this.toPersistentAfterTaskMeta(result, "detailed");
+          this.emitTerminalMessages(options, result);
+          return result;
         }
 
         let segmentResult;
@@ -251,7 +290,7 @@ export class AgentRunner {
           segmentResult = await this.modelExecutor.generate({
             model,
             messages: session.getMessages(),
-            modelParams: this.modelParams,
+            modelParams: runModelParams,
             abortSignal: abortController.signal,
             tools: this.createToolRegistryForRun(session, options, { toolBudget, intentGuard }),
             stopWhen: stepCountIs(this.executionConfig.maxModelStepsPerRun),
@@ -390,6 +429,7 @@ export class AgentRunner {
       };
       throw error;
     } finally {
+      session.updateRuntimeBudget(latestBudgetContext);
       await this.invokePersistentMemoryAfterTask(session, persistentAfterTaskMeta);
       if (this.currentAbortController === abortController) {
         this.currentAbortController = null;
@@ -401,6 +441,26 @@ export class AgentRunner {
     await this.invokePersistentMemoryBeforeTask(session, question);
     this.refreshTodoProgressContext(session);
     session.prepareUserTurn(question);
+    let runModelParams = this.modelParams;
+    const budgetResult = this.contextBudgetOrchestrator.apply({
+      session,
+      question,
+      modelParams: runModelParams,
+    });
+    runModelParams = budgetResult.modelParams;
+    session.updateRuntimeBudget(budgetResult.budget);
+    if (budgetResult.exhausted) {
+      await this.invokePersistentMemoryAfterTask(session, {
+        completed: false,
+        mode: "stream",
+        stopReason: "context_budget_exhausted",
+      });
+      throw new ToolPolicyBlockedError({
+        toolName: "context_budget",
+        reason: "Task not completed: context budget exhausted before model execution.",
+        stopReason: "context_budget_exhausted",
+      });
+    }
 
     const model = this.createContextAwareModel((context) => {
       session.mergeModelExtractedContext(context);
@@ -429,7 +489,7 @@ export class AgentRunner {
     const stream = this.modelExecutor.stream({
       model,
       messages: session.getMessages(),
-      modelParams: this.modelParams,
+      modelParams: runModelParams,
       abortSignal: abortController.signal,
       tools: this.createToolRegistryForRun(session, options, { intentGuard }),
       stopWhen: stepCountIs(this.executionConfig.maxModelStepsPerRun),
@@ -852,10 +912,154 @@ const resolveExecutionConfig = (args: {
     intents: mergedIntentPolicies,
   };
 
+  const baseInputPolicy = DEFAULT_AGENT_EXECUTION_CONFIG.inputPolicy;
+  const userInputPolicy = config.inputPolicy ?? {};
+  const mergedInputPolicy = {
+    ...baseInputPolicy,
+    ...userInputPolicy,
+    maxInputTokens: Math.max(
+      256,
+      Math.min(2_000_000, Math.trunc(userInputPolicy.maxInputTokens ?? baseInputPolicy.maxInputTokens)),
+    ),
+    summarizeTargetTokens: Math.max(
+      128,
+      Math.min(
+        200_000,
+        Math.trunc(userInputPolicy.summarizeTargetTokens ?? baseInputPolicy.summarizeTargetTokens),
+      ),
+    ),
+    spoolDirectory:
+      typeof userInputPolicy.spoolDirectory === "string" && userInputPolicy.spoolDirectory.trim() !== ""
+        ? userInputPolicy.spoolDirectory.trim()
+        : baseInputPolicy.spoolDirectory,
+  };
+
+  const baseContextBudget = DEFAULT_AGENT_EXECUTION_CONFIG.contextBudget;
+  const userContextBudget = config.contextBudget ?? {};
+  const downshiftCandidates = Array.isArray(userContextBudget.outputTokenDownshifts) &&
+      userContextBudget.outputTokenDownshifts.length > 0
+    ? userContextBudget.outputTokenDownshifts
+      .filter((item): item is number => typeof item === "number" && Number.isFinite(item))
+      .map((item) => Math.max(1, Math.min(200_000, Math.trunc(item))))
+    : baseContextBudget.outputTokenDownshifts;
+  const normalizedDownshifts = [...new Set(downshiftCandidates)].sort((a, b) => b - a);
+  const rawMinMemoryItems = userContextBudget.minMemoryItems ?? {};
+  const mergedMinMemoryItems = {
+    core: Math.max(
+      0,
+      Math.min(
+        200,
+        Math.trunc(
+          typeof rawMinMemoryItems.core === "number"
+            ? rawMinMemoryItems.core
+            : baseContextBudget.minMemoryItems.core,
+        ),
+      ),
+    ),
+    working: Math.max(
+      0,
+      Math.min(
+        200,
+        Math.trunc(
+          typeof rawMinMemoryItems.working === "number"
+            ? rawMinMemoryItems.working
+            : baseContextBudget.minMemoryItems.working,
+        ),
+      ),
+    ),
+    ephemeral: Math.max(
+      0,
+      Math.min(
+        200,
+        Math.trunc(
+          typeof rawMinMemoryItems.ephemeral === "number"
+            ? rawMinMemoryItems.ephemeral
+            : baseContextBudget.minMemoryItems.ephemeral,
+        ),
+      ),
+    ),
+    longterm: Math.max(
+      0,
+      Math.min(
+        200,
+        Math.trunc(
+          typeof rawMinMemoryItems.longterm === "number"
+            ? rawMinMemoryItems.longterm
+            : baseContextBudget.minMemoryItems.longterm,
+        ),
+      ),
+    ),
+  };
+  const mergedContextBudget = {
+    ...baseContextBudget,
+    ...userContextBudget,
+    contextWindowTokens: Math.max(
+      4096,
+      Math.min(2_000_000, Math.trunc(userContextBudget.contextWindowTokens ?? baseContextBudget.contextWindowTokens)),
+    ),
+    reserveOutputTokensCap: Math.max(
+      64,
+      Math.min(
+        200_000,
+        Math.trunc(userContextBudget.reserveOutputTokensCap ?? baseContextBudget.reserveOutputTokensCap),
+      ),
+    ),
+    safetyMarginRatio: Math.max(
+      0,
+      Math.min(0.5, userContextBudget.safetyMarginRatio ?? baseContextBudget.safetyMarginRatio),
+    ),
+    safetyMarginMinTokens: Math.max(
+      0,
+      Math.min(
+        200_000,
+        Math.trunc(userContextBudget.safetyMarginMinTokens ?? baseContextBudget.safetyMarginMinTokens),
+      ),
+    ),
+    outputTokenDownshifts: normalizedDownshifts,
+    secondaryCompressTargetTokens: Math.max(
+      64,
+      Math.min(
+        200_000,
+        Math.trunc(
+          userContextBudget.secondaryCompressTargetTokens ?? baseContextBudget.secondaryCompressTargetTokens,
+        ),
+      ),
+    ),
+    memoryTrimStep: Math.max(
+      1,
+      Math.min(16, Math.trunc(userContextBudget.memoryTrimStep ?? baseContextBudget.memoryTrimStep)),
+    ),
+    minMemoryItems: mergedMinMemoryItems,
+  };
+
+  const baseOverflowPolicy = DEFAULT_AGENT_EXECUTION_CONFIG.overflowPolicy;
+  const userOverflowPolicy = config.overflowPolicy ?? {};
+  const mergedOverflowPolicy = {
+    ...baseOverflowPolicy,
+    ...userOverflowPolicy,
+    observationWindowMinutes: Math.max(
+      1,
+      Math.min(
+        24 * 60,
+        Math.trunc(userOverflowPolicy.observationWindowMinutes ?? baseOverflowPolicy.observationWindowMinutes),
+      ),
+    ),
+    observationMaxSamples: Math.max(
+      8,
+      Math.min(
+        10_000,
+        Math.trunc(userOverflowPolicy.observationMaxSamples ?? baseOverflowPolicy.observationMaxSamples),
+      ),
+    ),
+  };
+
   return {
     ...DEFAULT_AGENT_EXECUTION_CONFIG,
     ...config,
     intentGuard: mergedIntentGuard,
+    inputPolicy: mergedInputPolicy,
+    contextBudget: mergedContextBudget,
+    overflowPolicy: mergedOverflowPolicy,
     maxModelStepsPerRun:
       legacyMaxSteps ?? config.maxModelStepsPerRun ?? DEFAULT_AGENT_EXECUTION_CONFIG.maxModelStepsPerRun,
   };

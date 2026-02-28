@@ -8,6 +8,7 @@ import { workspace_check } from "./libs/utils/workspace_check";
 import { Agent } from "./libs/agent/agent";
 import { loadAgentConfig } from "./libs/agent/config";
 import {
+  applyProviderTokenLimitsToRuntimeConfig,
   createLanguageModelFromAgentConfig,
   isOpenAICompatibleProvider,
   resolveSelectedProvider,
@@ -119,6 +120,16 @@ const printModelSelection = (
       ? `[model] provider=${selection.providerId} | model=${selection.modelId} | base_url=${baseUrl}`
       : `[model] provider=${selection.providerId} | model=${selection.modelId}`,
   );
+  const providerMaxContextTokens = selection.provider.max_context_tokens;
+  const providerMaxOutputTokens = selection.provider.max_output_tokens;
+  if (
+    typeof providerMaxContextTokens === "number" ||
+    typeof providerMaxOutputTokens === "number"
+  ) {
+    console.log(
+      `[model.limits] provider.max_context_tokens=${providerMaxContextTokens ?? "unset"} | provider.max_output_tokens=${providerMaxOutputTokens ?? "unset"}`,
+    );
+  }
 
   const params = agentConfig.agent?.params;
   if (params && Object.keys(params).length > 0) {
@@ -191,6 +202,26 @@ const initializeRuntimeService = async (
   let stopPromptWatcher: (() => Promise<void>) | undefined;
 
   try {
+    const providerSelection = resolveSelectedProvider(agentConfig);
+    const runtimeConfig = applyProviderTokenLimitsToRuntimeConfig({
+      provider: providerSelection.provider,
+      modelParams: agentConfig.agent?.params,
+      executionConfig: agentConfig.agent?.execution,
+    });
+    if (
+      runtimeConfig.modelParams !== agentConfig.agent?.params ||
+      runtimeConfig.executionConfig !== agentConfig.agent?.execution
+    ) {
+      console.log("[model.limits] provider token limits applied to runtime config");
+      if (runtimeConfig.modelParams) {
+        console.log(`[model.params.effective] ${JSON.stringify(runtimeConfig.modelParams)}`);
+      }
+      if (runtimeConfig.executionConfig?.contextBudget) {
+        console.log(
+          `[execution.contextBudget.effective] ${JSON.stringify(runtimeConfig.executionConfig.contextBudget)}`,
+        );
+      }
+    }
     const model = createLanguageModelFromAgentConfig(agentConfig);
     const agentPromptFilePath = join(cliOptions.workspace, "AGENT.md");
 
@@ -235,7 +266,7 @@ const initializeRuntimeService = async (
     const taskAgent = new Agent({
       systemPrompt: promptLoadResult.systemPrompt,
       model,
-      modelParams: agentConfig.agent?.params,
+      modelParams: runtimeConfig.modelParams,
       workspace: cliOptions.workspace,
       toolContext: {
         permissions: agentConfig,
@@ -244,7 +275,7 @@ const initializeRuntimeService = async (
       },
       mcpTools,
       dependencies: {
-        executionConfig: agentConfig.agent?.execution,
+        executionConfig: runtimeConfig.executionConfig,
         persistentMemoryHooks: activePersistentMemoryCoordinator.hooks,
       },
     });
@@ -255,6 +286,8 @@ const initializeRuntimeService = async (
       cliOptions.mode === "tui" ? { log: () => {} } : console,
       {
         persistentMemoryCoordinator: activePersistentMemoryCoordinator,
+        inputPolicy: agentConfig.agent?.execution?.inputPolicy,
+        overflowPolicy: agentConfig.agent?.execution?.overflowPolicy,
       },
     );
     runtimeService.start();

@@ -7,7 +7,7 @@
  */
 
 import type { GatewayClient } from "../../../libs/channel/channel";
-import type { TaskOutputMessage } from "../../../types/http";
+import type { TaskOutputMessage, TaskSnapshot } from "../../../types/http";
 import { executePolledTask } from "../../shared/flows/task_polling";
 import { summarizeCompletedTask, type CompletedTaskSummary } from "./task_flow";
 
@@ -16,6 +16,7 @@ type WithConnectionTracking = <T>(operation: () => Promise<T>) => Promise<T>;
 export type PromptTaskFlowCallbacks = {
   onBeforeSubmit: () => void;
   onTaskCreated: (taskId: string) => void;
+  onTaskStatus?: (taskId: string, task: TaskSnapshot) => void;
   onTaskMessages?: (taskId: string, messages: TaskOutputMessage[]) => void;
   onTaskCompleted: (taskId: string, summary: CompletedTaskSummary) => void;
   onRequestError: (message: string) => void;
@@ -57,6 +58,7 @@ export const executePromptTaskFlow = async (input: ExecutePromptTaskFlowInput): 
       runClientOperation: withConnectionTracking,
       shouldStop: isDestroyed,
       onTaskCreated: callbacks.onTaskCreated,
+      onTaskStatus: callbacks.onTaskStatus,
       onTaskMessages: callbacks.onTaskMessages,
     });
 

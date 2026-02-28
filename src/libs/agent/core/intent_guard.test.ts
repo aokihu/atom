@@ -96,9 +96,16 @@ describe("intent_guard", () => {
     expect(intent.kind).toBe("code_edit");
   });
 
-  test("heuristic prefers browser intent even with leading memory phrase", () => {
+  test("heuristic treats memory-policy directive as memory intent", () => {
     const intent = __intentGuardInternals.detectHeuristicIntent(
       "记住访问网站的时候默认执行意图是使用浏览器，失败后才是用webfetch",
+    );
+    expect(intent.kind).toBe("memory_ops");
+  });
+
+  test("heuristic keeps browser intent for immediate execution request", () => {
+    const intent = __intentGuardInternals.detectHeuristicIntent(
+      "请记住这个偏好，并且现在立刻用浏览器访问 www.19lou.com",
     );
     expect(intent.kind).toBe("browser_access");
   });

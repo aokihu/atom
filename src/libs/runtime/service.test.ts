@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ModelMessage } from "ai";
 
 import { AgentRuntimeService } from "./service";
@@ -38,7 +41,7 @@ const waitUntil = async (check: () => boolean, timeoutMs = 1000) => {
 };
 
 describe("AgentRuntimeService", () => {
-  test("clears pending queue and suppresses retry when context length overflow happens", async () => {
+  test("fails only the current task and preserves pending queue when context length overflow happens", async () => {
     const firstTaskGate = createDeferred();
     let runCount = 0;
 
@@ -109,6 +112,9 @@ describe("AgentRuntimeService", () => {
     }
 
     const firstSnapshot = service.getTask(first.taskId);
+    await waitUntil(() => service.getTask(second.taskId)?.task.status === TaskStatus.Success);
+    await waitUntil(() => service.getTask(third.taskId)?.task.status === TaskStatus.Success);
+
     const secondSnapshot = service.getTask(second.taskId);
     const thirdSnapshot = service.getTask(third.taskId);
 
@@ -121,15 +127,137 @@ describe("AgentRuntimeService", () => {
       ),
     ).toBe(true);
 
-    expect(secondSnapshot?.task.status).toBe(TaskStatus.Cancelled);
-    expect(secondSnapshot?.task.metadata?.cancelReason).toBe("contextoverflow");
-    expect(secondSnapshot?.messages?.items.some((item) => item.type === "task.status")).toBe(true);
+    expect(secondSnapshot?.task.status).toBe(TaskStatus.Success);
+    expect(secondSnapshot?.task.metadata?.cancelReason).toBeUndefined();
+    expect(secondSnapshot?.task.result).toBe("ok");
 
-    expect(thirdSnapshot?.task.status).toBe(TaskStatus.Cancelled);
-    expect(thirdSnapshot?.task.metadata?.cancelReason).toBe("contextoverflow");
+    expect(thirdSnapshot?.task.status).toBe(TaskStatus.Success);
+    expect(thirdSnapshot?.task.metadata?.cancelReason).toBeUndefined();
+    expect(thirdSnapshot?.task.result).toBe("ok");
 
     expect(service.getQueueStats().size).toBe(0);
-    expect(runCount).toBe(1);
+    expect(runCount).toBe(3);
+  });
+
+  test("applies input compaction policy and records ingress metadata on task submit", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "atom-input-policy-"));
+    const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext() {},
+      async runTask() {
+        return "ok";
+      },
+      abortCurrentRun() {
+        return false;
+      },
+      getContextSnapshot() {
+        return {
+          version: 3.0,
+          runtime: {
+            round: 1,
+            workspace,
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: {
+            core: [],
+            working: [],
+            ephemeral: [],
+            longterm: [],
+          },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {} }, {
+      inputPolicy: {
+        enabled: true,
+        maxInputTokens: 256,
+        summarizeTargetTokens: 96,
+        spoolOriginalInput: true,
+        spoolDirectory: ".agent/inbox",
+      },
+    });
+    const input = Array.from({ length: 2000 }, (_, index) => `line-${index} http://example.com/${index}`).join("\n");
+
+    const created = service.submitTask({ input });
+    const snapshot = service.getTask(created.taskId);
+
+    expect(snapshot?.task.input).toContain("[input_policy]");
+    expect(snapshot?.task.input).toContain("<<<SUMMARY>>>");
+    expect(snapshot?.task.metadata?.ingress?.compressed).toBe(true);
+    expect(snapshot?.task.metadata?.ingress?.spooledPath).toBeDefined();
+
+    const spooledPath = snapshot?.task.metadata?.ingress?.spooledPath;
+    expect(await Bun.file(spooledPath!).text()).toBe(input);
+
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  test("surfaces runtime token usage metadata while task is running", async () => {
+    const runGate = createDeferred();
+    const updatedAt = Date.now();
+
+    const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext() {},
+      async runTask() {
+        await runGate.promise;
+        return "ok";
+      },
+      abortCurrentRun() {
+        return false;
+      },
+      getContextSnapshot() {
+        return {
+          version: 3.0,
+          runtime: {
+            round: 2,
+            workspace: "/tmp/",
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+            token_usage: {
+              source: "ai-sdk",
+              input_tokens: 120,
+              output_tokens: 30,
+              total_tokens: 150,
+              cumulative_total_tokens: 500,
+              updated_at: updatedAt,
+            },
+          },
+          memory: {
+            core: [],
+            working: [],
+            ephemeral: [],
+            longterm: [],
+          },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {} });
+    service.start();
+
+    const created = service.submitTask({ input: "show token usage" });
+    await waitUntil(() => service.getTask(created.taskId)?.task.status === TaskStatus.Running);
+
+    const runningSnapshot = service.getTask(created.taskId);
+    expect(runningSnapshot?.task.metadata?.tokenUsage).toMatchObject({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      cumulativeTotalTokens: 500,
+      updatedAt,
+    });
+
+    runGate.resolve();
+    await waitUntil(() => service.getTask(created.taskId)?.task.status === TaskStatus.Success);
   });
 
   test("cleans task context on retry and terminal completion via agent lifecycle methods", async () => {

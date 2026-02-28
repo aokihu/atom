@@ -62,6 +62,32 @@ export type AgentIntentGuardConfig = {
   intents?: Partial<Record<AgentIntentGuardIntentKind, AgentIntentGuardIntentPolicyConfig>>;
 };
 
+export type AgentExecutionInputPolicyConfig = {
+  enabled?: boolean;
+  maxInputTokens?: number;
+  summarizeTargetTokens?: number;
+  spoolOriginalInput?: boolean;
+  spoolDirectory?: string;
+};
+
+export type AgentExecutionContextBudgetConfig = {
+  enabled?: boolean;
+  contextWindowTokens?: number;
+  reserveOutputTokensCap?: number;
+  safetyMarginRatio?: number;
+  safetyMarginMinTokens?: number;
+  outputTokenDownshifts?: number[];
+  secondaryCompressTargetTokens?: number;
+  memoryTrimStep?: number;
+  minMemoryItems?: Partial<Record<ContextMemoryTier, number>>;
+};
+
+export type AgentExecutionOverflowPolicyConfig = {
+  clearPendingOnContextOverflow?: boolean;
+  observationWindowMinutes?: number;
+  observationMaxSamples?: number;
+};
+
 export type AgentExecutionConfig = {
   maxModelStepsPerRun?: number;
   autoContinueOnStepLimit?: boolean;
@@ -70,6 +96,9 @@ export type AgentExecutionConfig = {
   maxModelStepsPerTask?: number;
   continueWithoutAdvancingContextRound?: boolean;
   intentGuard?: AgentIntentGuardConfig;
+  inputPolicy?: AgentExecutionInputPolicyConfig;
+  contextBudget?: AgentExecutionContextBudgetConfig;
+  overflowPolicy?: AgentExecutionOverflowPolicyConfig;
 };
 
 export type ResolvedAgentIntentGuardBrowserPolicyConfig = {
@@ -98,6 +127,32 @@ export type ResolvedAgentIntentGuardConfig = {
   intents: Record<AgentIntentGuardIntentKind, ResolvedAgentIntentGuardIntentPolicyConfig>;
 };
 
+export type ResolvedAgentExecutionInputPolicyConfig = {
+  enabled: boolean;
+  maxInputTokens: number;
+  summarizeTargetTokens: number;
+  spoolOriginalInput: boolean;
+  spoolDirectory: string;
+};
+
+export type ResolvedAgentExecutionContextBudgetConfig = {
+  enabled: boolean;
+  contextWindowTokens: number;
+  reserveOutputTokensCap: number;
+  safetyMarginRatio: number;
+  safetyMarginMinTokens: number;
+  outputTokenDownshifts: number[];
+  secondaryCompressTargetTokens: number;
+  memoryTrimStep: number;
+  minMemoryItems: Record<ContextMemoryTier, number>;
+};
+
+export type ResolvedAgentExecutionOverflowPolicyConfig = {
+  clearPendingOnContextOverflow: boolean;
+  observationWindowMinutes: number;
+  observationMaxSamples: number;
+};
+
 export type ResolvedAgentExecutionConfig = {
   maxModelStepsPerRun: number;
   autoContinueOnStepLimit: boolean;
@@ -106,6 +161,9 @@ export type ResolvedAgentExecutionConfig = {
   maxModelStepsPerTask: number;
   continueWithoutAdvancingContextRound: boolean;
   intentGuard: ResolvedAgentIntentGuardConfig;
+  inputPolicy: ResolvedAgentExecutionInputPolicyConfig;
+  contextBudget: ResolvedAgentExecutionContextBudgetConfig;
+  overflowPolicy: ResolvedAgentExecutionOverflowPolicyConfig;
 };
 
 export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
@@ -193,6 +251,34 @@ export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
       },
     },
   },
+  inputPolicy: {
+    enabled: true,
+    maxInputTokens: 12000,
+    summarizeTargetTokens: 2200,
+    spoolOriginalInput: true,
+    spoolDirectory: ".agent/inbox",
+  },
+  contextBudget: {
+    enabled: true,
+    contextWindowTokens: 131072,
+    reserveOutputTokensCap: 2048,
+    safetyMarginRatio: 0.12,
+    safetyMarginMinTokens: 6000,
+    outputTokenDownshifts: [2048, 1024, 512],
+    secondaryCompressTargetTokens: 1200,
+    memoryTrimStep: 3,
+    minMemoryItems: {
+      core: 2,
+      working: 2,
+      ephemeral: 0,
+      longterm: 2,
+    },
+  },
+  overflowPolicy: {
+    clearPendingOnContextOverflow: false,
+    observationWindowMinutes: 15,
+    observationMaxSamples: 128,
+  },
 };
 
 export type AgentModelParams = {
@@ -214,6 +300,8 @@ export type AgentProviderConfig = {
   enabled?: boolean;
   base_url?: string;
   headers?: Record<string, string>;
+  max_context_tokens?: number;
+  max_output_tokens?: number;
 };
 
 export type TelegramTransportType = "polling" | "webhook";
@@ -376,6 +464,14 @@ export type AgentContextRuntime = {
     cached_input_tokens?: number;
     source: "ai-sdk";
     updated_at: number;
+    [key: string]: unknown;
+  };
+  budget?: {
+    estimated_input_tokens: number;
+    input_budget: number;
+    reserve_output_tokens: number;
+    safety_margin_tokens: number;
+    degrade_stage: string;
     [key: string]: unknown;
   };
   [key: string]: unknown;

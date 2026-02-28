@@ -159,8 +159,22 @@ const matchAnyPattern = (value: string, patterns: readonly RegExp[]) =>
 
 const detectHeuristicIntent = (question: string): TaskIntent => {
   const normalizedQuestion = question.trim();
+  const hasMemoryVerb = /(^|[\s，。,.;；:：])(请)?记住|记下|牢记|保存到记忆|记到记忆/.test(normalizedQuestion);
+  const hasPolicyLanguage = /默认|规则|以后|下次|优先|策略|失败后|当.+时|如果.+则/.test(normalizedQuestion);
   const mentionsBrowser = /浏览器|browser|playwright|puppeteer|selenium|chrom(e|ium)?/i.test(normalizedQuestion);
   const mentionsWebTarget = /网站|网页|url|http|https|www|打开|访问/i.test(normalizedQuestion);
+  const hasImmediateBrowserAction = mentionsBrowser && mentionsWebTarget;
+
+  // Memory directives should stay in memory_ops, especially preference/rule sentences.
+  if (hasMemoryVerb && (hasPolicyLanguage || !hasImmediateBrowserAction)) {
+    return {
+      kind: "memory_ops",
+      confidence: 0.97,
+      source: "heuristic",
+      reason: "matched_memory_directive",
+    };
+  }
+
   if (mentionsBrowser && mentionsWebTarget) {
     return {
       kind: "browser_access",

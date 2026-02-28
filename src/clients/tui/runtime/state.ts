@@ -49,6 +49,13 @@ export type ToolChatStreamItem = {
 
 export type ChatStreamItem = TextChatStreamItem | ToolChatStreamItem;
 
+export type TaskTokenUsageSnapshot = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cumulativeTotalTokens?: number;
+};
+
 export type SlashModalState = {
   open: boolean;
   filteredQuery: string;
@@ -88,6 +95,10 @@ export class TuiClientState {
   messageGatewayHealthAvailable = false;
   messageGatewayRunning = 0;
   messageGatewayConfigured = 0;
+  tokenInputTokens?: number;
+  tokenOutputTokens?: number;
+  tokenTotalTokens?: number;
+  tokenCumulativeTokens?: number;
   contextModalOpen = false;
   contextModalText = "";
   contextModalTitle = "Context";
@@ -225,5 +236,16 @@ export class TuiClientState {
   clearSessionView(): void {
     this.entries = [];
     this.chatStream = [];
+  }
+
+  setTokenUsage(snapshot: TaskTokenUsageSnapshot): void {
+    this.tokenInputTokens = snapshot.inputTokens;
+    this.tokenOutputTokens = snapshot.outputTokens;
+    this.tokenTotalTokens = snapshot.totalTokens;
+    this.tokenCumulativeTokens = snapshot.cumulativeTotalTokens;
+  }
+
+  clearTokenUsage(): void {
+    this.setTokenUsage({});
   }
 }

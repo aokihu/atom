@@ -588,6 +588,55 @@ describe("agent config", () => {
     ).toThrow("providers[0].headers.Authorization must be a string");
   });
 
+  test("validateAgentConfig accepts provider token limits", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        providers: [
+          {
+            provider_id: "deepseek",
+            model: "deepseek-chat",
+            api_key: "test-key",
+            max_context_tokens: 131072,
+            max_output_tokens: 8192,
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  test("validateAgentConfig rejects invalid provider max_context_tokens", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        providers: [
+          {
+            provider_id: "deepseek",
+            model: "deepseek-chat",
+            api_key: "test-key",
+            max_context_tokens: 0,
+          },
+        ],
+      }),
+    ).toThrow("providers[0].max_context_tokens must be a positive integer");
+  });
+
+  test("validateAgentConfig rejects invalid provider max_output_tokens", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        providers: [
+          {
+            provider_id: "deepseek",
+            model: "deepseek-chat",
+            api_key: "test-key",
+            max_output_tokens: -1,
+          },
+        ],
+      }),
+    ).toThrow("providers[0].max_output_tokens must be a positive integer");
+  });
+
   test("validateAgentConfig rejects duplicate MCP server ids", () => {
     expect(() =>
       validateAgentConfig({

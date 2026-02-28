@@ -29,6 +29,10 @@ export type StatusStripViewInput = {
   messageGatewayHealthAvailable: boolean;
   messageGatewayRunning: number;
   messageGatewayConfigured: number;
+  tokenInputTokens?: number;
+  tokenOutputTokens?: number;
+  tokenTotalTokens?: number;
+  tokenCumulativeTokens?: number;
 };
 
 export type StatusStripView = {
@@ -97,6 +101,42 @@ export const buildMessageGatewayTagLabel = (
 ): string =>
   healthAvailable ? `[Channels: ${running}/${configured}]` : "[Channels: off]";
 
+const formatTokenValue = (value: number): string => value.toLocaleString("en-US");
+
+export const buildTokenUsageLabel = (
+  input: Pick<
+    StatusStripViewInput,
+    "tokenInputTokens" | "tokenOutputTokens" | "tokenTotalTokens" | "tokenCumulativeTokens"
+  >,
+): string | null => {
+  const inputTokens = typeof input.tokenInputTokens === "number" ? input.tokenInputTokens : undefined;
+  const outputTokens = typeof input.tokenOutputTokens === "number" ? input.tokenOutputTokens : undefined;
+  const totalTokens =
+    typeof input.tokenTotalTokens === "number"
+      ? input.tokenTotalTokens
+      : typeof inputTokens === "number" || typeof outputTokens === "number"
+        ? (inputTokens ?? 0) + (outputTokens ?? 0)
+        : undefined;
+  const cumulativeTokens =
+    typeof input.tokenCumulativeTokens === "number" ? input.tokenCumulativeTokens : undefined;
+
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    totalTokens === undefined &&
+    cumulativeTokens === undefined
+  ) {
+    return null;
+  }
+
+  const segments = ["Tok"];
+  if (inputTokens !== undefined) segments.push(`I:${formatTokenValue(inputTokens)}`);
+  if (outputTokens !== undefined) segments.push(`O:${formatTokenValue(outputTokens)}`);
+  if (totalTokens !== undefined) segments.push(`T:${formatTokenValue(totalTokens)}`);
+  if (cumulativeTokens !== undefined) segments.push(`Σ:${formatTokenValue(cumulativeTokens)}`);
+  return segments.join(" ");
+};
+
 export const isLeftMouseButton = (event: Pick<MouseEvent, "button">) => event.button === 0;
 
 export const createMcpTagMouseUpHandler =
@@ -125,8 +165,16 @@ const buildStatusStripSegments = (input: StatusStripViewInput) => {
           input.busyAnimationTick,
         );
   const versionLabel = (input.version?.trim() || "unknown").replace(/\s+/g, " ");
+  const tokenLabel = buildTokenUsageLabel(input);
 
-  const leftRaw = `${input.agentName}  Connect: ${connectLabel}  Status: ${statusLabel}`;
+  const leftRaw = [
+    input.agentName,
+    `Connect: ${connectLabel}`,
+    `Status: ${statusLabel}`,
+    tokenLabel,
+  ]
+    .filter((item) => typeof item === "string" && item.length > 0)
+    .join("  ");
   return {
     left: truncateToDisplayWidth(leftRaw, Math.max(1, input.rowWidth)),
     mcp: buildMcpTagLabel(input.mcpConnected, input.mcpTotal),

@@ -13,6 +13,7 @@ export type ExecutePolledTaskInput = {
   runClientOperation?: ClientOperationRunner;
   shouldStop?: () => boolean;
   onTaskCreated?: (taskId: string) => void;
+  onTaskStatus?: (taskId: string, task: TaskSnapshot) => void;
   onTaskMessages?: (taskId: string, messages: TaskOutputMessage[]) => void;
 };
 
@@ -62,6 +63,7 @@ export const executePolledTask = async (
     const status = await runClientOperation(() =>
       input.client.getTask(created.taskId, { afterSeq }),
     );
+    input.onTaskStatus?.(created.taskId, status.task);
     const delta = status.messages;
     if (delta) {
       afterSeq = delta.latestSeq;

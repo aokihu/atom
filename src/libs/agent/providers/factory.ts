@@ -3,7 +3,13 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
-import type { AgentConfig, AgentProviderConfig } from "../../../types/agent";
+import {
+    DEFAULT_AGENT_EXECUTION_CONFIG,
+    type AgentConfig,
+    type AgentExecutionConfig,
+    type AgentModelParams,
+    type AgentProviderConfig,
+} from "../../../types/agent";
 
 export type ParsedAgentModelRef = {
     providerId: string;
@@ -14,6 +20,17 @@ export type ResolvedProviderSelection = {
     providerId: string;
     modelId: string;
     provider: AgentProviderConfig;
+};
+
+export type ProviderTokenLimits = {
+    maxContextTokens?: number;
+    maxOutputTokens?: number;
+};
+
+export type ProviderBudgetAdjustedRuntimeConfig = {
+    modelParams?: AgentModelParams;
+    executionConfig?: AgentExecutionConfig;
+    tokenLimits: ProviderTokenLimits;
 };
 
 type ResolvedRuntimeProviderSelection = ResolvedProviderSelection & {
@@ -52,6 +69,111 @@ const OPENAI_COMPATIBLE_PROVIDER_IDS = new Set<string>([
 const trimToUndefined = (value: string | undefined) => {
     const normalized = value?.trim();
     return normalized && normalized.length > 0 ? normalized : undefined;
+};
+
+const toPositiveIntegerOrUndefined = (value: unknown): number | undefined => {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return undefined;
+    }
+    const normalized = Math.trunc(value);
+    return normalized > 0 ? normalized : undefined;
+};
+
+const areNumericArraysEqual = (a: number[], b: number[]): boolean =>
+    a.length === b.length && a.every((value, index) => value === b[index]);
+
+const normalizeDownshiftsWithinLimit = (values: number[], limit: number): number[] => {
+    const normalized = values
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+        .map((value) => Math.trunc(value))
+        .filter((value) => value > 0 && value <= limit);
+
+    const uniqueSorted = [...new Set(normalized)].sort((a, b) => b - a);
+    if (uniqueSorted.length > 0) {
+        return uniqueSorted;
+    }
+
+    if (limit <= 1) {
+        return [1];
+    }
+    return [Math.max(1, Math.floor(limit / 2))];
+};
+
+export const resolveProviderTokenLimits = (
+    provider: Pick<AgentProviderConfig, "max_context_tokens" | "max_output_tokens">,
+): ProviderTokenLimits => ({
+    maxContextTokens: toPositiveIntegerOrUndefined(provider.max_context_tokens),
+    maxOutputTokens: toPositiveIntegerOrUndefined(provider.max_output_tokens),
+});
+
+export const applyProviderTokenLimitsToRuntimeConfig = (args: {
+    provider: AgentProviderConfig;
+    modelParams?: AgentModelParams;
+    executionConfig?: AgentExecutionConfig;
+}): ProviderBudgetAdjustedRuntimeConfig => {
+    const tokenLimits = resolveProviderTokenLimits(args.provider);
+    let modelParams = args.modelParams;
+    let executionConfig = args.executionConfig;
+
+    if (
+        tokenLimits.maxOutputTokens !== undefined &&
+        typeof args.modelParams?.maxOutputTokens === "number" &&
+        args.modelParams.maxOutputTokens > tokenLimits.maxOutputTokens
+    ) {
+        modelParams = {
+            ...args.modelParams,
+            maxOutputTokens: tokenLimits.maxOutputTokens,
+        };
+    }
+
+    const contextBudgetPatch: NonNullable<AgentExecutionConfig["contextBudget"]> = {};
+
+    if (tokenLimits.maxContextTokens !== undefined) {
+        const baselineContextWindow =
+            args.executionConfig?.contextBudget?.contextWindowTokens ??
+            DEFAULT_AGENT_EXECUTION_CONFIG.contextBudget.contextWindowTokens;
+        const nextContextWindow = Math.min(baselineContextWindow, tokenLimits.maxContextTokens);
+        if (nextContextWindow !== baselineContextWindow) {
+            contextBudgetPatch.contextWindowTokens = nextContextWindow;
+        }
+    }
+
+    if (tokenLimits.maxOutputTokens !== undefined) {
+        const baselineReserveOutputCap =
+            args.executionConfig?.contextBudget?.reserveOutputTokensCap ??
+            DEFAULT_AGENT_EXECUTION_CONFIG.contextBudget.reserveOutputTokensCap;
+        const nextReserveOutputCap = Math.min(baselineReserveOutputCap, tokenLimits.maxOutputTokens);
+        if (nextReserveOutputCap !== baselineReserveOutputCap) {
+            contextBudgetPatch.reserveOutputTokensCap = nextReserveOutputCap;
+        }
+
+        const baselineDownshifts =
+            args.executionConfig?.contextBudget?.outputTokenDownshifts ??
+            DEFAULT_AGENT_EXECUTION_CONFIG.contextBudget.outputTokenDownshifts;
+        const nextDownshifts = normalizeDownshiftsWithinLimit(
+            baselineDownshifts,
+            tokenLimits.maxOutputTokens,
+        );
+        if (!areNumericArraysEqual(nextDownshifts, baselineDownshifts)) {
+            contextBudgetPatch.outputTokenDownshifts = nextDownshifts;
+        }
+    }
+
+    if (Object.keys(contextBudgetPatch).length > 0) {
+        executionConfig = {
+            ...(args.executionConfig ?? {}),
+            contextBudget: {
+                ...(args.executionConfig?.contextBudget ?? {}),
+                ...contextBudgetPatch,
+            },
+        };
+    }
+
+    return {
+        modelParams,
+        executionConfig,
+        tokenLimits,
+    };
 };
 
 export const normalizeProviderIdToDefaultApiKeyEnvName = (providerId: string): string => {

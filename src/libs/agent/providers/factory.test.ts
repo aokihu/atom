@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  applyProviderTokenLimitsToRuntimeConfig,
   createLanguageModelFromAgentConfig,
   normalizeProviderIdToDefaultApiKeyEnvName,
   parseAgentModelRef,
   resolveProviderApiKey,
   resolveSelectedProvider,
+  resolveProviderTokenLimits,
 } from "./factory";
 
 const createConfig = () => ({
@@ -73,6 +75,63 @@ describe("provider factory", () => {
         {},
       ),
     ).toThrow("Missing API key for provider 'deepseek'");
+  });
+
+  test("resolveProviderTokenLimits normalizes positive integer values", () => {
+    expect(
+      resolveProviderTokenLimits({
+        max_context_tokens: 131072,
+        max_output_tokens: 8192,
+      } as any),
+    ).toEqual({
+      maxContextTokens: 131072,
+      maxOutputTokens: 8192,
+    });
+  });
+
+  test("applyProviderTokenLimitsToRuntimeConfig clamps model and context budget by provider limits", () => {
+    const adjusted = applyProviderTokenLimitsToRuntimeConfig({
+      provider: {
+        provider_id: "deepseek",
+        model: "deepseek-chat",
+        max_context_tokens: 32768,
+        max_output_tokens: 1024,
+      },
+      modelParams: {
+        maxOutputTokens: 4096,
+      },
+      executionConfig: {
+        contextBudget: {
+          contextWindowTokens: 131072,
+          reserveOutputTokensCap: 2048,
+          outputTokenDownshifts: [2048, 1024, 512],
+        },
+      },
+    });
+
+    expect(adjusted.modelParams?.maxOutputTokens).toBe(1024);
+    expect(adjusted.executionConfig?.contextBudget?.contextWindowTokens).toBe(32768);
+    expect(adjusted.executionConfig?.contextBudget?.reserveOutputTokensCap).toBe(1024);
+    expect(adjusted.executionConfig?.contextBudget?.outputTokenDownshifts).toEqual([1024, 512]);
+  });
+
+  test("applyProviderTokenLimitsToRuntimeConfig keeps defaults when provider limits are not configured", () => {
+    const sourceExecution = {
+      contextBudget: {
+        contextWindowTokens: 64000,
+      },
+    };
+    const adjusted = applyProviderTokenLimitsToRuntimeConfig({
+      provider: {
+        provider_id: "deepseek",
+        model: "deepseek-chat",
+      },
+      executionConfig: sourceExecution,
+    });
+
+    expect(adjusted.executionConfig).toBe(sourceExecution);
+    expect(adjusted.modelParams).toBeUndefined();
+    expect(adjusted.tokenLimits).toEqual({});
   });
 
   test("parseAgentModelRef parses provider and model", () => {

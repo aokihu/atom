@@ -1,6 +1,7 @@
 import { Agent, type AgentRunDetailedResult } from "../agent/agent";
 import { ControlledTaskStopError } from "./errors";
 import { PriorityTaskQueue, createTask } from "./queue";
+import { TaskInputPolicy, type TaskInputIngressMeta } from "./input_policy";
 
 import type { RuntimeGateway } from "../channel/channel";
 import type {
@@ -34,6 +35,10 @@ import type {
   TaskOutputMessageDraft,
   TaskStatusResponse,
 } from "../../types/http";
+import type {
+  AgentExecutionInputPolicyConfig,
+  AgentExecutionOverflowPolicyConfig,
+} from "../../types/agent";
 import type { TaskItem } from "../../types/task";
 import type { TaskExecutionStopReason } from "../../types/task";
 import { TaskStatus, isTaskExecutionStopReason } from "../../types/task";
@@ -42,6 +47,39 @@ import type { PersistentMemoryCoordinator } from "../agent/memory";
 const DEFAULT_AGENT_SESSION_ID = "default";
 const CONTEXT_OVERFLOW_CANCEL_REASON = "contextoverflow";
 const CONTEXT_OVERFLOW_CANCELLED_BY = "system.contextoverflow";
+
+type ResolvedOverflowPolicy = {
+  clearPendingOnContextOverflow: boolean;
+  observationWindowMinutes: number;
+  observationMaxSamples: number;
+};
+
+const DEFAULT_OVERFLOW_POLICY: ResolvedOverflowPolicy = {
+  clearPendingOnContextOverflow: false,
+  observationWindowMinutes: 15,
+  observationMaxSamples: 128,
+};
+
+const resolveOverflowPolicy = (
+  config?: AgentExecutionOverflowPolicyConfig,
+): ResolvedOverflowPolicy => ({
+  clearPendingOnContextOverflow:
+    config?.clearPendingOnContextOverflow ?? DEFAULT_OVERFLOW_POLICY.clearPendingOnContextOverflow,
+  observationWindowMinutes: Math.max(
+    1,
+    Math.min(
+      24 * 60,
+      Math.trunc(config?.observationWindowMinutes ?? DEFAULT_OVERFLOW_POLICY.observationWindowMinutes),
+    ),
+  ),
+  observationMaxSamples: Math.max(
+    8,
+    Math.min(
+      10_000,
+      Math.trunc(config?.observationMaxSamples ?? DEFAULT_OVERFLOW_POLICY.observationMaxSamples),
+    ),
+  ),
+});
 
 type TaskMessageBuffer = {
   items: TaskOutputMessage[];
@@ -79,6 +117,9 @@ export class AgentRuntimeService implements RuntimeGateway {
   private readonly taskMessages = new Map<string, TaskMessageBuffer>();
   private readonly agentSessions = new Map<string, Agent>();
   private readonly persistentMemoryCoordinator?: PersistentMemoryCoordinator;
+  private readonly inputPolicy: TaskInputPolicy;
+  private readonly overflowPolicy: ResolvedOverflowPolicy;
+  private readonly contextOverflowTimestamps: number[] = [];
   private started = false;
 
   constructor(
@@ -86,9 +127,13 @@ export class AgentRuntimeService implements RuntimeGateway {
     private readonly logger: Pick<Console, "log"> = console,
     options?: {
       persistentMemoryCoordinator?: PersistentMemoryCoordinator;
+      inputPolicy?: AgentExecutionInputPolicyConfig;
+      overflowPolicy?: AgentExecutionOverflowPolicyConfig;
     },
   ) {
     this.persistentMemoryCoordinator = options?.persistentMemoryCoordinator;
+    this.inputPolicy = new TaskInputPolicy(options?.inputPolicy);
+    this.overflowPolicy = resolveOverflowPolicy(options?.overflowPolicy);
     this.agentSessions.set(DEFAULT_AGENT_SESSION_ID, this.agent);
     this.taskQueue = new PriorityTaskQueue(
       async (task: TaskItem<string, string>) => {
@@ -105,6 +150,7 @@ export class AgentRuntimeService implements RuntimeGateway {
               this.appendTaskMessage(task.id, message);
             },
           });
+          this.captureTaskRuntimeMetadata(task);
 
           if (!result.completed) {
             if (isTaskExecutionStopReason(result.stopReason)) {
@@ -142,6 +188,7 @@ export class AgentRuntimeService implements RuntimeGateway {
 
           return result.text;
         } catch (error) {
+          this.captureTaskRuntimeMetadata(task);
           this.handleFatalQueueErrorIfNeeded(task, error);
           throw error;
         }
@@ -222,6 +269,126 @@ export class AgentRuntimeService implements RuntimeGateway {
     return agent;
   }
 
+  private getWorkspaceForTaskInputPolicy(): string {
+    const context = this.getAgent().getContextSnapshot();
+    const workspace = context.runtime.workspace;
+    if (typeof workspace === "string" && workspace.trim() !== "") {
+      return workspace;
+    }
+    return process.cwd();
+  }
+
+  private applyTaskInputPolicy(task: TaskItem<string, string>) {
+    const workspace = this.getWorkspaceForTaskInputPolicy();
+    const fallbackIngress: TaskInputIngressMeta = {
+      compressed: false,
+      originalBytes: Buffer.byteLength(task.input, "utf8"),
+      summaryBytes: Buffer.byteLength(task.input, "utf8"),
+      estimatedInputTokens: Math.max(1, Math.ceil(Buffer.byteLength(task.input, "utf8") / 3)),
+    };
+
+    try {
+      const policyResult = this.inputPolicy.apply({
+        input: task.input,
+        taskId: task.id,
+        workspace,
+      });
+      task.input = policyResult.input;
+      task.metadata = {
+        ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
+        ingress: policyResult.ingress,
+      };
+      return;
+    } catch (error) {
+      this.logger.log(
+        `[runtime] task input policy failed for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    task.metadata = {
+      ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
+      ingress: fallbackIngress,
+    };
+  }
+
+  private captureTaskRuntimeMetadata(task: TaskItem<string, string>) {
+    const context = this.getAgent().getContextSnapshot();
+    const runtime = context.runtime as Record<string, unknown>;
+
+    const rawBudget =
+      runtime.budget && typeof runtime.budget === "object" && !Array.isArray(runtime.budget)
+        ? runtime.budget as Record<string, unknown>
+        : null;
+    const rawTokenUsage =
+      runtime.token_usage && typeof runtime.token_usage === "object" && !Array.isArray(runtime.token_usage)
+        ? runtime.token_usage as Record<string, unknown>
+        : null;
+
+    const mappedBudget = rawBudget
+      ? {
+          estimatedInputTokens:
+            typeof rawBudget.estimated_input_tokens === "number" ? rawBudget.estimated_input_tokens : undefined,
+          inputBudget:
+            typeof rawBudget.input_budget === "number" ? rawBudget.input_budget : undefined,
+          reserveOutputTokens:
+            typeof rawBudget.reserve_output_tokens === "number" ? rawBudget.reserve_output_tokens : undefined,
+          safetyMarginTokens:
+            typeof rawBudget.safety_margin_tokens === "number" ? rawBudget.safety_margin_tokens : undefined,
+          degradeStage:
+            typeof rawBudget.degrade_stage === "string" ? rawBudget.degrade_stage : undefined,
+        }
+      : null;
+
+    const mappedTokenUsage = rawTokenUsage
+      ? {
+          inputTokens:
+            typeof rawTokenUsage.input_tokens === "number" ? rawTokenUsage.input_tokens : undefined,
+          outputTokens:
+            typeof rawTokenUsage.output_tokens === "number" ? rawTokenUsage.output_tokens : undefined,
+          totalTokens:
+            typeof rawTokenUsage.total_tokens === "number" ? rawTokenUsage.total_tokens : undefined,
+          cumulativeTotalTokens:
+            typeof rawTokenUsage.cumulative_total_tokens === "number"
+              ? rawTokenUsage.cumulative_total_tokens
+              : undefined,
+          reasoningTokens:
+            typeof rawTokenUsage.reasoning_tokens === "number" ? rawTokenUsage.reasoning_tokens : undefined,
+          cachedInputTokens:
+            typeof rawTokenUsage.cached_input_tokens === "number" ? rawTokenUsage.cached_input_tokens : undefined,
+          updatedAt:
+            typeof rawTokenUsage.updated_at === "number" ? rawTokenUsage.updated_at : undefined,
+        }
+      : null;
+
+    if (!mappedBudget && !mappedTokenUsage) {
+      return;
+    }
+
+    task.metadata = {
+      ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
+      ...(mappedBudget
+        ? {
+            budget: {
+              ...(task.metadata?.budget && typeof task.metadata.budget === "object"
+                ? task.metadata.budget
+                : {}),
+              ...mappedBudget,
+            },
+          }
+        : {}),
+      ...(mappedTokenUsage
+        ? {
+            tokenUsage: {
+              ...(task.metadata?.tokenUsage && typeof task.metadata.tokenUsage === "object"
+                ? task.metadata.tokenUsage
+                : {}),
+              ...mappedTokenUsage,
+            },
+          }
+        : {}),
+    };
+  }
+
   private async runAgentTask(
     task: TaskItem<string, string>,
     options?: {
@@ -281,6 +448,7 @@ export class AgentRuntimeService implements RuntimeGateway {
     const task = createTask<string, string>(request.type ?? "http.input", request.input, {
       priority: request.priority ?? 2,
     });
+    this.applyTaskInputPolicy(task);
 
     this.taskRegistry.set(task.id, task);
     this.ensureTaskMessageBuffer(task.id);
@@ -305,6 +473,10 @@ export class AgentRuntimeService implements RuntimeGateway {
   ): TaskStatusResponse | undefined {
     const task = this.taskRegistry.get(taskId);
     if (!task) return undefined;
+    const runningTask = this.taskQueue.getCurrentTask();
+    if (runningTask?.id === taskId) {
+      this.captureTaskRuntimeMetadata(task);
+    }
 
     return {
       task: toTaskSnapshot(task),
@@ -561,13 +733,23 @@ export class AgentRuntimeService implements RuntimeGateway {
       return;
     }
 
+    const overflowCountInWindow = this.recordContextOverflowAndGetCount();
+
     // Prevent queue-level retry for this task after a context overflow.
     task.retries = task.maxRetries;
     task.metadata = {
       ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
       fatalErrorType: "context_overflow",
       retrySuppressed: true,
+      runtimeOverflowCounter: overflowCountInWindow,
     };
+
+    if (!this.overflowPolicy.clearPendingOnContextOverflow) {
+      this.logger.log(
+        `[runtime] context length overflow detected on task ${task.id}; pending queue preserved (count-in-window=${overflowCountInWindow})`,
+      );
+      return;
+    }
 
     const now = Date.now();
     const pending = this.taskQueue.drainPending();
@@ -580,8 +762,25 @@ export class AgentRuntimeService implements RuntimeGateway {
     );
 
     this.logger.log(
-      `[runtime] context length overflow detected on task ${task.id}; cleared ${pending.length} pending task(s)`,
+      `[runtime] context length overflow detected on task ${task.id}; cleared ${pending.length} pending task(s) (count-in-window=${overflowCountInWindow})`,
     );
+  }
+
+  private recordContextOverflowAndGetCount(now = Date.now()): number {
+    this.contextOverflowTimestamps.push(now);
+    const minTimestamp = now - this.overflowPolicy.observationWindowMinutes * 60_000;
+    while (
+      this.contextOverflowTimestamps.length > 0 &&
+      this.contextOverflowTimestamps[0] !== undefined &&
+      this.contextOverflowTimestamps[0] < minTimestamp
+    ) {
+      this.contextOverflowTimestamps.shift();
+    }
+    if (this.contextOverflowTimestamps.length > this.overflowPolicy.observationMaxSamples) {
+      const trimCount = this.contextOverflowTimestamps.length - this.overflowPolicy.observationMaxSamples;
+      this.contextOverflowTimestamps.splice(0, trimCount);
+    }
+    return this.contextOverflowTimestamps.length;
   }
 
   private cancelPendingTasks(

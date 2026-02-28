@@ -13,6 +13,34 @@
       "maxContinuationRuns": 5,
       "maxModelStepsPerTask": 80,
       "continueWithoutAdvancingContextRound": true,
+      "inputPolicy": {
+        "enabled": true,
+        "maxInputTokens": 12000,
+        "summarizeTargetTokens": 2200,
+        "spoolOriginalInput": true,
+        "spoolDirectory": ".agent/inbox"
+      },
+      "contextBudget": {
+        "enabled": true,
+        "contextWindowTokens": 131072,
+        "reserveOutputTokensCap": 2048,
+        "safetyMarginRatio": 0.12,
+        "safetyMarginMinTokens": 6000,
+        "outputTokenDownshifts": [2048, 1024, 512],
+        "secondaryCompressTargetTokens": 1200,
+        "memoryTrimStep": 3,
+        "minMemoryItems": {
+          "core": 2,
+          "working": 2,
+          "ephemeral": 0,
+          "longterm": 2
+        }
+      },
+      "overflowPolicy": {
+        "clearPendingOnContextOverflow": false,
+        "observationWindowMinutes": 15,
+        "observationMaxSamples": 128
+      },
       "intentGuard": {
         "enabled": true,
         "detector": "model",
@@ -38,6 +66,8 @@
       "provider_id": "deepseek",
       "model": "deepseek-chat",
       "api_key_env": "DEEPSEEK_API_KEY",
+      "max_context_tokens": 131072,
+      "max_output_tokens": 8192,
       "enabled": true
     },
     {

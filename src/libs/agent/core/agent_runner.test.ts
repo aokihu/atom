@@ -320,4 +320,41 @@ describe("agent_runner persistent memory hooks", () => {
     expect(result.completed).toBe(false);
     expect(result.stopReason).toBe("tool_policy_blocked");
   });
+
+  test("returns controlled stop when context budget is exhausted before model call", async () => {
+    let generateCalled = false;
+    const runner = createRunnerForTest({
+      executionConfig: {
+        contextBudget: {
+          ...DEFAULT_AGENT_EXECUTION_CONFIG.contextBudget,
+          contextWindowTokens: 1400,
+          reserveOutputTokensCap: 1024,
+          safetyMarginMinTokens: 400,
+          safetyMarginRatio: 0.2,
+          secondaryCompressTargetTokens: 1024,
+          outputTokenDownshifts: [1024, 512],
+          minMemoryItems: {
+            core: 0,
+            working: 0,
+            ephemeral: 0,
+            longterm: 0,
+          },
+        },
+      },
+      generateImpl: async () => {
+        generateCalled = true;
+        return {
+          text: "unexpected",
+          finishReason: "stop",
+          stepCount: 1,
+        };
+      },
+    });
+
+    const hugeQuestion = `question ${"Q".repeat(20_000)}`;
+    const result = await runner.runTaskDetailed(createSession(), hugeQuestion);
+    expect(result.completed).toBe(false);
+    expect(result.stopReason).toBe("context_budget_exhausted");
+    expect(generateCalled).toBe(false);
+  });
 });

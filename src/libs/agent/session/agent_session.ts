@@ -6,6 +6,7 @@ import type {
   AgentContextRuntime,
   ContextMemoryBlock,
   ContextMemoryBlockStatus,
+  ContextMemoryTier,
 } from "../../../types/agent";
 import { buildContextBlock, CONTEXT_TAG_START } from "./context_codec";
 import {
@@ -67,6 +68,13 @@ const toFiniteNonNegativeInteger = (value: unknown): number | undefined => {
   const normalized = Math.trunc(value);
   return normalized >= 0 ? normalized : undefined;
 };
+
+const MEMORY_TIERS: readonly ContextMemoryTier[] = [
+  "core",
+  "working",
+  "ephemeral",
+  "longterm",
+];
 
 const getCurrentUsageTotalTokens = (
   usage: Pick<NonNullable<AgentContextRuntime["token_usage"]>, "total_tokens" | "input_tokens" | "output_tokens">,
@@ -191,6 +199,41 @@ export class AgentSession {
       ...normalizedUsage,
       cumulative_total_tokens: previousCumulativeTotalTokens + currentUsageTotalTokens,
     });
+  }
+
+  updateRuntimeBudget(
+    budget: NonNullable<AgentContextRuntime["budget"]> | null,
+  ) {
+    const runtime = this.contextState.getCurrentContext().runtime;
+    if (budget === null) {
+      delete runtime.budget;
+      return;
+    }
+    runtime.budget = structuredClone(budget);
+  }
+
+  applyMemoryTierLimits(limits: Partial<Record<ContextMemoryTier, number>>): boolean {
+    const currentMemory = this.contextState.getCurrentContext().memory;
+    const nextMemory = structuredClone(currentMemory);
+    let changed = false;
+
+    for (const tier of MEMORY_TIERS) {
+      const rawLimit = limits[tier];
+      if (typeof rawLimit !== "number" || !Number.isFinite(rawLimit)) {
+        continue;
+      }
+      const limit = Math.max(0, Math.trunc(rawLimit));
+      if (nextMemory[tier].length <= limit) {
+        continue;
+      }
+      nextMemory[tier] = nextMemory[tier].slice(0, limit);
+      changed = true;
+    }
+
+    if (changed) {
+      this.contextState.replaceMemory(nextMemory);
+    }
+    return changed;
   }
 
   beginTaskContext(task: AgentTaskContextStart) {
@@ -441,6 +484,25 @@ export class AgentSession {
       role: "user",
       content: question,
     });
+  }
+
+  refreshInjectedContext(options?: { advanceRound?: boolean }) {
+    this.injectContext({ advanceRound: options?.advanceRound ?? false });
+  }
+
+  replaceLatestUserMessage(content: string): boolean {
+    for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+      const message = this.messages[index];
+      if (message?.role !== "user") {
+        continue;
+      }
+      if (typeof message.content !== "string") {
+        return false;
+      }
+      message.content = content;
+      return true;
+    }
+    return false;
   }
 
   getMessages() {

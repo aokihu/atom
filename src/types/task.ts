@@ -13,6 +13,7 @@ export const CONTROLLED_TASK_STOP_REASONS = [
   "continuation_limit_reached",
   "tool_policy_blocked",
   "intent_execution_failed",
+  "context_budget_exhausted",
 ] as const;
 
 export type TaskExecutionStopReason = (typeof CONTROLLED_TASK_STOP_REASONS)[number];
@@ -28,6 +29,31 @@ export type TaskExecutionMetadata = {
 
 export type TaskMetadata = Record<string, any> & {
   execution?: TaskExecutionMetadata;
+  ingress?: {
+    compressed: boolean;
+    originalBytes: number;
+    summaryBytes: number;
+    spooledPath?: string;
+    estimatedInputTokens?: number;
+  };
+  tokenUsage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    cumulativeTotalTokens?: number;
+    reasoningTokens?: number;
+    cachedInputTokens?: number;
+    updatedAt?: number;
+    [key: string]: unknown;
+  };
+  budget?: {
+    estimatedInputTokens?: number;
+    inputBudget?: number;
+    reserveOutputTokens?: number;
+    safetyMarginTokens?: number;
+    degradeStage?: string;
+    [key: string]: unknown;
+  };
 };
 
 export const isTaskExecutionStopReason = (value: unknown): value is TaskExecutionStopReason =>

@@ -60,6 +60,12 @@ export class AgentContextState {
     this.context = compactRawContextForStorage(mergedContext);
   }
 
+  replaceMemory(memory: AgentContext["memory"]) {
+    const next = structuredClone(this.context);
+    next.memory = structuredClone(memory);
+    this.context = compactRawContextForStorage(next);
+  }
+
   refreshRuntime(options?: { advanceRound?: boolean }) {
     if (options?.advanceRound ?? true) {
       this.context.runtime.round += 1;

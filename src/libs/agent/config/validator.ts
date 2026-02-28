@@ -272,6 +272,154 @@ const validateAgentExecutionConfig = (value: unknown, keyPath: string) => {
       }
     }
   }
+
+  const inputPolicy = execution.inputPolicy;
+  if (inputPolicy !== undefined) {
+    if (typeof inputPolicy !== "object" || inputPolicy === null || Array.isArray(inputPolicy)) {
+      throw new Error(`${keyPath}.inputPolicy must be a JSON object`);
+    }
+
+    const inputPolicyConfig = inputPolicy as Record<string, unknown>;
+    ensureBoolean(inputPolicyConfig.enabled, `${keyPath}.inputPolicy.enabled`);
+    ensureIntegerInRange(inputPolicyConfig.maxInputTokens, `${keyPath}.inputPolicy.maxInputTokens`, {
+      min: 256,
+      max: 2_000_000,
+    });
+    ensureIntegerInRange(
+      inputPolicyConfig.summarizeTargetTokens,
+      `${keyPath}.inputPolicy.summarizeTargetTokens`,
+      {
+        min: 128,
+        max: 200_000,
+      },
+    );
+    ensureBoolean(inputPolicyConfig.spoolOriginalInput, `${keyPath}.inputPolicy.spoolOriginalInput`);
+    ensureNonEmptyString(inputPolicyConfig.spoolDirectory, `${keyPath}.inputPolicy.spoolDirectory`);
+  }
+
+  const contextBudget = execution.contextBudget;
+  if (contextBudget !== undefined) {
+    if (typeof contextBudget !== "object" || contextBudget === null || Array.isArray(contextBudget)) {
+      throw new Error(`${keyPath}.contextBudget must be a JSON object`);
+    }
+
+    const contextBudgetConfig = contextBudget as Record<string, unknown>;
+    ensureBoolean(contextBudgetConfig.enabled, `${keyPath}.contextBudget.enabled`);
+    ensureIntegerInRange(
+      contextBudgetConfig.contextWindowTokens,
+      `${keyPath}.contextBudget.contextWindowTokens`,
+      {
+        min: 4096,
+        max: 2_000_000,
+      },
+    );
+    ensureIntegerInRange(
+      contextBudgetConfig.reserveOutputTokensCap,
+      `${keyPath}.contextBudget.reserveOutputTokensCap`,
+      {
+        min: 64,
+        max: 200_000,
+      },
+    );
+    ensureNumberInRange(
+      contextBudgetConfig.safetyMarginRatio,
+      `${keyPath}.contextBudget.safetyMarginRatio`,
+      {
+        min: 0,
+        max: 0.5,
+      },
+    );
+    ensureIntegerInRange(
+      contextBudgetConfig.safetyMarginMinTokens,
+      `${keyPath}.contextBudget.safetyMarginMinTokens`,
+      {
+        min: 0,
+        max: 200_000,
+      },
+    );
+    ensureIntegerInRange(
+      contextBudgetConfig.secondaryCompressTargetTokens,
+      `${keyPath}.contextBudget.secondaryCompressTargetTokens`,
+      {
+        min: 64,
+        max: 200_000,
+      },
+    );
+    ensureIntegerInRange(
+      contextBudgetConfig.memoryTrimStep,
+      `${keyPath}.contextBudget.memoryTrimStep`,
+      {
+        min: 1,
+        max: 16,
+      },
+    );
+
+    if (contextBudgetConfig.outputTokenDownshifts !== undefined) {
+      if (!Array.isArray(contextBudgetConfig.outputTokenDownshifts)) {
+        throw new Error(`${keyPath}.contextBudget.outputTokenDownshifts must be an array`);
+      }
+
+      for (const [index, candidate] of contextBudgetConfig.outputTokenDownshifts.entries()) {
+        ensureIntegerInRange(
+          candidate,
+          `${keyPath}.contextBudget.outputTokenDownshifts[${index}]`,
+          {
+            min: 1,
+            max: 200_000,
+          },
+        );
+      }
+    }
+
+    if (contextBudgetConfig.minMemoryItems !== undefined) {
+      if (
+        typeof contextBudgetConfig.minMemoryItems !== "object" ||
+        contextBudgetConfig.minMemoryItems === null ||
+        Array.isArray(contextBudgetConfig.minMemoryItems)
+      ) {
+        throw new Error(`${keyPath}.contextBudget.minMemoryItems must be a JSON object`);
+      }
+
+      const allowedTiers = ["core", "working", "ephemeral", "longterm"];
+      for (const [tier, value] of Object.entries(
+        contextBudgetConfig.minMemoryItems as Record<string, unknown>,
+      )) {
+        if (!allowedTiers.includes(tier)) {
+          throw new Error(
+            `${keyPath}.contextBudget.minMemoryItems.${tier} is unsupported; allowed: ${allowedTiers.join(", ")}`,
+          );
+        }
+        ensureIntegerInRange(
+          value,
+          `${keyPath}.contextBudget.minMemoryItems.${tier}`,
+          { min: 0, max: 200 },
+        );
+      }
+    }
+  }
+
+  const overflowPolicy = execution.overflowPolicy;
+  if (overflowPolicy !== undefined) {
+    if (typeof overflowPolicy !== "object" || overflowPolicy === null || Array.isArray(overflowPolicy)) {
+      throw new Error(`${keyPath}.overflowPolicy must be a JSON object`);
+    }
+
+    const overflowPolicyConfig = overflowPolicy as Record<string, unknown>;
+    ensureBoolean(
+      overflowPolicyConfig.clearPendingOnContextOverflow,
+      `${keyPath}.overflowPolicy.clearPendingOnContextOverflow`,
+    );
+    ensureIntegerInRange(
+      overflowPolicyConfig.observationWindowMinutes,
+      `${keyPath}.overflowPolicy.observationWindowMinutes`,
+      { min: 1, max: 24 * 60 },
+    );
+    ensureIntegerInRange(
+      overflowPolicyConfig.observationMaxSamples,
+      `${keyPath}.overflowPolicy.observationMaxSamples`,
+      { min: 8, max: 10_000 },
+    );
+  }
 };
 
 const parseAgentModelRef = (value: string) => {
@@ -334,6 +482,8 @@ const validateAgentAndProvidersConfig = (config: AgentConfig) => {
     ensureBoolean(provider.enabled, `${keyPath}.enabled`);
     ensureNonEmptyString(provider.base_url, `${keyPath}.base_url`);
     ensureStringRecord(provider.headers, `${keyPath}.headers`);
+    ensurePositiveInteger(provider.max_context_tokens, `${keyPath}.max_context_tokens`);
+    ensurePositiveInteger(provider.max_output_tokens, `${keyPath}.max_output_tokens`);
 
     if (typeof provider.base_url === "string") {
       try {
