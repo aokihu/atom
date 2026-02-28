@@ -84,6 +84,9 @@ bun run src/index.ts --workspace ./Playground --message-gateway telegram_main,!w
 - `GET /healthz`
 - `POST /v1/tasks`
 - `GET /v1/tasks/:id`
+- `POST /v1/schedules`
+- `GET /v1/schedules`
+- `DELETE /v1/schedules/:id`
 - `GET /v1/agent/context`
 - `GET /v1/agent/messages`
 - `POST /v1/agent/memory/search`
@@ -110,6 +113,7 @@ bun run src/index.ts --workspace ./Playground --message-gateway telegram_main,!w
 - `todo_list` `todo_add` `todo_update` `todo_complete` `todo_reopen` `todo_remove` `todo_clear_done`
 - `memory_write` `memory_search` `memory_get` `memory_update` `memory_delete` `memory_feedback` `memory_tag_resolve` `memory_compact` `memory_list_recent`
 - `cp` `mv` `git` `bash` `background` `webfetch`
+- `schedule`（`create/list/cancel`）
 
 `agent.config.json` 的 `permissions` 段可对工具设置 `allow` / `deny` 正则规则，且 `deny` 优先级高于 `allow`。
 
@@ -162,6 +166,7 @@ bun run src/index.ts --workspace ./Playground --message-gateway telegram_main,!w
 - `/help`
 - `/messages`
 - `/context`
+- `/schedule`
 - `/exit`
 
 ## 目录结构

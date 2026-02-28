@@ -1,5 +1,11 @@
 import type { ToolSet } from "ai";
 import type { AgentToolsPermission } from "../../../types/agent";
+import type {
+  CancelScheduleResponse,
+  CreateScheduleRequest,
+  CreateScheduleResponse,
+  ListSchedulesResponse,
+} from "../../../types/schedule";
 import type { TaskExecutionStopReason } from "../../../types/task";
 import type { AgentOutputMessageSink } from "../core/output_messages";
 import type { PersistentMemoryCoordinator } from "../memory/persistent_coordinator";
@@ -32,6 +38,7 @@ export const BUILTIN_TOOL_NAMES = [
   "bash",
   "background",
   "webfetch",
+  "schedule",
 ] as const;
 
 export type BuiltinToolName = (typeof BUILTIN_TOOL_NAMES)[number];
@@ -88,6 +95,11 @@ export type ToolExecutionContext = {
   permissions?: ToolPermissionSource;
   workspace?: string;
   persistentMemoryCoordinator?: PersistentMemoryCoordinator;
+  scheduleGateway?: {
+    createSchedule: (request: CreateScheduleRequest) => Promise<CreateScheduleResponse> | CreateScheduleResponse;
+    listSchedules: () => Promise<ListSchedulesResponse> | ListSchedulesResponse;
+    cancelSchedule: (scheduleId: string) => Promise<CancelScheduleResponse> | CancelScheduleResponse;
+  };
   onOutputMessage?: AgentOutputMessageSink;
   toolBudget?: ToolBudgetController;
   beforeToolExecution?: (event: ToolExecutionGuardEvent) => ToolExecutionGuardDecision | Promise<ToolExecutionGuardDecision>;

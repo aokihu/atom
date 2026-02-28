@@ -899,6 +899,102 @@ const buildTodoResultDisplay = (
   });
 };
 
+const buildScheduleCallDisplay = (toolName: string, input: Record<string, unknown>) => {
+  const trigger = isRecord(input.trigger) ? input.trigger : undefined;
+  const triggerMode = trigger ? getString(trigger, "mode") : undefined;
+  const triggerLabel = triggerMode === "delay"
+    ? "delay"
+    : triggerMode === "at"
+      ? "at"
+      : triggerMode === "cron"
+        ? "cron"
+        : undefined;
+
+  return makeEnvelope(toolName, "call", "builtin.schedule.call", {
+    summary: "Schedule operation",
+    fields: compactFields([
+      createField("action", getString(input, "action")),
+      createField("dedupeKey", getString(input, "dedupeKey")),
+      createField("scheduleId", getString(input, "scheduleId")),
+      createField("taskType", getString(input, "taskType")),
+      createField("priority", getNumber(input, "priority")),
+      createField("triggerMode", triggerLabel),
+      createField("delaySeconds", trigger ? getNumber(trigger, "delaySeconds") : undefined),
+      createField("runAt", trigger ? getString(trigger, "runAt") : undefined),
+      createField("cron", trigger ? getString(trigger, "cron") : undefined),
+    ]),
+  });
+};
+
+const buildScheduleResultDisplay = (
+  toolName: string,
+  input: Record<string, unknown> | undefined,
+  result: Record<string, unknown>,
+  errorMessage?: string,
+) => {
+  if (errorMessage) {
+    return buildGenericErrorResult(toolName, "builtin.schedule.result", errorMessage, [
+      createField("action", input ? getString(input, "action") : undefined),
+      createField("scheduleId", input ? getString(input, "scheduleId") : undefined),
+    ]);
+  }
+
+  const schedule = isRecord(result.schedule) ? result.schedule : undefined;
+  const items = Array.isArray(result.items)
+    ? result.items.filter((item): item is Record<string, unknown> => isRecord(item))
+    : [];
+
+  const previewLines = items
+    .slice(0, MAX_PREVIEW_ARRAY_ITEMS)
+    .map((item) => {
+      const scheduleId = getString(item, "scheduleId") ?? "-";
+      const dedupeKey = getString(item, "dedupeKey") ?? "-";
+      const trigger = isRecord(item.trigger) ? getString(item.trigger, "mode") : "-";
+      const nextRunAt = getNumber(item, "nextRunAt");
+      const nextRunAtText = nextRunAt !== undefined ? formatTimestamp(nextRunAt) ?? String(nextRunAt) : "-";
+      return `${scheduleId} · key=${dedupeKey} · ${trigger} · next=${nextRunAtText}`;
+    });
+
+  const action = getString(result, "action") ?? (input ? getString(input, "action") : undefined);
+  const count = getNumber(result, "count") ?? items.length;
+  const summary = (() => {
+    if (schedule) {
+      const scheduleId = getString(schedule, "scheduleId");
+      return scheduleId ? `Schedule created: ${scheduleId}` : "Schedule created";
+    }
+    if (action === "cancel") {
+      const cancelled = getBoolean(result, "cancelled");
+      return cancelled ? "Schedule cancelled" : "Schedule not found";
+    }
+    if (action === "list" || items.length > 0) {
+      return `Schedules listed (${count})`;
+    }
+    return "Schedule operation completed";
+  })();
+
+  return makeEnvelope(toolName, "result", "builtin.schedule.result", {
+    summary,
+    fields: compactFields([
+      createField("success", toYesNo(getBoolean(result, "success"))),
+      createField("action", action),
+      createField("count", count),
+      createField("scheduleId", getString(result, "scheduleId") ?? (schedule ? getString(schedule, "scheduleId") : undefined)),
+      createField("cancelled", toYesNo(getBoolean(result, "cancelled"))),
+      createField("dedupeKey", schedule ? getString(schedule, "dedupeKey") : undefined),
+      createField("nextRunAt", schedule ? formatTimestamp(getNumber(schedule, "nextRunAt")) : undefined),
+    ]),
+    previews: compactPreviews([
+      previewLines.length > 0
+        ? {
+            title: "Schedules",
+            lines: previewLines,
+            truncated: items.length > previewLines.length,
+          }
+        : undefined,
+    ]),
+  });
+};
+
 const buildMemoryCallDisplay = (toolName: string, input: Record<string, unknown>) =>
   makeEnvelope(toolName, "call", `builtin.${toolName}.call`, {
     summary: `Memory ${toolName.replace(/^memory_/, "")}`,
@@ -1024,6 +1120,8 @@ export const buildToolCallDisplay = (
       return buildMemoryCallDisplay(toolName, input);
     case "webfetch":
       return buildWebfetchCallDisplay(toolName, input);
+    case "schedule":
+      return buildScheduleCallDisplay(toolName, input);
     default:
       return undefined;
   }
@@ -1082,6 +1180,8 @@ export const buildToolResultDisplay = (
     case "memory_compact":
     case "memory_list_recent":
       return buildMemoryResultDisplay(toolName, inputRecord, result, errorMessage);
+    case "schedule":
+      return buildScheduleResultDisplay(toolName, inputRecord, result, errorMessage);
     default:
       return undefined;
   }

@@ -197,6 +197,8 @@ const TEMPLATE_RENDERERS: Record<string, DisplayRenderer> = {
   "builtin.bash.error.result": buildBuiltinRenderer(),
   "builtin.webfetch.call": buildBuiltinRenderer(),
   "builtin.webfetch.result": buildBuiltinRenderer(),
+  "builtin.schedule.call": buildBuiltinRenderer(),
+  "builtin.schedule.result": buildBuiltinRenderer(),
 };
 
 const renderDisplayWithRegistry = (display: ToolDisplayEnvelope): string | undefined => {

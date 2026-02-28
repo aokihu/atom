@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 /* Framework */
 import { bootstrap } from "./libs/agent/boot";
 import { workspace_check } from "./libs/utils/workspace_check";
-import { Agent } from "./libs/agent/agent";
+import { Agent, type ToolExecutionContext } from "./libs/agent/agent";
 import { loadAgentConfig } from "./libs/agent/config";
 import {
   applyProviderTokenLimitsToRuntimeConfig,
@@ -263,16 +263,18 @@ const initializeRuntimeService = async (
       );
     }
 
+    const toolContext: ToolExecutionContext = {
+      permissions: agentConfig,
+      workspace: cliOptions.workspace,
+      persistentMemoryCoordinator: activePersistentMemoryCoordinator,
+    };
+
     const taskAgent = new Agent({
       systemPrompt: promptLoadResult.systemPrompt,
       model,
       modelParams: runtimeConfig.modelParams,
       workspace: cliOptions.workspace,
-      toolContext: {
-        permissions: agentConfig,
-        workspace: cliOptions.workspace,
-        persistentMemoryCoordinator: activePersistentMemoryCoordinator,
-      },
+      toolContext,
       mcpTools,
       dependencies: {
         executionConfig: runtimeConfig.executionConfig,
@@ -290,6 +292,7 @@ const initializeRuntimeService = async (
         overflowPolicy: agentConfig.agent?.execution?.overflowPolicy,
       },
     );
+    toolContext.scheduleGateway = runtimeService;
     runtimeService.start();
     const getMcpStatus = createMCPHealthStatusProvider({
       startupStatus: mcpStatus,

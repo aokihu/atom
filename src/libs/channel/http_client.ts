@@ -19,12 +19,16 @@ import type {
   AgentMemoryUpdateResponse,
   AgentMemoryUpsertRequest,
   AgentMemoryUpsertResponse,
+  CancelScheduleResponse,
   ApiErrorResponse,
   ApiSuccessResponse,
+  CreateScheduleRequest,
+  CreateScheduleResponse,
   CreateTaskRequest,
   CreateTaskResponse,
   ForceAbortResponse,
   HealthzResponse,
+  ListSchedulesResponse,
   TaskStatusResponse,
   AgentContextResponse,
   AgentMessagesResponse,
@@ -76,6 +80,31 @@ export class HttpGatewayClient implements GatewayClient {
       },
       body: JSON.stringify(request),
     });
+  }
+
+  async createSchedule(request: CreateScheduleRequest): Promise<CreateScheduleResponse> {
+    return await this.request<CreateScheduleResponse>("/v1/schedules", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+  }
+
+  async listSchedules(): Promise<ListSchedulesResponse> {
+    return await this.request<ListSchedulesResponse>("/v1/schedules", {
+      method: "GET",
+    });
+  }
+
+  async cancelSchedule(scheduleId: string): Promise<CancelScheduleResponse> {
+    return await this.request<CancelScheduleResponse>(
+      `/v1/schedules/${encodeURIComponent(scheduleId)}`,
+      {
+        method: "DELETE",
+      },
+    );
   }
 
   async getTask(taskId: string, options?: GetTaskOptions): Promise<TaskStatusResponse> {

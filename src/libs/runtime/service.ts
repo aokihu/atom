@@ -2,6 +2,7 @@ import { Agent, type AgentRunDetailedResult } from "../agent/agent";
 import { ControlledTaskStopError } from "./errors";
 import { PriorityTaskQueue, createTask } from "./queue";
 import { TaskInputPolicy, type TaskInputIngressMeta } from "./input_policy";
+import { InMemoryScheduledTaskManager } from "./scheduler";
 
 import type { RuntimeGateway } from "../channel/channel";
 import type {
@@ -25,10 +26,15 @@ import type {
   AgentMemoryUpsertResponse,
   AgentContextResponse,
   AgentMessagesResponse,
+  CancelScheduleResponse,
+  CreateScheduleRequest,
+  CreateScheduleResponse,
   CreateTaskRequest,
   CreateTaskResponse,
   ForceAbortResponse,
+  ListSchedulesResponse,
   QueueStats,
+  ScheduledTaskRecord,
   TaskSnapshot,
   TaskMessagesDelta,
   TaskOutputMessage,
@@ -119,12 +125,13 @@ export class AgentRuntimeService implements RuntimeGateway {
   private readonly persistentMemoryCoordinator?: PersistentMemoryCoordinator;
   private readonly inputPolicy: TaskInputPolicy;
   private readonly overflowPolicy: ResolvedOverflowPolicy;
+  private readonly scheduledTaskManager: InMemoryScheduledTaskManager;
   private readonly contextOverflowTimestamps: number[] = [];
   private started = false;
 
   constructor(
     private readonly agent: Agent,
-    private readonly logger: Pick<Console, "log"> = console,
+    private readonly logger: Pick<Console, "log"> & Partial<Pick<Console, "warn">> = console,
     options?: {
       persistentMemoryCoordinator?: PersistentMemoryCoordinator;
       inputPolicy?: AgentExecutionInputPolicyConfig;
@@ -134,6 +141,14 @@ export class AgentRuntimeService implements RuntimeGateway {
     this.persistentMemoryCoordinator = options?.persistentMemoryCoordinator;
     this.inputPolicy = new TaskInputPolicy(options?.inputPolicy);
     this.overflowPolicy = resolveOverflowPolicy(options?.overflowPolicy);
+    this.scheduledTaskManager = new InMemoryScheduledTaskManager({
+      logger: {
+        warn: this.logger.warn ?? (() => {}),
+      },
+      onTrigger: async ({ record, plannedAt }) => {
+        this.enqueueScheduledTask(record, plannedAt);
+      },
+    });
     this.agentSessions.set(DEFAULT_AGENT_SESSION_ID, this.agent);
     this.taskQueue = new PriorityTaskQueue(
       async (task: TaskItem<string, string>) => {
@@ -434,9 +449,11 @@ export class AgentRuntimeService implements RuntimeGateway {
   }
 
   stop() {
-    if (!this.started) return;
-    this.started = false;
-    this.taskQueue.stop();
+    if (this.started) {
+      this.started = false;
+      this.taskQueue.stop();
+    }
+    this.scheduledTaskManager.dispose();
   }
 
   updateSystemPrompt(prompt: string) {
@@ -463,6 +480,82 @@ export class AgentRuntimeService implements RuntimeGateway {
       taskId: task.id,
       task: toTaskSnapshot(task),
     };
+  }
+
+  private enqueueScheduledTask(record: ScheduledTaskRecord, plannedAt: number): void {
+    const task = createTask<string, string>(record.taskType, record.taskInput, {
+      priority: record.priority,
+      metadata: {
+        schedule: {
+          scheduleId: record.scheduleId,
+          dedupeKey: record.dedupeKey,
+          plannedAt,
+          triggerMode: record.trigger.mode,
+        },
+      },
+    });
+
+    this.applyTaskInputPolicy(task);
+    this.cancelSupersededPendingScheduledTasks(record.dedupeKey, task.id);
+
+    this.taskRegistry.set(task.id, task);
+    this.ensureTaskMessageBuffer(task.id);
+    this.appendTaskMessage(task.id, {
+      category: "other",
+      type: "task.status",
+      text: "Scheduled task queued",
+    });
+    this.taskQueue.add(task);
+  }
+
+  private cancelSupersededPendingScheduledTasks(
+    dedupeKey: string,
+    incomingTaskId: string,
+  ): void {
+    const now = Date.now();
+    const removed = this.taskQueue.removeWhere((queuedTask) => {
+      if (queuedTask.id === incomingTaskId) {
+        return false;
+      }
+      if (queuedTask.status !== TaskStatus.Pending) {
+        return false;
+      }
+      const queuedDedupeKey = this.getScheduledTaskDedupeKey(queuedTask);
+      return queuedDedupeKey === dedupeKey;
+    });
+
+    if (removed.length === 0) {
+      return;
+    }
+
+    this.cancelPendingTasks(
+      removed,
+      now,
+      "superseded_by_newer_schedule",
+      "system.scheduler",
+      "Task cancelled: superseded by newer scheduled task",
+    );
+  }
+
+  private getScheduledTaskDedupeKey(task: TaskItem<string, string>): string | null {
+    const schedule = task.metadata?.schedule;
+    if (!schedule || typeof schedule !== "object") {
+      return null;
+    }
+    const dedupeKey = (schedule as Record<string, unknown>).dedupeKey;
+    return typeof dedupeKey === "string" ? dedupeKey : null;
+  }
+
+  createSchedule(request: CreateScheduleRequest): CreateScheduleResponse {
+    return this.scheduledTaskManager.createSchedule(request);
+  }
+
+  listSchedules(): ListSchedulesResponse {
+    return this.scheduledTaskManager.listSchedules();
+  }
+
+  cancelSchedule(scheduleId: string): CancelScheduleResponse {
+    return this.scheduledTaskManager.cancelSchedule(scheduleId);
   }
 
   getTask(

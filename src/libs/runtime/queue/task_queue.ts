@@ -51,6 +51,31 @@ export class PriorityTaskQueue implements TaskQueue {
     return drained;
   }
 
+  removeWhere(predicate: (task: Task) => boolean): Task[] {
+    if (this.heap.length === 0) {
+      return [];
+    }
+
+    const kept: Task[] = [];
+    const removed: Task[] = [];
+
+    for (const task of this.heap) {
+      if (predicate(task)) {
+        removed.push(task);
+      } else {
+        kept.push(task);
+      }
+    }
+
+    if (removed.length === 0) {
+      return [];
+    }
+
+    this.heap = kept;
+    this.heapify();
+    return removed;
+  }
+
   private get(index: number): Task {
     const item = this.heap[index];
     if (!item) {
@@ -171,6 +196,15 @@ export class PriorityTaskQueue implements TaskQueue {
       this.heap[index] = this.get(swap);
       this.heap[swap] = element;
       index = swap;
+    }
+  }
+
+  private heapify() {
+    if (this.heap.length <= 1) {
+      return;
+    }
+    for (let index = Math.floor(this.heap.length / 2) - 1; index >= 0; index -= 1) {
+      this.sinkDown(index);
     }
   }
 

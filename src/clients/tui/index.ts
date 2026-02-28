@@ -13,6 +13,7 @@ import type { CliRenderer, KeyEvent } from "@opentui/core";
 import type { GatewayClient } from "../../libs/channel/channel";
 import type {
   AgentContextResponse,
+  ListSchedulesResponse,
   MCPHealthStatus,
   MessageGatewayHealthStatus,
   TaskOutputMessage,
@@ -42,6 +43,7 @@ import { summarizeEventText, truncateToDisplayWidth } from "./utils/text";
 import type { ContextModalRenderInput } from "./views/context_modal";
 import type { InputPaneRenderInput } from "./views/input_pane";
 import type { MessagePaneRenderInput } from "./views/message_pane";
+import type { ScheduleModalRenderInput } from "./views/schedule_modal";
 import type { SlashModalRenderInput } from "./views/slash_modal";
 import type { StatusStripViewInput } from "./views/status_strip";
 
@@ -215,6 +217,36 @@ const formatMessageGatewayStatusModalBody = (status?: MessageGatewayHealthStatus
   return lines.join("\n");
 };
 
+const formatScheduleTrigger = (trigger: ListSchedulesResponse["items"][number]["trigger"]): string => {
+  if (trigger.mode === "delay") {
+    return `delay ${trigger.delaySeconds}s`;
+  }
+  if (trigger.mode === "at") {
+    return `at ${trigger.runAt}`;
+  }
+  return `cron ${trigger.cron} (${trigger.timezone})`;
+};
+
+const formatScheduleModalBody = (payload: ListSchedulesResponse): string => {
+  if (payload.items.length === 0) {
+    return "No active schedules.";
+  }
+
+  const lines: string[] = [];
+  const sorted = [...payload.items].sort((left, right) => left.nextRunAt - right.nextRunAt);
+  for (const item of sorted) {
+    lines.push(`- scheduleId: ${item.scheduleId}`);
+    lines.push(`  dedupeKey: ${item.dedupeKey}`);
+    lines.push(`  taskType: ${item.taskType}`);
+    lines.push(`  priority: ${item.priority}`);
+    lines.push(`  trigger: ${formatScheduleTrigger(item.trigger)}`);
+    lines.push(`  nextRunAt(UTC): ${new Date(item.nextRunAt).toISOString()}`);
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
+};
+
 class CoreTuiClientApp {
   private readonly client: GatewayClient;
   private readonly pollIntervalMs: number;
@@ -256,6 +288,10 @@ class CoreTuiClientApp {
     }
 
     if (this.handleContextModalKeyPress(key)) {
+      return;
+    }
+
+    if (this.handleScheduleModalKeyPress(key)) {
       return;
     }
 
@@ -423,6 +459,7 @@ class CoreTuiClientApp {
     this.syncStatusStrip(layout);
     this.syncInputPane(layout);
     this.syncSlashModalLayout(layout);
+    this.syncScheduleModalLayout(layout);
     this.syncContextModalLayout(layout);
     this.syncFocus();
 
@@ -515,11 +552,30 @@ class CoreTuiClientApp {
     this.ui.context.syncFromAppState(input);
   }
 
+  private syncScheduleModalLayout(_layout: LayoutMetrics): void {
+    const input: ScheduleModalRenderInput = {
+      open: this.state.scheduleModalOpen,
+      terminal: this.state.terminal,
+      title: this.state.scheduleModalTitle,
+      body: this.state.scheduleModalText,
+    };
+    this.ui.schedule.syncFromAppState(input);
+  }
+
   private syncFocus(): void {
     if (this.state.contextModalOpen) {
       this.ui.input.blur();
       this.ui.message.blur();
+      this.ui.schedule.blur();
       this.ui.context.focus();
+      return;
+    }
+
+    if (this.state.scheduleModalOpen) {
+      this.ui.input.blur();
+      this.ui.message.blur();
+      this.ui.context.blur();
+      this.ui.schedule.focus();
       return;
     }
 
@@ -533,6 +589,7 @@ class CoreTuiClientApp {
       this.ui.input.blur();
       this.ui.message.focus();
     }
+    this.ui.schedule.blur();
     this.ui.context.blur();
   }
 
@@ -623,6 +680,20 @@ class CoreTuiClientApp {
       key.preventDefault();
       key.stopPropagation();
       this.closeContextModal();
+      this.renderer.requestRender();
+      return true;
+    }
+
+    return false;
+  }
+
+  private handleScheduleModalKeyPress(key: KeyEvent): boolean {
+    if (!this.state.scheduleModalOpen) return false;
+
+    if (this.ui.schedule.handleKey(key)) {
+      key.preventDefault();
+      key.stopPropagation();
+      this.closeScheduleModal();
       this.renderer.requestRender();
       return true;
     }
@@ -752,7 +823,7 @@ class CoreTuiClientApp {
   }
 
   private syncSlashModalStateFromInput(): void {
-    if (this.state.contextModalOpen) {
+    if (this.state.contextModalOpen || this.state.scheduleModalOpen) {
       this.closeSlashModal();
       return;
     }
@@ -776,6 +847,7 @@ class CoreTuiClientApp {
     this.state.contextModalText = body;
     this.state.contextModalSaveStatus = "";
     this.state.contextModalOpen = true;
+    this.closeScheduleModal();
     this.closeSlashModal();
     this.ui.context.open({
       terminal: this.state.terminal,
@@ -790,6 +862,28 @@ class CoreTuiClientApp {
     if (!this.state.contextModalOpen) return;
     this.state.contextModalOpen = false;
     this.ui.context.close();
+    this.refreshAll();
+  }
+
+  private openScheduleModal(title: string, body: string): void {
+    this.state.scheduleModalTitle = title;
+    this.state.scheduleModalText = body;
+    this.state.scheduleModalOpen = true;
+    this.closeContextModal();
+    this.closeSlashModal();
+    this.ui.schedule.open({
+      terminal: this.state.terminal,
+      title,
+      body,
+    });
+    this.refreshAll();
+    this.ui.schedule.scrollTop();
+  }
+
+  private closeScheduleModal(): void {
+    if (!this.state.scheduleModalOpen) return;
+    this.state.scheduleModalOpen = false;
+    this.ui.schedule.close();
     this.refreshAll();
   }
 
@@ -1142,9 +1236,28 @@ class CoreTuiClientApp {
     if (action.type === "clear_session_view") {
       this.state.clearSessionView();
       this.closeSlashModal();
+      this.closeScheduleModal();
       this.closeContextModal();
       this.setStatusNotice("Session view cleared (context retained)");
       this.refreshAll();
+      return;
+    }
+
+    if (action.type === "open_schedule") {
+      try {
+        if (!this.client.listSchedules) {
+          throw new Error("Schedule API unavailable");
+        }
+        this.setStatusNotice("Loading schedules...");
+        const result = await this.withConnectionTracking(() => this.client.listSchedules!());
+        this.appendLog("system", "/schedule loaded");
+        this.setStatusNotice(`/schedule loaded (${result.items.length})`);
+        this.openScheduleModal("Scheduled Tasks", formatScheduleModalBody(result));
+      } catch (error) {
+        const message = formatErrorMessage(error);
+        this.appendLog("error", `/schedule failed: ${message}`);
+        this.setStatusNotice(`/schedule failed: ${message}`);
+      }
       return;
     }
 
@@ -1398,7 +1511,7 @@ class CoreTuiClientApp {
   }
 
   private canRunSlashCommand(command: string): boolean {
-    return this.state.phase === "idle" || command === "/force_abort";
+    return this.state.phase === "idle" || command === "/force_abort" || command === "/schedule";
   }
 }
 

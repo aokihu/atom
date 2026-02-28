@@ -27,6 +27,7 @@
     "@preact/signals-core": "^1.13.0",
     "@toon-format/toon": "^2.1.0",
     "ai": "^6.0.103",
+    "cron-parser": "^5.4.0",
     "openai": "^6.25.0",
     "radashi": "^12.7.2",
     "zod": "^4.3.6"
