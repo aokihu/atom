@@ -41,12 +41,15 @@ Options:
   --http-host <host>            HTTP host (default: 127.0.0.1)
   --http-port <port>            HTTP port (default: 8787)
   --server-url <url>            Server URL (for tui-client)
-  --channels <id,id,...>        Start selected message gateway channels (server only)
+  --message-gateway <selector>  Message gateway channel selector:
+                                all | channel_a,!channel_b
+                                (omit to disable all external channels)
 
 Examples:
   bun run src/index.ts --workspace ./Playground
   bun run src/index.ts --mode server --workspace ./Playground
-  bun run src/index.ts --mode server --channels telegram_main,http_ingress
+  bun run src/index.ts --mode server --message-gateway all
+  bun run src/index.ts --message-gateway telegram_main,!wechat,http_ingress
   bun run src/index.ts --mode tui-client --server-url http://127.0.0.1:8787
 `;
 
@@ -368,11 +371,11 @@ const main = async () => {
     );
 
   let messageGatewayManager: MessageGatewayManager | undefined;
-  if (cliOptions.mode === "server") {
+  if ((cliOptions.mode === "server" || cliOptions.mode === "tui") && cliOptions.messageGateway) {
     logStage("loading message gateway config...");
     messageGatewayManager = await MessageGatewayManager.create({
       workspace: cliOptions.workspace,
-      includeChannels: cliOptions.channels,
+      messageGatewaySelector: cliOptions.messageGateway,
       logger: console,
     });
     logStage("message gateway config loaded");

@@ -40,11 +40,15 @@ export type TelegramSendMessageOptions = {
   parseMode?: "MarkdownV2";
 };
 
+export type TelegramSendChatActionOptions = {
+  chatId: string;
+  action: "typing";
+};
+
 export type TelegramBotApi = {
-  getUpdates: (
-    options?: TelegramGetUpdatesOptions & { signal?: AbortSignal },
-  ) => Promise<TelegramUpdate[]>;
+  getUpdates: (options?: TelegramGetUpdatesOptions & { signal?: AbortSignal }) => Promise<TelegramUpdate[]>;
   sendMessage: (options: TelegramSendMessageOptions) => Promise<void>;
+  sendChatAction: (options: TelegramSendChatActionOptions) => Promise<void>;
 };
 
 type CreateTelegramBotApiOptions = {
@@ -61,9 +65,7 @@ const toApiErrorMessage = (payload: TelegramApiFailure, endpoint: string): strin
   return `Telegram API${code} ${endpoint}: ${description}`;
 };
 
-export const createTelegramBotApi = (
-  options: CreateTelegramBotApiOptions,
-): TelegramBotApi => {
+export const createTelegramBotApi = (options: CreateTelegramBotApiOptions): TelegramBotApi => {
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = normalizeBaseUrl(options.baseUrl ?? "https://api.telegram.org");
   const token = options.botToken.trim();
@@ -129,6 +131,12 @@ export const createTelegramBotApi = (
         chat_id: options.chatId,
         text: options.text,
         ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
+      });
+    },
+    async sendChatAction(options): Promise<void> {
+      await request<unknown>("sendChatAction", {
+        chat_id: options.chatId,
+        action: options.action,
       });
     },
   };

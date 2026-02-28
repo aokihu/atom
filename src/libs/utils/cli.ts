@@ -8,7 +8,7 @@ export type CliOptions = {
   httpHost: string;
   httpPort: number;
   serverUrl?: string;
-  channels?: string[];
+  messageGateway?: string;
 };
 
 export const parseCliOptions = (
@@ -22,7 +22,7 @@ export const parseCliOptions = (
     "http-host"?: string;
     "http-port"?: string;
     "server-url"?: string;
-    channels?: string;
+    "message-gateway"?: string;
   };
   try {
     values = parseArgs({
@@ -34,7 +34,7 @@ export const parseCliOptions = (
         "http-host": { type: "string" },
         "http-port": { type: "string" },
         "server-url": { type: "string" },
-        channels: { type: "string" },
+        "message-gateway": { type: "string" },
       },
       strict: true,
       allowPositionals: false,
@@ -43,7 +43,7 @@ export const parseCliOptions = (
     const message =
       error instanceof Error
         ? error.message
-        : "Invalid CLI arguments. Supported arguments: --workspace, --config, --mode, --http-host, --http-port, --server-url, --channels";
+        : "Invalid CLI arguments. Supported arguments: --workspace, --config, --mode, --http-host, --http-port, --server-url, --message-gateway";
     throw new Error(message);
   }
 
@@ -82,13 +82,10 @@ export const parseCliOptions = (
     }
   }
 
-  const rawChannels = values.channels?.trim();
-  const channels = rawChannels
-    ? rawChannels
-        .split(",")
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0)
-    : undefined;
+  const messageGateway = values["message-gateway"]?.trim();
+  if (messageGateway === "") {
+    throw new Error("Invalid --message-gateway. It must be non-empty");
+  }
 
   return {
     mode,
@@ -97,6 +94,6 @@ export const parseCliOptions = (
     httpHost,
     httpPort,
     serverUrl,
-    channels,
+    messageGateway: messageGateway || undefined,
   };
 };

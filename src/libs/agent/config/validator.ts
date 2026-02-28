@@ -231,6 +231,15 @@ const validateAgentExecutionConfig = (value: unknown, keyPath: string) => {
           `${keyPath}.intentGuard.intents.${intentKey}.softBlockAfter`,
           { min: 0, max: 12 },
         );
+        ensureIntegerInRange(
+          policy.minRequiredAttemptsBeforeSoftFallback,
+          `${keyPath}.intentGuard.intents.${intentKey}.minRequiredAttemptsBeforeSoftFallback`,
+          { min: 0, max: 12 },
+        );
+        ensureBoolean(
+          policy.softFallbackOnlyOnRequiredFailure,
+          `${keyPath}.intentGuard.intents.${intentKey}.softFallbackOnlyOnRequiredFailure`,
+        );
         ensureBoolean(policy.noFallback, `${keyPath}.intentGuard.intents.${intentKey}.noFallback`);
         ensureBoolean(
           policy.failTaskIfUnmet,

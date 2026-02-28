@@ -85,6 +85,9 @@ export class TuiClientState {
   statusNotice = "Ready";
   mcpConnected = 0;
   mcpTotal = 0;
+  messageGatewayHealthAvailable = false;
+  messageGatewayRunning = 0;
+  messageGatewayConfigured = 0;
   contextModalOpen = false;
   contextModalText = "";
   contextModalTitle = "Context";

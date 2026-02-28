@@ -72,6 +72,9 @@ describe("TuiClientState tool messages", () => {
     state.statusNotice = "Working";
     state.mcpConnected = 1;
     state.mcpTotal = 2;
+    state.messageGatewayHealthAvailable = true;
+    state.messageGatewayRunning = 1;
+    state.messageGatewayConfigured = 3;
     state.contextModalOpen = true;
     state.contextModalTitle = "Context";
     state.contextModalText = "content";
@@ -92,6 +95,9 @@ describe("TuiClientState tool messages", () => {
     expect(state.statusNotice).toBe("Working");
     expect(state.mcpConnected).toBe(1);
     expect(state.mcpTotal).toBe(2);
+    expect(state.messageGatewayHealthAvailable).toBe(true);
+    expect(state.messageGatewayRunning).toBe(1);
+    expect(state.messageGatewayConfigured).toBe(3);
     expect(state.contextModalOpen).toBe(true);
     expect(state.contextModalTitle).toBe("Context");
     expect(state.contextModalText).toBe("content");

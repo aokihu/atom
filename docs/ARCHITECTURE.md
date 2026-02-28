@@ -64,8 +64,8 @@ plugins/
 - 不直接暴露外部入站；外部请求进入各插件进程，再由插件与 server 通信。
 - 负责加载 channel 配置并向插件注入 server 地址与运行参数。
 - 运行模式约束：
-  - 仅在 `server` 模式自动启动。
-  - `tui` / `tui-client` 不启动外部 channels。
+  - 在 `server` 与 `tui` 模式下，只有显式传入 `--message-gateway` 才启动外部 channels。
+  - `tui-client` 不启动外部 channels。
 
 ### `plugins/message_gateway`
 - 每个插件即一个 channel 进程（如 `telegram`、`http`）。

@@ -1,7 +1,7 @@
-import { HttpGatewayClient } from "../../../src/libs/channel";
-import type { ResolvedMessageGatewayChannelConfig } from "../../../src/types/message_gateway";
 import { parseJsonEnv, startPluginServer } from "../shared/server";
 import { assertChannelSettingsObject, resolveSecret } from "../shared/config";
+import { RuntimeHttpClient } from "../shared/runtime_client";
+import type { ResolvedMessageGatewayChannelConfig } from "../shared/types";
 
 const trimToUndefined = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
@@ -50,7 +50,7 @@ const main = async () => {
     process.env,
   );
 
-  const serverClient = new HttpGatewayClient(serverUrl);
+  const serverClient = new RuntimeHttpClient(serverUrl);
 
   const server = startPluginServer({
     channelId: channelConfig.id,

@@ -23,6 +23,8 @@
             "allowedFamilies": ["browser"],
             "softAllowedFamilies": ["network"],
             "softBlockAfter": 2,
+            "minRequiredAttemptsBeforeSoftFallback": 3,
+            "softFallbackOnlyOnRequiredFailure": true,
             "noFallback": true,
             "failTaskIfUnmet": true,
             "requiredSuccessFamilies": ["browser"]

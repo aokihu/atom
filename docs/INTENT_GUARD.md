@@ -89,6 +89,8 @@
 - `requiredSuccessFamilies`: 任务完成前必须至少成功命中一个的工具族
 - `noFallback`: 若关键工具族不可用，任务开始前直接失败
 - `failTaskIfUnmet`: 若完成前仍未满足 `requiredSuccessFamilies`，任务失败
+- `minRequiredAttemptsBeforeSoftFallback`: 在允许 `softAllowedFamilies` 前，必须先尝试 `requiredSuccessFamilies` 的最少次数
+- `softFallbackOnlyOnRequiredFailure`: 仅当 `requiredSuccessFamilies` 尚未成功时，才允许 soft fallback
 
 ## 6. 执行时序
 
@@ -106,7 +108,10 @@
 每次工具调用前：
 
 - 工具族在 `allowedFamilies`：允许
-- 工具族在 `softAllowedFamilies`：在阈值内允许，超过阈值拦截
+- 工具族在 `softAllowedFamilies`：
+  - 先满足 `minRequiredAttemptsBeforeSoftFallback`
+  - 若 `softFallbackOnlyOnRequiredFailure = true`，且 required 已成功，则不允许 fallback
+  - 满足前置条件后，在 `softBlockAfter` 阈值内允许
 - 其他工具族：拦截
 
 拦截返回 `tool_policy_blocked`。
@@ -145,6 +150,8 @@
         "allowedFamilies": ["browser"],
         "softAllowedFamilies": ["network"],
         "softBlockAfter": 2,
+        "minRequiredAttemptsBeforeSoftFallback": 3,
+        "softFallbackOnlyOnRequiredFailure": true,
         "noFallback": true,
         "failTaskIfUnmet": true,
         "requiredSuccessFamilies": ["browser"]

@@ -1,7 +1,4 @@
-export const splitTelegramMessage = (
-  text: string,
-  chunkSize: number,
-): string[] => {
+export const splitTelegramMessage = (text: string, chunkSize: number): string[] => {
   if (chunkSize <= 0) {
     throw new Error("chunkSize must be greater than 0");
   }

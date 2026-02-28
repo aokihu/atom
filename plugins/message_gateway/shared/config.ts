@@ -1,4 +1,4 @@
-import type { ResolvedMessageGatewayChannelConfig } from "../../../src/types/message_gateway";
+import type { ResolvedMessageGatewayChannelConfig } from "./types";
 
 export type MessageGatewayGlobalPluginConfig = {
   inboundPath: string;

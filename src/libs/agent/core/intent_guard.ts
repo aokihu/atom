@@ -45,6 +45,10 @@ export type TaskIntentGuard = {
 const BROWSER_TASK_PATTERNS = [
   /用浏览器/,
   /浏览器访问/,
+  /访问网站/,
+  /打开网站/,
+  /打开网页/,
+  /浏览器打开/,
   /browser\s*(open|visit|navigate|access)?/i,
   /visit\s+(?:the\s+)?(?:website|webpage|url)/i,
   /navigate\s+to\s+https?:\/\//i,
@@ -155,6 +159,17 @@ const matchAnyPattern = (value: string, patterns: readonly RegExp[]) =>
 
 const detectHeuristicIntent = (question: string): TaskIntent => {
   const normalizedQuestion = question.trim();
+  const mentionsBrowser = /浏览器|browser|playwright|puppeteer|selenium|chrom(e|ium)?/i.test(normalizedQuestion);
+  const mentionsWebTarget = /网站|网页|url|http|https|www|打开|访问/i.test(normalizedQuestion);
+  if (mentionsBrowser && mentionsWebTarget) {
+    return {
+      kind: "browser_access",
+      confidence: 0.99,
+      source: "heuristic",
+      reason: "matched_browser_and_web_target",
+    };
+  }
+
   if (matchAnyPattern(normalizedQuestion, BROWSER_TASK_PATTERNS)) {
     return {
       kind: "browser_access",
@@ -305,6 +320,7 @@ export const createTaskIntentGuard = (args: {
 
   const requiredSuccessFamilies = [...policy.requiredSuccessFamilies];
   const successfulRequiredFamilyHits = createFamilyCounter();
+  const attemptedRequiredFamilyHits = createFamilyCounter();
   let softAttempts = 0;
 
   const isAnyFamilyAvailable = (families: ToolIntentFamily[]) =>
@@ -334,10 +350,51 @@ export const createTaskIntentGuard = (args: {
 
     const family = classifyToolIntentFamily(toolName);
     if (policy.allowedFamilies.includes(family)) {
+      if (requiredSuccessFamilies.includes(family)) {
+        attemptedRequiredFamilyHits[family] += 1;
+      }
       return { allow: true };
     }
 
     if (policy.softAllowedFamilies.includes(family)) {
+      const attemptedRequiredTotal = requiredSuccessFamilies.reduce(
+        (sum, requiredFamily) => sum + attemptedRequiredFamilyHits[requiredFamily],
+        0,
+      );
+      const successfulRequiredTotal = requiredSuccessFamilies.reduce(
+        (sum, requiredFamily) => sum + successfulRequiredFamilyHits[requiredFamily],
+        0,
+      );
+
+      if (
+        policy.minRequiredAttemptsBeforeSoftFallback > 0 &&
+        attemptedRequiredTotal < policy.minRequiredAttemptsBeforeSoftFallback
+      ) {
+        return {
+          allow: false,
+          stopReason: "tool_policy_blocked",
+          reason:
+            `Intent "${args.intent.kind}" requires at least ` +
+            `${policy.minRequiredAttemptsBeforeSoftFallback} attempt(s) on ` +
+            `${requiredSuccessFamilies.join(", ")} before soft fallback. ` +
+            `Current attempts: ${attemptedRequiredTotal}.`,
+        };
+      }
+
+      if (
+        policy.softFallbackOnlyOnRequiredFailure &&
+        requiredSuccessFamilies.length > 0 &&
+        successfulRequiredTotal > 0
+      ) {
+        return {
+          allow: false,
+          stopReason: "tool_policy_blocked",
+          reason:
+            `Intent "${args.intent.kind}" allows soft fallback only when ` +
+            `required families fail. Current successful required hits: ${successfulRequiredTotal}.`,
+        };
+      }
+
       softAttempts += 1;
       if (softAttempts <= policy.softBlockAfter) {
         return { allow: true };

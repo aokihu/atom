@@ -62,6 +62,7 @@ export const createTuiClientUiBundle = (
     onInputSubmit: () => void;
     onSlashSelect: () => void;
     onMcpTagClick: () => void;
+    onMessageGatewayTagClick: () => void;
   },
 ): TuiClientUiBundle => {
   const C = args.theme.colors;
@@ -85,6 +86,7 @@ export const createTuiClientUiBundle = (
     ctx: renderer,
     theme: args.theme,
     onMcpTagClick: args.onMcpTagClick,
+    onMessageGatewayTagClick: args.onMessageGatewayTagClick,
   });
   const input = createInputPaneViewController({
     ctx: renderer,

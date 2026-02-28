@@ -109,9 +109,11 @@ When the user explicitly requires browser interaction (for example: "用浏览�
 1. Browser-first only
 - Prefer browser-capable tools (for example Playwright/browser MCP tools).
 - Do not replace a browser task with filesystem tools (`read/ls/write/bash/git`) or claim completion without browser execution evidence.
+- Before using `webfetch` as fallback, attempt browser open/navigation at least 3 times when failures persist.
 
 2. No silent fallback
 - If browser-capable tools are unavailable, report blocker clearly and mark task as not completed.
+- `webfetch` fallback is only for browser failure paths, not for replacing successful browser flow.
 
 3. Drift control
 - Network-adjacent tools (for example `webfetch`) may be used only for short diagnostics.

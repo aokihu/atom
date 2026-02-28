@@ -1,21 +1,21 @@
 import { sleep } from "bun";
 
-import { HttpGatewayClient } from "../../../src/libs/channel";
+import { createTelegramBotApi } from "./bot_api";
+import { escapeMarkdownV2 } from "./markdown_v2";
+import { splitTelegramMessage } from "./message_split";
+import { isTaskStillRunning, summarizeCompletedTask } from "./task_summary";
+import { assertChannelSettingsObject, resolveSecret } from "../shared/config";
+import { RuntimeHttpClient } from "../shared/runtime_client";
+import { parseJsonEnv, startPluginServer } from "../shared/server";
 import type {
   MessageGatewayInboundRequest,
   MessageGatewayParseInboundResult,
   ResolvedMessageGatewayChannelConfig,
-} from "../../../src/types/message_gateway";
-import { TaskStatus } from "../../../src/types/task";
-import { summarizeCompletedTask } from "../../../src/clients/shared/flows/task_flow";
-import { createTelegramBotApi } from "../../../src/clients/telegram/bot_api";
-import { escapeMarkdownV2 } from "../../../src/clients/telegram/markdown_v2";
-import { splitTelegramMessage } from "../../../src/clients/telegram/message_split";
-import { assertChannelSettingsObject, resolveSecret } from "../shared/config";
-import { parseJsonEnv, startPluginServer } from "../shared/server";
+} from "../shared/types";
 
 type TelegramPluginSettings = {
-  allowedChatId: string;
+  allowedChatIds: Set<string>;
+  allowedChatIdsDebug: string;
   botToken: string;
   webhookPublicBaseUrl: string;
   webhookPath: string;
@@ -54,6 +54,34 @@ const ensureNonEmptyString = (value: unknown, label: string): string => {
   return value.trim();
 };
 
+const resolveAllowedChatIds = (
+  value: unknown,
+  fieldLabel: string,
+): string[] => {
+  if (Array.isArray(value)) {
+    const ids = value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter((item) => item.length > 0);
+    if (ids.length === 0) {
+      throw new Error(`${fieldLabel} must include at least one chat id`);
+    }
+    return ids;
+  }
+
+  if (typeof value === "string") {
+    const ids = value
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    if (ids.length === 0) {
+      throw new Error(`${fieldLabel} must include at least one chat id`);
+    }
+    return ids;
+  }
+
+  throw new Error(`${fieldLabel} must be a non-empty string or string[]`);
+};
+
 const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, "");
 
 const normalizePath = (value: string): string => {
@@ -66,7 +94,13 @@ const normalizePath = (value: string): string => {
 
 const resolvePluginSettings = (channel: ResolvedMessageGatewayChannelConfig): TelegramPluginSettings => {
   const settings = assertChannelSettingsObject(channel);
-  const allowedChatId = ensureNonEmptyString(settings.allowedChatId, "telegram.allowedChatId");
+  const allowedChatIds = [
+    ...resolveAllowedChatIds(
+      settings.allowedChatIds ?? settings.allowedChatId,
+      settings.allowedChatIds !== undefined ? "telegram.allowedChatIds" : "telegram.allowedChatId",
+    ),
+  ];
+  const allowedChatSet = new Set(allowedChatIds);
   const botToken = resolveSecret({
     envName: settings.botTokenEnv,
     inlineValue: settings.botToken,
@@ -105,7 +139,8 @@ const resolvePluginSettings = (channel: ResolvedMessageGatewayChannelConfig): Te
   }
 
   return {
-    allowedChatId,
+    allowedChatIds: allowedChatSet,
+    allowedChatIdsDebug: [...allowedChatSet].join(","),
     botToken,
     webhookPublicBaseUrl: normalizeBaseUrl(webhookPublicBaseUrl),
     webhookPath: normalizePath(trimToUndefined(settings.webhookPath) ?? "/telegram/webhook"),
@@ -181,6 +216,23 @@ const normalizeOutgoingText = (
   return normalized;
 };
 
+const ACK_FALLBACK_RESPONSES = [
+  "收到，正在思考中，请稍候。",
+  "好的，已收到你的消息，正在处理中。",
+  "明白了，我先整理一下思路。",
+  "消息收到，正在生成回复。",
+  "我看到了，马上给你答复。",
+  "好的，正在分析你的问题。",
+  "收到，正在准备详细回复。",
+  "已接收，正在处理中。",
+  "了解，正在快速思考中。",
+  "信息已收到，正在为你整理答案。",
+] as const;
+
+const pickRandomAckMessage = (): string =>
+  ACK_FALLBACK_RESPONSES[Math.floor(Math.random() * ACK_FALLBACK_RESPONSES.length)] ??
+  "收到，正在思考中，请稍候。";
+
 const parseTelegramInbound = (
   requestPayload: MessageGatewayInboundRequest,
   settings: TelegramPluginSettings,
@@ -213,7 +265,7 @@ const parseTelegramInbound = (
   }
 
   const chatId = String(message.chat?.id ?? "");
-  if (chatId !== settings.allowedChatId) {
+  if (!settings.allowedChatIds.has(chatId)) {
     return {
       accepted: true,
       messages: [],
@@ -278,9 +330,6 @@ const parseTelegramInbound = (
   };
 };
 
-const isTaskRunning = (status: TaskStatus): boolean =>
-  status === TaskStatus.Pending || status === TaskStatus.Running;
-
 const main = async () => {
   const channelConfig = parseJsonEnv<ResolvedMessageGatewayChannelConfig>(
     "ATOM_MESSAGE_GATEWAY_CHANNEL_CONFIG",
@@ -298,7 +347,7 @@ const main = async () => {
   const api = createTelegramBotApi({
     botToken: settings.botToken,
   });
-  const serverClient = new HttpGatewayClient(serverUrl);
+  const serverClient = new RuntimeHttpClient(serverUrl);
 
   const sendText = async (chatId: string, text: string): Promise<void> => {
     const outgoingText = normalizeOutgoingText(text, settings.parseMode);
@@ -316,7 +365,7 @@ const main = async () => {
   const awaitTaskResult = async (taskId: string): Promise<string> => {
     while (true) {
       const taskStatus = await serverClient.getTask(taskId);
-      if (isTaskRunning(taskStatus.task.status)) {
+      if (isTaskStillRunning(taskStatus.task.status)) {
         await sleep(settings.pollIntervalMs);
         continue;
       }
@@ -338,6 +387,14 @@ const main = async () => {
 
     for (const message of parsed.messages) {
       try {
+        try {
+          await sendText(message.conversationId, pickRandomAckMessage());
+        } catch (error) {
+          console.warn(
+            `[message_gateway:${channelConfig.id}] ack message failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+
         const taskInput = `[channel=${channelConfig.id} conversation=${message.conversationId} sender=${message.senderId ?? "unknown"}]\n${message.text}`;
         const created = await serverClient.createTask({
           type: "message_gateway.input",
@@ -407,6 +464,15 @@ const main = async () => {
           body = undefined;
         }
 
+        const inboundPayload = body as TelegramUpdatePayload | undefined;
+        const inboundChatId = String(inboundPayload?.message?.chat?.id ?? "");
+        const inboundText = trimToUndefined(inboundPayload?.message?.text);
+        if (inboundChatId && !settings.allowedChatIds.has(inboundChatId)) {
+          console.warn(
+            `[message_gateway:${channelConfig.id}] ignored message from chat ${inboundChatId}; allowedChatIds=${settings.allowedChatIdsDebug}`,
+          );
+        }
+
         const parsed = parseTelegramInbound(
           {
             requestId: crypto.randomUUID(),
@@ -422,6 +488,12 @@ const main = async () => {
 
         if (!parsed.accepted) {
           return new Response("Unauthorized", { status: 401 });
+        }
+
+        if (parsed.messages.length > 0 || (parsed.immediateResponses?.length ?? 0) > 0) {
+          console.log(
+            `[message_gateway:${channelConfig.id}] inbound accepted chat=${inboundChatId || "unknown"} text=${inboundText ? JSON.stringify(inboundText).slice(0, 120) : "(non-text)"}`,
+          );
         }
 
         if (parsed.messages.length > 0 || (parsed.immediateResponses?.length ?? 0) > 0) {

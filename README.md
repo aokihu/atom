@@ -24,6 +24,7 @@ bun run src/index.ts --workspace=./Playground
 ```
 
 默认模式为 `tui`：同进程启动 HTTP 服务端与本地 OpenTUI 客户端。
+未传 `--message-gateway` 时，不启动任何外部通讯插件。
 
 ### 3) 常用命令
 
@@ -57,8 +58,11 @@ bun run src/index.ts --mode server --workspace ./Playground --http-port 8787
 # TUI client-only
 bun run src/index.ts --mode tui-client --server-url http://127.0.0.1:8787
 
-# server + 指定 message gateway channels
-bun run src/index.ts --mode server --workspace ./Playground --channels telegram_main,http_ingress
+# server + 启动全部 message gateway 插件
+bun run src/index.ts --mode server --workspace ./Playground --message-gateway all
+
+# tui(默认) + 按选择器启动/禁用插件
+bun run src/index.ts --workspace ./Playground --message-gateway telegram_main,!wechat,http_ingress
 ```
 
 ## CLI 参数
@@ -69,7 +73,11 @@ bun run src/index.ts --mode server --workspace ./Playground --channels telegram_
 - `--http-host <host>`：服务监听地址（默认 `127.0.0.1`）
 - `--http-port <port>`：服务监听端口（默认 `8787`）
 - `--server-url <url>`：client-only 模式连接地址（优先于 `--http-host/--http-port`）
-- `--channels <id,id,...>`：仅在 `server` 模式启动指定 message gateway channels
+- `--message-gateway <selector>`：插件选择器
+  - 不传该参数：不启动任何外部 channel
+  - `all`：启动配置文件中所有 `enabled=true` 的 channel
+  - `id,!id2,id3`：显式启动 `id/id3`，并排除 `id2`
+  - 仅 `!id`：在 `enabled=true` 集合基础上排除指定 channel
 
 ## HTTP API（v1）
 

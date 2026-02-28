@@ -174,6 +174,8 @@ describe("agent config", () => {
                   allowedFamilies: ["browser"],
                   softAllowedFamilies: ["network"],
                   softBlockAfter: 2,
+                  minRequiredAttemptsBeforeSoftFallback: 3,
+                  softFallbackOnlyOnRequiredFailure: true,
                   noFallback: true,
                   failTaskIfUnmet: true,
                   requiredSuccessFamilies: ["browser"],
@@ -244,6 +246,29 @@ describe("agent config", () => {
       }),
     ).toThrow(
       'agent.execution.intentGuard.intents.code_edit has unsupported family "not_a_family"',
+    );
+  });
+
+  test("validateAgentConfig rejects invalid minRequiredAttemptsBeforeSoftFallback", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        agent: {
+          name: "Atom",
+          model: "deepseek/deepseek-chat",
+          execution: {
+            intentGuard: {
+              intents: {
+                browser_access: {
+                  minRequiredAttemptsBeforeSoftFallback: 99,
+                },
+              },
+            },
+          },
+        },
+      }),
+    ).toThrow(
+      "agent.execution.intentGuard.intents.browser_access.minRequiredAttemptsBeforeSoftFallback must be an integer in range 0..12",
     );
   });
 

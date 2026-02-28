@@ -16,7 +16,7 @@
         "startupTimeoutMs": 10000
       },
       "settings": {
-        "allowedChatId": "123456789",
+        "allowedChatIds": ["123456789"],
         "botTokenEnv": "TELEGRAM_BOT_TOKEN",
         "botToken": "",
         "webhookPublicBaseUrl": "https://example.com",

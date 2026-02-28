@@ -20,6 +20,8 @@ const DEFAULT_GUARD_CONFIG: ResolvedAgentIntentGuardConfig = {
       allowedFamilies: [],
       softAllowedFamilies: [],
       softBlockAfter: 2,
+      minRequiredAttemptsBeforeSoftFallback: 0,
+      softFallbackOnlyOnRequiredFailure: false,
       noFallback: false,
       failTaskIfUnmet: false,
       requiredSuccessFamilies: [],
@@ -29,6 +31,8 @@ const DEFAULT_GUARD_CONFIG: ResolvedAgentIntentGuardConfig = {
       allowedFamilies: ["browser"],
       softAllowedFamilies: ["network"],
       softBlockAfter: 2,
+      minRequiredAttemptsBeforeSoftFallback: 3,
+      softFallbackOnlyOnRequiredFailure: true,
       noFallback: true,
       failTaskIfUnmet: true,
       requiredSuccessFamilies: ["browser"],
@@ -38,6 +42,8 @@ const DEFAULT_GUARD_CONFIG: ResolvedAgentIntentGuardConfig = {
       allowedFamilies: ["network", "browser"],
       softAllowedFamilies: [],
       softBlockAfter: 2,
+      minRequiredAttemptsBeforeSoftFallback: 0,
+      softFallbackOnlyOnRequiredFailure: false,
       noFallback: false,
       failTaskIfUnmet: false,
       requiredSuccessFamilies: [],
@@ -47,6 +53,8 @@ const DEFAULT_GUARD_CONFIG: ResolvedAgentIntentGuardConfig = {
       allowedFamilies: ["filesystem"],
       softAllowedFamilies: ["shell"],
       softBlockAfter: 2,
+      minRequiredAttemptsBeforeSoftFallback: 0,
+      softFallbackOnlyOnRequiredFailure: false,
       noFallback: false,
       failTaskIfUnmet: false,
       requiredSuccessFamilies: [],
@@ -56,6 +64,8 @@ const DEFAULT_GUARD_CONFIG: ResolvedAgentIntentGuardConfig = {
       allowedFamilies: ["filesystem", "vcs"],
       softAllowedFamilies: ["shell"],
       softBlockAfter: 2,
+      minRequiredAttemptsBeforeSoftFallback: 0,
+      softFallbackOnlyOnRequiredFailure: false,
       noFallback: false,
       failTaskIfUnmet: false,
       requiredSuccessFamilies: [],
@@ -65,6 +75,8 @@ const DEFAULT_GUARD_CONFIG: ResolvedAgentIntentGuardConfig = {
       allowedFamilies: ["memory"],
       softAllowedFamilies: [],
       softBlockAfter: 2,
+      minRequiredAttemptsBeforeSoftFallback: 0,
+      softFallbackOnlyOnRequiredFailure: false,
       noFallback: false,
       failTaskIfUnmet: false,
       requiredSuccessFamilies: [],
@@ -82,6 +94,13 @@ describe("intent_guard", () => {
   test("heuristic detects code edit task", () => {
     const intent = __intentGuardInternals.detectHeuristicIntent("请帮我重构这个模块并补测试");
     expect(intent.kind).toBe("code_edit");
+  });
+
+  test("heuristic prefers browser intent even with leading memory phrase", () => {
+    const intent = __intentGuardInternals.detectHeuristicIntent(
+      "记住访问网站的时候默认执行意图是使用浏览器，失败后才是用webfetch",
+    );
+    expect(intent.kind).toBe("browser_access");
   });
 
   test("preflight fails when browser task has no browser-capable tool", () => {
@@ -114,6 +133,14 @@ describe("intent_guard", () => {
       },
       availableToolNames: ["playwright_browser_navigate", "webfetch"],
     });
+
+    // Gate opens only after minimum browser attempts.
+    expect(guard.beforeToolExecution("playwright_browser_navigate")).toEqual({ allow: true });
+    guard.onToolSettled({ toolName: "playwright_browser_navigate", ok: false });
+    expect(guard.beforeToolExecution("playwright_browser_navigate")).toEqual({ allow: true });
+    guard.onToolSettled({ toolName: "playwright_browser_navigate", ok: false });
+    expect(guard.beforeToolExecution("playwright_browser_navigate")).toEqual({ allow: true });
+    guard.onToolSettled({ toolName: "playwright_browser_navigate", ok: false });
 
     expect(guard.beforeToolExecution("webfetch")).toEqual({ allow: true });
     expect(guard.beforeToolExecution("webfetch")).toEqual({ allow: true });
@@ -171,6 +198,8 @@ describe("intent_guard", () => {
             allowedFamilies: ["filesystem", "vcs"],
             softAllowedFamilies: ["shell"],
             softBlockAfter: 1,
+            minRequiredAttemptsBeforeSoftFallback: 0,
+            softFallbackOnlyOnRequiredFailure: false,
             noFallback: false,
             failTaskIfUnmet: true,
             requiredSuccessFamilies: ["filesystem"],
@@ -191,5 +220,31 @@ describe("intent_guard", () => {
     expect(guard.getCompletionFailure()?.stopReason).toBe("intent_execution_failed");
     guard.onToolSettled({ toolName: "read", ok: true });
     expect(guard.getCompletionFailure()).toBeNull();
+  });
+
+  test("browser soft fallback requires at least three browser attempts", () => {
+    const guard = createTaskIntentGuard({
+      intent: {
+        kind: "browser_access",
+        confidence: 0.9,
+        source: "heuristic",
+        reason: "test",
+      },
+      config: DEFAULT_GUARD_CONFIG,
+      availableToolNames: ["browsermcp__browser_navigate", "webfetch"],
+    });
+
+    const beforeAttempts = guard.beforeToolExecution("webfetch");
+    expect(beforeAttempts.allow).toBe(false);
+    expect(beforeAttempts.allow ? "" : beforeAttempts.stopReason).toBe("tool_policy_blocked");
+
+    expect(guard.beforeToolExecution("browsermcp__browser_navigate")).toEqual({ allow: true });
+    guard.onToolSettled({ toolName: "browsermcp__browser_navigate", ok: false });
+    expect(guard.beforeToolExecution("browsermcp__browser_navigate")).toEqual({ allow: true });
+    guard.onToolSettled({ toolName: "browsermcp__browser_navigate", ok: false });
+    expect(guard.beforeToolExecution("browsermcp__browser_navigate")).toEqual({ allow: true });
+    guard.onToolSettled({ toolName: "browsermcp__browser_navigate", ok: false });
+
+    expect(guard.beforeToolExecution("webfetch")).toEqual({ allow: true });
   });
 });

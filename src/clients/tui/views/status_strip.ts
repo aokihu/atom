@@ -26,6 +26,9 @@ export type StatusStripViewInput = {
   statusNotice: string;
   mcpConnected: number;
   mcpTotal: number;
+  messageGatewayHealthAvailable: boolean;
+  messageGatewayRunning: number;
+  messageGatewayConfigured: number;
 };
 
 export type StatusStripView = {
@@ -33,6 +36,7 @@ export type StatusStripView = {
   rowPrimary: BoxRenderable;
   leftText: TextRenderable;
   mcpTagText: TextRenderable;
+  messageGatewayTagText: TextRenderable;
   rightText: TextRenderable;
   rowSecondary: TextRenderable;
 };
@@ -86,12 +90,26 @@ const buildBusyStatusPill = (
 export const buildMcpTagLabel = (connected: number, total: number): string =>
   `[MCP Tools: ${connected}/${total}]`;
 
+export const buildMessageGatewayTagLabel = (
+  healthAvailable: boolean,
+  running: number,
+  configured: number,
+): string =>
+  healthAvailable ? `[Channels: ${running}/${configured}]` : "[Channels: off]";
+
 export const isLeftMouseButton = (event: Pick<MouseEvent, "button">) => event.button === 0;
 
 export const createMcpTagMouseUpHandler =
   (onMcpTagClick?: () => void) => (event: Pick<MouseEvent, "button">) => {
     if (isLeftMouseButton(event)) {
       onMcpTagClick?.();
+    }
+  };
+
+export const createMessageGatewayTagMouseUpHandler =
+  (onMessageGatewayTagClick?: () => void) => (event: Pick<MouseEvent, "button">) => {
+    if (isLeftMouseButton(event)) {
+      onMessageGatewayTagClick?.();
     }
   };
 
@@ -112,6 +130,11 @@ const buildStatusStripSegments = (input: StatusStripViewInput) => {
   return {
     left: truncateToDisplayWidth(leftRaw, Math.max(1, input.rowWidth)),
     mcp: buildMcpTagLabel(input.mcpConnected, input.mcpTotal),
+    messageGateway: buildMessageGatewayTagLabel(
+      input.messageGatewayHealthAvailable,
+      input.messageGatewayRunning,
+      input.messageGatewayConfigured,
+    ),
     right: versionLabel,
   };
 };
@@ -121,6 +144,7 @@ export const createStatusStripView = (
     ctx: CliRenderer;
     theme: TuiTheme;
     onMcpTagClick?: () => void;
+    onMessageGatewayTagClick?: () => void;
   },
 ): StatusStripView => {
   const C = args.theme.colors;
@@ -156,6 +180,13 @@ export const createStatusStripView = (
         onMouseUp: createMcpTagMouseUpHandler(args.onMcpTagClick),
       }),
       Text({
+        content: " [Channels: off]",
+        fg: C.accentSecondary,
+        truncate: true,
+        flexShrink: 0,
+        onMouseUp: createMessageGatewayTagMouseUpHandler(args.onMessageGatewayTagClick),
+      }),
+      Text({
         content: " unknown",
         fg: C.textMuted,
         truncate: true,
@@ -167,7 +198,8 @@ export const createStatusStripView = (
 
   const box = instantiate(args.ctx, container) as unknown as BoxRenderable;
   const [rowPrimary, rowSecondary] = box.getChildren() as [BoxRenderable, TextRenderable];
-  const [leftText, mcpTagText, rightText] = rowPrimary.getChildren() as [
+  const [leftText, mcpTagText, messageGatewayTagText, rightText] = rowPrimary.getChildren() as [
+    TextRenderable,
     TextRenderable,
     TextRenderable,
     TextRenderable,
@@ -178,6 +210,7 @@ export const createStatusStripView = (
     rowPrimary,
     leftText,
     mcpTagText,
+    messageGatewayTagText,
     rightText,
     rowSecondary,
   };
@@ -195,6 +228,7 @@ export const updateStatusStripView = (
   const segments = buildStatusStripSegments(input);
   view.leftText.content = segments.left;
   view.mcpTagText.content = ` ${segments.mcp}`;
+  view.messageGatewayTagText.content = ` ${segments.messageGateway}`;
   view.rightText.content = ` ${segments.right}`;
   view.rowSecondary.content = " ";
 };
@@ -220,6 +254,7 @@ export const createStatusStripViewController = (
     ctx: CliRenderer;
     theme: TuiTheme;
     onMcpTagClick?: () => void;
+    onMessageGatewayTagClick?: () => void;
     isDestroyed?: () => boolean;
   },
 ): StatusStripViewController => {
@@ -227,6 +262,7 @@ export const createStatusStripViewController = (
     ctx: args.ctx,
     theme: args.theme,
     onMcpTagClick: args.onMcpTagClick,
+    onMessageGatewayTagClick: args.onMessageGatewayTagClick,
   });
   const inputSignal = signal<StatusStripViewInput | null>(null);
   const disposeSync = bindStatusStripViewModel({

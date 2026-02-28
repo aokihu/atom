@@ -36,11 +36,11 @@ describe("parseCliOptions", () => {
     ).toThrow("Invalid --server-url");
   });
 
-  test("parses --channels filter list", () => {
+  test("parses --message-gateway selector", () => {
     const options = parseCliOptions(
-      ["--mode", "server", "--channels", "telegram_main,http_ingress"],
+      ["--mode", "server", "--message-gateway", "telegram_main,!wechat,http_ingress"],
       "/tmp/workspace",
     );
-    expect(options.channels).toEqual(["telegram_main", "http_ingress"]);
+    expect(options.messageGateway).toBe("telegram_main,!wechat,http_ingress");
   });
 });

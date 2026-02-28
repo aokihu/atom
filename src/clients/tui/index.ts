@@ -11,7 +11,7 @@ import { BoxRenderable, createCliRenderer } from "@opentui/core";
 import type { CliRenderer, KeyEvent } from "@opentui/core";
 
 import type { GatewayClient } from "../../libs/channel/channel";
-import type { MCPHealthStatus, TaskOutputMessage } from "../../types/http";
+import type { MCPHealthStatus, MessageGatewayHealthStatus, TaskOutputMessage } from "../../types/http";
 import { TaskStatus, isTaskExecutionStopReason } from "../../types/task";
 import { resolveSlashCommandAction } from "./controllers/commands";
 import { executeContextCommand } from "./controllers/context_command";
@@ -114,6 +114,37 @@ const formatMcpStatusModalBody = (mcp: MCPHealthStatus): string => {
   return lines.join("\n");
 };
 
+const formatMessageGatewayStatusModalBody = (status?: MessageGatewayHealthStatus): string => {
+  if (!status) {
+    return "External channels are not started in this session.\nStart with --message-gateway=<selector>.";
+  }
+
+  const lines = [
+    `Enabled: ${status.enabled ? "yes" : "no"}`,
+    `Running: ${status.running}/${status.configured}`,
+    `Failed: ${status.failed}`,
+    "",
+  ];
+
+  if (status.channels.length <= 0) {
+    lines.push("No channel process is running.");
+    return lines.join("\n");
+  }
+
+  lines.push(
+    ...status.channels.map((channel) => {
+      const base = `- ${channel.id} [${channel.type}]`;
+      if (channel.running) {
+        return `${base} running (${channel.endpoint})`;
+      }
+      const reason = channel.error?.trim() || "not running";
+      return `${base} failed: ${reason}`;
+    }),
+  );
+
+  return lines.join("\n");
+};
+
 class CoreTuiClientApp {
   private readonly client: GatewayClient;
   private readonly pollIntervalMs: number;
@@ -212,6 +243,9 @@ class CoreTuiClientApp {
       },
       onMcpTagClick: () => {
         void this.openMcpStatusModal();
+      },
+      onMessageGatewayTagClick: () => {
+        void this.openMessageGatewayStatusModal();
       },
     });
     this.appRoot = this.ui.appRoot;
@@ -363,6 +397,9 @@ class CoreTuiClientApp {
       statusNotice: this.state.statusNotice,
       mcpConnected: this.state.mcpConnected,
       mcpTotal: this.state.mcpTotal,
+      messageGatewayHealthAvailable: this.state.messageGatewayHealthAvailable,
+      messageGatewayRunning: this.state.messageGatewayRunning,
+      messageGatewayConfigured: this.state.messageGatewayConfigured,
     };
     this.ui.status.syncFromAppState(input);
   }
@@ -820,6 +857,19 @@ class CoreTuiClientApp {
     this.renderer.requestRender();
   }
 
+  private updateMessageGatewayHealth(status?: MessageGatewayHealthStatus): void {
+    if (!status) {
+      this.state.messageGatewayHealthAvailable = false;
+      this.state.messageGatewayRunning = 0;
+      this.state.messageGatewayConfigured = 0;
+      return;
+    }
+
+    this.state.messageGatewayHealthAvailable = true;
+    this.state.messageGatewayRunning = status.running;
+    this.state.messageGatewayConfigured = status.configured;
+  }
+
   private async withConnectionTracking<T>(operation: () => Promise<T>): Promise<T> {
     try {
       const result = await operation();
@@ -840,6 +890,7 @@ class CoreTuiClientApp {
           this.state.mcpConnected = health.mcp.connected;
           this.state.mcpTotal = health.mcp.total;
         }
+        this.updateMessageGatewayHealth(health.messageGateway);
       }
       const remoteAgentName = health.name?.trim();
       if (!remoteAgentName || this.destroyed) return;
@@ -864,6 +915,7 @@ class CoreTuiClientApp {
       } satisfies MCPHealthStatus;
       this.state.mcpConnected = mcp.connected;
       this.state.mcpTotal = mcp.total;
+      this.updateMessageGatewayHealth(health.messageGateway);
       this.openContextModal("MCP Tools", formatMcpStatusModalBody(mcp));
       this.setStatusNotice(`MCP status loaded (${mcp.connected}/${mcp.total})`);
       this.refreshAll();
@@ -871,6 +923,33 @@ class CoreTuiClientApp {
       const message = formatErrorMessage(error);
       this.appendLog("error", `MCP status failed: ${message}`);
       this.setStatusNotice(`MCP status failed: ${message}`);
+      this.refreshAll();
+    }
+  }
+
+  private async openMessageGatewayStatusModal(): Promise<void> {
+    if (this.destroyed) return;
+
+    try {
+      this.setStatusNotice("Loading external channel status...");
+      const health = await this.withConnectionTracking(() => this.client.getHealth());
+      this.updateMessageGatewayHealth(health.messageGateway);
+      this.openContextModal(
+        "External Channels",
+        formatMessageGatewayStatusModalBody(health.messageGateway),
+      );
+      if (health.messageGateway) {
+        this.setStatusNotice(
+          `External channels loaded (${health.messageGateway.running}/${health.messageGateway.configured})`,
+        );
+      } else {
+        this.setStatusNotice("External channels are not started");
+      }
+      this.refreshAll();
+    } catch (error) {
+      const message = formatErrorMessage(error);
+      this.appendLog("error", `External channel status failed: ${message}`);
+      this.setStatusNotice(`External channel status failed: ${message}`);
       this.refreshAll();
     }
   }

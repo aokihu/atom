@@ -47,6 +47,8 @@ export type AgentIntentGuardIntentPolicyConfig = {
   allowedFamilies?: AgentIntentGuardToolFamily[];
   softAllowedFamilies?: AgentIntentGuardToolFamily[];
   softBlockAfter?: number;
+  minRequiredAttemptsBeforeSoftFallback?: number;
+  softFallbackOnlyOnRequiredFailure?: boolean;
   noFallback?: boolean;
   failTaskIfUnmet?: boolean;
   requiredSuccessFamilies?: AgentIntentGuardToolFamily[];
@@ -81,6 +83,8 @@ export type ResolvedAgentIntentGuardIntentPolicyConfig = {
   allowedFamilies: AgentIntentGuardToolFamily[];
   softAllowedFamilies: AgentIntentGuardToolFamily[];
   softBlockAfter: number;
+  minRequiredAttemptsBeforeSoftFallback: number;
+  softFallbackOnlyOnRequiredFailure: boolean;
   noFallback: boolean;
   failTaskIfUnmet: boolean;
   requiredSuccessFamilies: AgentIntentGuardToolFamily[];
@@ -126,6 +130,8 @@ export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
         allowedFamilies: [],
         softAllowedFamilies: [],
         softBlockAfter: 2,
+        minRequiredAttemptsBeforeSoftFallback: 0,
+        softFallbackOnlyOnRequiredFailure: false,
         noFallback: false,
         failTaskIfUnmet: false,
         requiredSuccessFamilies: [],
@@ -135,6 +141,8 @@ export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
         allowedFamilies: ["browser"],
         softAllowedFamilies: ["network"],
         softBlockAfter: 2,
+        minRequiredAttemptsBeforeSoftFallback: 3,
+        softFallbackOnlyOnRequiredFailure: true,
         noFallback: true,
         failTaskIfUnmet: true,
         requiredSuccessFamilies: ["browser"],
@@ -144,6 +152,8 @@ export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
         allowedFamilies: ["network", "browser"],
         softAllowedFamilies: ["filesystem"],
         softBlockAfter: 2,
+        minRequiredAttemptsBeforeSoftFallback: 0,
+        softFallbackOnlyOnRequiredFailure: false,
         noFallback: false,
         failTaskIfUnmet: false,
         requiredSuccessFamilies: [],
@@ -153,6 +163,8 @@ export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
         allowedFamilies: ["filesystem", "vcs", "task"],
         softAllowedFamilies: ["shell"],
         softBlockAfter: 2,
+        minRequiredAttemptsBeforeSoftFallback: 0,
+        softFallbackOnlyOnRequiredFailure: false,
         noFallback: false,
         failTaskIfUnmet: false,
         requiredSuccessFamilies: [],
@@ -162,6 +174,8 @@ export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
         allowedFamilies: ["filesystem", "vcs", "task"],
         softAllowedFamilies: ["shell"],
         softBlockAfter: 2,
+        minRequiredAttemptsBeforeSoftFallback: 0,
+        softFallbackOnlyOnRequiredFailure: false,
         noFallback: false,
         failTaskIfUnmet: false,
         requiredSuccessFamilies: [],
@@ -171,6 +185,8 @@ export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
         allowedFamilies: ["memory", "task"],
         softAllowedFamilies: [],
         softBlockAfter: 2,
+        minRequiredAttemptsBeforeSoftFallback: 0,
+        softFallbackOnlyOnRequiredFailure: false,
         noFallback: false,
         failTaskIfUnmet: false,
         requiredSuccessFamilies: [],
