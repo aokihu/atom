@@ -27,6 +27,7 @@ describe("tool display builders", () => {
       ["git", { cwd: "/tmp", subcommand: "status", args: ["--short"] }, "builtin.git.call"],
       ["bash", { action: "start", mode: "once", cwd: "/tmp", command: "pwd" }, "builtin.bash.start.call"],
       ["webfetch", { url: "https://example.com" }, "builtin.webfetch.call"],
+      ["schedule", { action: "list" }, "builtin.schedule.call"],
     ];
 
     for (const [toolName, input, expectedTemplateKey] of samples) {
@@ -72,6 +73,28 @@ describe("tool display builders", () => {
       ["git", { cwd: "/tmp", subcommand: "status" }, { success: true, cwd: "/tmp", command: "git status", stdout: "On branch main\n", stderr: "", exitCode: 0 }, "builtin.git.result"],
       ["bash", { action: "start", mode: "once", cwd: "/tmp", command: "pwd" }, { mode: "once", cwd: "/tmp", command: "pwd", success: true, exitCode: 0, stdout: "/tmp\n", stderr: "", durationMs: 12 }, "builtin.bash.once.result"],
       ["webfetch", { url: "https://example.com" }, "<html>Hello</html>", "builtin.webfetch.result"],
+      [
+        "schedule",
+        { action: "list" },
+        {
+          success: true,
+          action: "list",
+          count: 1,
+          items: [
+            {
+              scheduleId: "schedule-1",
+              dedupeKey: "demo",
+              taskType: "scheduled.input",
+              priority: 2,
+              trigger: { mode: "delay", delaySeconds: 10 },
+              nextRunAt: Date.now() + 1_000,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            },
+          ],
+        },
+        "builtin.schedule.result",
+      ],
     ];
 
     for (const [toolName, input, result, expectedTemplateKey] of samples) {

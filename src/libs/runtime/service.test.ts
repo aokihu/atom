@@ -804,6 +804,175 @@ describe("AgentRuntimeService", () => {
     expect(toolMessages?.map((item) => item.step)).toEqual([7, 7]);
   });
 
+  test("supports create/list/cancel schedule lifecycle", () => {
+    const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext() {},
+      async runTask() {
+        return "ok";
+      },
+      abortCurrentRun() {
+        return false;
+      },
+      getContextSnapshot() {
+        return {
+          version: 2.3,
+          runtime: {
+            round: 1,
+            workspace: "/tmp/",
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: { core: [], working: [], ephemeral: [], longterm: [] },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {}, warn() {} });
+    const created = service.createSchedule({
+      dedupeKey: "schedule-lifecycle",
+      taskInput: "hello",
+      trigger: {
+        mode: "delay",
+        delaySeconds: 120,
+      },
+    });
+
+    const listed = service.listSchedules();
+    expect(listed.items.map((item) => item.scheduleId)).toEqual([created.schedule.scheduleId]);
+
+    const cancelled = service.cancelSchedule(created.schedule.scheduleId);
+    expect(cancelled).toEqual({
+      scheduleId: created.schedule.scheduleId,
+      cancelled: true,
+    });
+    expect(service.listSchedules().items).toHaveLength(0);
+    service.stop();
+  });
+
+  test("scheduled trigger enqueues task with schedule metadata", async () => {
+    const begunTasks: Array<{ id: string; input: string }> = [];
+    const fakeAgent = {
+      beginTaskContext(task: { id: string; input: string }) {
+        begunTasks.push(task);
+      },
+      finishTaskContext() {},
+      async runTask() {
+        return "ok";
+      },
+      abortCurrentRun() {
+        return false;
+      },
+      getContextSnapshot() {
+        return {
+          version: 2.3,
+          runtime: {
+            round: 1,
+            workspace: "/tmp/",
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: { core: [], working: [], ephemeral: [], longterm: [] },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {}, warn() {} });
+    service.start();
+
+    const created = service.createSchedule({
+      dedupeKey: "schedule-metadata",
+      taskInput: "scheduled hello",
+      trigger: {
+        mode: "delay",
+        delaySeconds: 0.02,
+      },
+    });
+
+    await waitUntil(() => begunTasks.some((task) => task.input === "scheduled hello"));
+    const taskId = begunTasks.find((task) => task.input === "scheduled hello")?.id;
+    expect(taskId).toBeDefined();
+    const snapshot = service.getTask(taskId!);
+    expect(snapshot?.task.metadata?.schedule).toEqual({
+      scheduleId: created.schedule.scheduleId,
+      dedupeKey: "schedule-metadata",
+      plannedAt: expect.any(Number),
+      triggerMode: "delay",
+    });
+
+    service.stop();
+  });
+
+  test("keeps only latest pending scheduled task for the same dedupe key", async () => {
+    const gate = createDeferred();
+    const runInputs: string[] = [];
+    const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext() {},
+      async runTask(input: string) {
+        runInputs.push(input);
+        if (input === "blocker") {
+          await gate.promise;
+        }
+        return "ok";
+      },
+      abortCurrentRun() {
+        return false;
+      },
+      getContextSnapshot() {
+        return {
+          version: 2.3,
+          runtime: {
+            round: 1,
+            workspace: "/tmp/",
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: { core: [], working: [], ephemeral: [], longterm: [] },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+    } as unknown as Agent;
+
+    const service = new AgentRuntimeService(fakeAgent, { log() {}, warn() {} });
+    service.start();
+
+    const blocker = service.submitTask({ input: "blocker" });
+    await waitUntil(() => service.getTask(blocker.taskId)?.task.status === TaskStatus.Running);
+
+    service.createSchedule({
+      dedupeKey: "same-key",
+      taskInput: "old",
+      trigger: {
+        mode: "delay",
+        delaySeconds: 0.01,
+      },
+    });
+    service.createSchedule({
+      dedupeKey: "same-key",
+      taskInput: "new",
+      trigger: {
+        mode: "delay",
+        delaySeconds: 0.02,
+      },
+    });
+
+    await Bun.sleep(80);
+    gate.resolve();
+
+    await waitUntil(() => runInputs.includes("new"));
+    expect(runInputs.includes("old")).toBe(false);
+    service.stop();
+  });
+
   test("updateSystemPrompt syncs messages when runtime is idle", () => {
     const updates: Array<{ prompt: string; options?: { syncMessages?: boolean } }> = [];
     const fakeAgent = {

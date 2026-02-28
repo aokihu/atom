@@ -23,6 +23,10 @@ import {
   type MessagePaneViewController,
 } from "../views/message_pane";
 import {
+  createScheduleModalViewController,
+  type ScheduleModalViewController,
+} from "../views/schedule_modal";
+import {
   createSlashModalViewController,
   type SlashModalViewController,
 } from "../views/slash_modal";
@@ -42,6 +46,7 @@ export type TuiClientUiBundle = {
   status: StatusStripViewController;
   input: InputPaneViewController;
   slash: SlashModalViewController;
+  schedule: ScheduleModalViewController;
   context: ContextModalViewController;
 
   mount: (renderer: CliRenderer) => void;
@@ -100,6 +105,10 @@ export const createTuiClientUiBundle = (
     theme: args.theme,
     onSelectCommand: args.onSlashSelect,
   });
+  const schedule = createScheduleModalViewController({
+    ctx: renderer,
+    theme: args.theme,
+  });
   const context = createContextModalViewController({
     ctx: renderer,
     theme: args.theme,
@@ -113,6 +122,7 @@ export const createTuiClientUiBundle = (
     appRoot.add(input.view.box);
     targetRenderer.root.add(appRoot);
     targetRenderer.root.add(slash.view.overlay);
+    targetRenderer.root.add(schedule.view.overlay);
     targetRenderer.root.add(context.view.overlay);
   };
 
@@ -128,6 +138,11 @@ export const createTuiClientUiBundle = (
       // noop
     }
     try {
+      targetRenderer.root.remove(schedule.view.overlay.id);
+    } catch {
+      // noop
+    }
+    try {
       targetRenderer.root.remove(context.view.overlay.id);
     } catch {
       // noop
@@ -139,12 +154,14 @@ export const createTuiClientUiBundle = (
     status.dispose();
     input.dispose();
     slash.dispose();
+    schedule.dispose();
     context.dispose();
   };
 
   const destroyTrees = () => {
     if (!appRoot.isDestroyed) appRoot.destroyRecursively();
     if (!slash.view.overlay.isDestroyed) slash.view.overlay.destroyRecursively();
+    if (!schedule.view.overlay.isDestroyed) schedule.view.overlay.destroyRecursively();
     if (!context.view.overlay.isDestroyed) context.view.overlay.destroyRecursively();
   };
 
@@ -155,6 +172,7 @@ export const createTuiClientUiBundle = (
     status,
     input,
     slash,
+    schedule,
     context,
 
     mount,

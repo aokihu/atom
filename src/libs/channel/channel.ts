@@ -19,10 +19,14 @@ import type {
   AgentMemoryUpsertResponse,
   AgentContextResponse,
   AgentMessagesResponse,
+  CancelScheduleResponse,
+  CreateScheduleRequest,
+  CreateScheduleResponse,
   CreateTaskRequest,
   CreateTaskResponse,
   ForceAbortResponse,
   HealthzResponse,
+  ListSchedulesResponse,
   QueueStats,
   TaskStatusResponse,
 } from "../../types/http";
@@ -48,6 +52,9 @@ export interface RuntimeGateway {
   memoryStats?(): MaybePromise<AgentMemoryStatsResponse>;
   memoryCompact?(): MaybePromise<AgentMemoryCompactResponse>;
   memoryListRecent?(request?: AgentMemoryListRecentRequest): MaybePromise<AgentMemoryListRecentResponse>;
+  createSchedule?(request: CreateScheduleRequest): MaybePromise<CreateScheduleResponse>;
+  listSchedules?(): MaybePromise<ListSchedulesResponse>;
+  cancelSchedule?(scheduleId: string): MaybePromise<CancelScheduleResponse>;
   forceAbort(): MaybePromise<ForceAbortResponse>;
 }
 
@@ -67,5 +74,8 @@ export interface GatewayClient {
   memoryStats?(): Promise<AgentMemoryStatsResponse>;
   memoryCompact?(): Promise<AgentMemoryCompactResponse>;
   memoryListRecent?(request?: AgentMemoryListRecentRequest): Promise<AgentMemoryListRecentResponse>;
+  createSchedule?(request: CreateScheduleRequest): Promise<CreateScheduleResponse>;
+  listSchedules?(): Promise<ListSchedulesResponse>;
+  cancelSchedule?(scheduleId: string): Promise<CancelScheduleResponse>;
   forceAbort(): Promise<ForceAbortResponse>;
 }

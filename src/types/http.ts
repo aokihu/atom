@@ -2,6 +2,14 @@ import type { ModelMessage } from "ai";
 
 import type { AgentContext, ContextProjectionDebug } from "./agent";
 import type { MessageGatewayHealthStatus } from "./message_gateway";
+import type {
+  CancelScheduleResponse,
+  CreateScheduleRequest,
+  CreateScheduleResponse,
+  ListSchedulesResponse,
+  ScheduledTaskRecord,
+  ScheduleTrigger,
+} from "./schedule";
 import type { TaskItem, TaskPriority } from "./task";
 
 export type { MessageGatewayHealthStatus } from "./message_gateway";
@@ -363,4 +371,13 @@ export type AgentMemoryListRecentRequest = {
 
 export type AgentMemoryListRecentResponse = {
   entries: AgentMemoryEntry[];
+};
+
+export type {
+  ScheduleTrigger,
+  ScheduledTaskRecord,
+  CreateScheduleRequest,
+  CreateScheduleResponse,
+  ListSchedulesResponse,
+  CancelScheduleResponse,
 };

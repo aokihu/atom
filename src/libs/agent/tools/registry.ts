@@ -17,6 +17,7 @@ import {
 import { mvTool } from "./mv";
 import { readTool } from "./read";
 import { ripgrepTool } from "./ripgrep";
+import { scheduleTool } from "./schedule_tools";
 import { treeTool } from "./tree";
 import {
   todoAddTool,
@@ -70,6 +71,7 @@ const BUILTIN_TOOL_FACTORIES: Record<BuiltinToolName, ToolFactory> = {
   bash: bashTool,
   background: backgroundTool,
   webfetch: webfetchTool,
+  schedule: scheduleTool,
 };
 
 export const createBuiltinToolRegistry = (

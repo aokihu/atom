@@ -128,6 +128,7 @@ const TOOL_FAMILY_PATTERNS: Record<ToolIntentFamily, RegExp[]> = {
   ],
   task: [
     /^todo_/,
+    /^schedule$/,
     /\btodo\b/i,
   ],
   shell: [

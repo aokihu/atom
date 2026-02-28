@@ -148,4 +148,30 @@ describe("PriorityTaskQueue lifecycle hooks", () => {
     expect(task.error?.message).toContain("tool_budget_exhausted");
     expect(settled[0]?.status).toBe(TaskStatus.Failed);
   });
+
+  test("removeWhere removes matching pending tasks and keeps queue order", async () => {
+    const executedTaskIds: string[] = [];
+    const queue = new PriorityTaskQueue(async (task) => {
+      executedTaskIds.push(task.id);
+      return task.id;
+    });
+
+    const taskA = createTask<string, string>("test", "A", { priority: 2 });
+    const taskB = createTask<string, string>("test", "B", { priority: 0 });
+    const taskC = createTask<string, string>("test", "C", { priority: 1 });
+
+    queue.add(taskA);
+    queue.add(taskB);
+    queue.add(taskC);
+
+    const removed = queue.removeWhere((task) => task.id === taskB.id);
+    expect(removed.map((task) => task.id)).toEqual([taskB.id]);
+    expect(queue.size()).toBe(2);
+
+    queue.start();
+    await waitUntil(() => taskA.status === TaskStatus.Success && taskC.status === TaskStatus.Success);
+
+    expect(executedTaskIds).toEqual([taskC.id, taskA.id]);
+    expect(taskB.status).toBe(TaskStatus.Pending);
+  });
 });

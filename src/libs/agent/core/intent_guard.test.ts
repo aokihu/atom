@@ -96,6 +96,10 @@ describe("intent_guard", () => {
     expect(intent.kind).toBe("code_edit");
   });
 
+  test("classifies schedule tool into task family", () => {
+    expect(__intentGuardInternals.classifyToolIntentFamily("schedule")).toBe("task");
+  });
+
   test("heuristic treats memory-policy directive as memory intent", () => {
     const intent = __intentGuardInternals.detectHeuristicIntent(
       "记住访问网站的时候默认执行意图是使用浏览器，失败后才是用webfetch",

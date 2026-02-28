@@ -41,10 +41,10 @@ plugins/
   - `state.ts`: TUI 客户端状态模型（连接状态、焦点、消息、弹窗状态等）
   - `ui.ts`: OpenTUI 组件树装配（bundle）与挂载/卸载
 - `views/`
-  - 消息面板、输入面板、状态栏、slash modal、context modal 的视图构建函数
+  - 消息面板、输入面板、状态栏、slash modal、schedule modal、context modal 的视图构建函数
   - 目标是“尽量纯视图”，不直接处理业务流程
 - `controllers/`
-  - slash 命令解析与交互控制（如 `/context` / `/exit`）
+  - slash 命令解析与交互控制（如 `/context` / `/schedule` / `/exit`）
 - `flows/`
   - 提交任务、轮询任务状态等流程编排
 - `layout/`
@@ -85,6 +85,7 @@ plugins/
 - `/healthz` 返回 `name/version/startupAt/queue`
 - 统一响应结构：`{ ok: true, data }` / `{ ok: false, error }`
 - `POST /v1/tasks` 支持请求体校验（`input` 必填，`priority` 范围 `0..4`，`type` 可选）
+- `POST /v1/schedules` / `GET /v1/schedules` / `DELETE /v1/schedules/:id` 提供内置定时任务 API
 - `POST /v1/agent/memory/*` 提供记忆管理 API（search/get/upsert/update/delete/feedback/tag_resolve/compact/list_recent）
 - `GET /v1/agent/memory/stats` 提供持久化记忆状态统计
 
@@ -93,6 +94,7 @@ plugins/
 - 当前包含：
   - `service.ts`: `AgentRuntimeService`（Agent + Queue + TaskRegistry）
   - `queue/`: 队列实现与 `createTask`
+  - `scheduler/`: 内存态调度器（delay/at/cron，触发后入队）
 - 运行时能力（限流、取消、持久化队列、任务 TTL）应优先放在这里。
 - 记忆相关职责：
   - 通过 `PersistentMemoryCoordinator` 暴露 RuntimeGateway memory API

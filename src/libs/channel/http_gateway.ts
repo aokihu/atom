@@ -11,10 +11,12 @@ import type {
   ApiErrorCode,
   ApiErrorResponse,
   ApiSuccessResponse,
+  CreateScheduleRequest,
   CreateTaskRequest,
   HealthzResponse,
   MessageGatewayHealthStatus,
   MCPHealthStatus,
+  ScheduleTrigger,
 } from "../../types/http";
 
 type StartHttpGatewayOptions = {
@@ -115,6 +117,86 @@ const parseCreateTaskRequest = (body: unknown): CreateTaskRequest => {
     input: rawInput,
     priority: rawPriority,
     type: typeof rawType === "string" ? rawType : undefined,
+  };
+};
+
+const parseScheduleTrigger = (value: unknown): ScheduleTrigger => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`trigger` must be a JSON object");
+  }
+
+  const trigger = value as Record<string, unknown>;
+  const mode = trigger.mode;
+  if (mode !== "delay" && mode !== "at" && mode !== "cron") {
+    throw new HttpApiError(400, "BAD_REQUEST", "`trigger.mode` must be one of delay|at|cron");
+  }
+
+  if (mode === "delay") {
+    const delaySeconds = trigger.delaySeconds;
+    if (
+      typeof delaySeconds !== "number" ||
+      !Number.isFinite(delaySeconds) ||
+      delaySeconds <= 0
+    ) {
+      throw new HttpApiError(400, "BAD_REQUEST", "`trigger.delaySeconds` must be > 0");
+    }
+    return { mode, delaySeconds };
+  }
+
+  if (mode === "at") {
+    const runAt = trigger.runAt;
+    if (typeof runAt !== "string" || runAt.trim() === "") {
+      throw new HttpApiError(400, "BAD_REQUEST", "`trigger.runAt` must be a non-empty string");
+    }
+    return { mode, runAt: runAt.trim() };
+  }
+
+  const cron = trigger.cron;
+  if (typeof cron !== "string" || cron.trim() === "") {
+    throw new HttpApiError(400, "BAD_REQUEST", "`trigger.cron` must be a non-empty string");
+  }
+  const timezone = trigger.timezone;
+  if (timezone !== undefined && timezone !== "UTC") {
+    throw new HttpApiError(400, "BAD_REQUEST", "`trigger.timezone` must be UTC");
+  }
+
+  return {
+    mode: "cron",
+    cron: cron.trim(),
+    timezone: "UTC",
+  };
+};
+
+const parseCreateScheduleRequest = (body: unknown): CreateScheduleRequest => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "Request body must be a JSON object");
+  }
+
+  const record = body as Record<string, unknown>;
+  const dedupeKey = record.dedupeKey;
+  const taskInput = record.taskInput;
+  const taskType = record.taskType;
+  const priority = record.priority;
+
+  if (typeof dedupeKey !== "string" || dedupeKey.trim() === "") {
+    throw new HttpApiError(400, "BAD_REQUEST", "`dedupeKey` must be a non-empty string");
+  }
+  if (typeof taskInput !== "string" || taskInput.trim() === "") {
+    throw new HttpApiError(400, "BAD_REQUEST", "`taskInput` must be a non-empty string");
+  }
+  if (taskType !== undefined && (typeof taskType !== "string" || taskType.trim() === "")) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`taskType` must be a non-empty string");
+  }
+  if (priority !== undefined && !isTaskPriority(priority)) {
+    throw new HttpApiError(400, "BAD_REQUEST", "`priority` must be an integer in range 0..4");
+  }
+
+  return {
+    dedupeKey: dedupeKey.trim(),
+    taskInput,
+    ...(typeof taskType === "string" ? { taskType: taskType.trim() } : {}),
+    ...(typeof priority === "number" ? { priority } : {}),
+    trigger: parseScheduleTrigger(record.trigger),
   };
 };
 
@@ -374,6 +456,48 @@ export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayS
           const payload = parseCreateTaskRequest(body);
           const created = await runtime.submitTask(payload);
           return ok(created, 202);
+        }
+
+        if (pathname === "/v1/schedules") {
+          if (request.method === "POST") {
+            if (!runtime.createSchedule) {
+              throw new HttpApiError(404, "NOT_FOUND", "Schedule API unavailable");
+            }
+            const payload = parseCreateScheduleRequest(await parseJsonBody(request));
+            return ok(await runtime.createSchedule(payload), 202);
+          }
+
+          if (request.method === "GET") {
+            if (!runtime.listSchedules) {
+              throw new HttpApiError(404, "NOT_FOUND", "Schedule API unavailable");
+            }
+            return ok(await runtime.listSchedules());
+          }
+
+          return methodNotAllowed(["GET", "POST"]);
+        }
+
+        if (pathname.startsWith("/v1/schedules/")) {
+          if (request.method !== "DELETE") {
+            return methodNotAllowed(["DELETE"]);
+          }
+          if (!runtime.cancelSchedule) {
+            throw new HttpApiError(404, "NOT_FOUND", "Schedule API unavailable");
+          }
+
+          const rawScheduleId = pathname.slice("/v1/schedules/".length);
+          if (!rawScheduleId) {
+            return notFound();
+          }
+
+          let scheduleId = rawScheduleId;
+          try {
+            scheduleId = decodeURIComponent(rawScheduleId);
+          } catch {
+            throw new HttpApiError(400, "BAD_REQUEST", "Invalid schedule id");
+          }
+
+          return ok(await runtime.cancelSchedule(scheduleId));
         }
 
         if (pathname === "/forceabort") {

@@ -28,6 +28,12 @@ export type TaskExecutionMetadata = {
 };
 
 export type TaskMetadata = Record<string, any> & {
+  schedule?: {
+    scheduleId: string;
+    dedupeKey: string;
+    plannedAt: number;
+    triggerMode: "delay" | "at" | "cron";
+  };
   execution?: TaskExecutionMetadata;
   ingress?: {
     compressed: boolean;
@@ -54,6 +60,8 @@ export type TaskMetadata = Record<string, any> & {
     degradeStage?: string;
     [key: string]: unknown;
   };
+  cancelReason?: string;
+  cancelledBy?: string;
 };
 
 export const isTaskExecutionStopReason = (value: unknown): value is TaskExecutionStopReason =>

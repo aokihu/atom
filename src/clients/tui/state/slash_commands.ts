@@ -9,6 +9,7 @@
 export type SlashCommandAction =
   | { type: "exit" }
   | { type: "open_context" }
+  | { type: "open_schedule" }
   | { type: "force_abort" }
   | { type: "clear_session_view" }
   | { type: "hidden"; message: string }
@@ -36,6 +37,12 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     description: "Show agent context",
     enabled: true,
     action: { type: "open_context" },
+  },
+  {
+    name: "/schedule",
+    description: "Show scheduled tasks",
+    enabled: true,
+    action: { type: "open_schedule" },
   },
   {
     name: "/force_abort",
