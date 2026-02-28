@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { bootstrap } from "./libs/agent/boot";
 import { workspace_check } from "./libs/utils/workspace_check";
 import { Agent } from "./libs/agent/agent";
-import { loadAgentConfig, resolveTelegramConfig } from "./libs/agent/config";
+import { loadAgentConfig } from "./libs/agent/config";
 import {
   createLanguageModelFromAgentConfig,
   isOpenAICompatibleProvider,
@@ -18,11 +18,12 @@ import { initMCPTools } from "./libs/mcp";
 import { createMCPHealthStatusProvider } from "./libs/mcp/health";
 import { AgentRuntimeService } from "./libs/runtime";
 import { HttpGatewayClient, startHttpGateway } from "./libs/channel";
-import { startTelegramClient, startTuiClient } from "./clients";
+import { startTuiClient } from "./clients";
 import { cleanupInvalidBackgroundBashSessionsOnStartup } from "./libs/agent/tools/background_sessions";
 import { cleanupTodoDbOnStartup } from "./libs/agent/tools/todo_store";
 import { PersistentMemoryCoordinator } from "./libs/agent/memory";
 import { createAgentPromptWatcher, loadOrCompileSystemPrompt } from "./libs/agent/prompt_cache";
+import { MessageGatewayManager } from "./libs/message_gateway";
 
 declare const BUILD_VERSION: string | undefined;
 
@@ -35,15 +36,17 @@ Options:
   --workspace <path>            Workspace directory (default: .)
   --config <path>               Path to agent config file
   --mode <mode>                 Run mode:
-                                tui | server | tui-client | telegram | telegram-client
+                                tui | server | tui-client
                                 (legacy alias: hybrid -> tui)
   --http-host <host>            HTTP host (default: 127.0.0.1)
   --http-port <port>            HTTP port (default: 8787)
-  --server-url <url>            Server URL (for tui-client/telegram-client)
+  --server-url <url>            Server URL (for tui-client)
+  --channels <id,id,...>        Start selected message gateway channels (server only)
 
 Examples:
   bun run src/index.ts --workspace ./Playground
   bun run src/index.ts --mode server --workspace ./Playground
+  bun run src/index.ts --mode server --channels telegram_main,http_ingress
   bun run src/index.ts --mode tui-client --server-url http://127.0.0.1:8787
 `;
 
@@ -95,31 +98,6 @@ const printStartupBanner = (
 
 const printStartupReady = (startTime: number) => {
   logStage(`ready (${formatDuration(startTime)})`);
-};
-
-const printTelegramConfigSummary = (
-  telegramConfig: ReturnType<typeof resolveTelegramConfig>,
-) => {
-  if (!telegramConfig) return;
-  console.log(
-    `[telegram.config] transport=${telegramConfig.transport.type} | allowed_chat_id=${telegramConfig.allowedChatId} | parse_mode=${telegramConfig.message.parseMode} | chunk_size=${telegramConfig.message.chunkSize}`,
-  );
-  console.log(
-    `[telegram.config] polling_interval_ms=${telegramConfig.transport.pollingIntervalMs} | long_poll_timeout_sec=${telegramConfig.transport.longPollTimeoutSec} | drop_pending_updates_on_start=${telegramConfig.transport.dropPendingUpdatesOnStart}`,
-  );
-};
-
-const resolveRequiredTelegramConfig = (
-  config: Awaited<ReturnType<typeof loadAgentConfig>>,
-) => {
-  const telegramConfig = resolveTelegramConfig(config);
-  if (!telegramConfig) {
-    throw new Error(
-      "telegram config is required for telegram modes. Add `telegram` in agent.config.json",
-    );
-  }
-
-  return telegramConfig;
 };
 
 const printModelSelection = (
@@ -342,28 +320,6 @@ const main = async () => {
     return;
   }
 
-  if (cliOptions.mode === "telegram-client") {
-    logStage("loading agent config...");
-    const agentConfig = await loadAgentConfig({
-      workspace: cliOptions.workspace,
-      configPath: cliOptions.configPath,
-    });
-    logStage("agent config loaded");
-    const agentName = resolveAgentName(agentConfig.agent?.name);
-    printStartupBanner(agentName, version, cliOptions.mode);
-
-    const serverUrl = buildServerUrl(cliOptions);
-    const telegramConfig = resolveRequiredTelegramConfig(agentConfig);
-    printTelegramConfigSummary(telegramConfig);
-    console.log(`[telegram] server = ${serverUrl}`);
-    printStartupReady(startupStartTime);
-    await startTelegramClient({
-      client: new HttpGatewayClient(serverUrl),
-      config: telegramConfig,
-    });
-    return;
-  }
-
   logStage("checking workspace...");
   await workspace_check(cliOptions.workspace);
   logStage("workspace ready");
@@ -407,9 +363,22 @@ const main = async () => {
 
   const { runtimeService, getMcpStatus, disposeMCP, disposePersistentMemory, disposePromptWatcher } =
     await initializeRuntimeService(
-    cliOptions,
-    agentConfig,
-  );
+      cliOptions,
+      agentConfig,
+    );
+
+  let messageGatewayManager: MessageGatewayManager | undefined;
+  if (cliOptions.mode === "server") {
+    logStage("loading message gateway config...");
+    messageGatewayManager = await MessageGatewayManager.create({
+      workspace: cliOptions.workspace,
+      runtime: runtimeService,
+      includeChannels: cliOptions.channels,
+      logger: console,
+    });
+    logStage("message gateway config loaded");
+  }
+
   const gateway = startHttpGateway({
     runtime: runtimeService,
     host: cliOptions.httpHost,
@@ -418,12 +387,26 @@ const main = async () => {
     version,
     startupAt: runtimeService.startupAt,
     getMcpStatus,
+    messageGatewayInboundPath: messageGatewayManager?.enabled
+      ? messageGatewayManager.inboundPath
+      : undefined,
+    handleMessageGatewayInbound: messageGatewayManager?.enabled
+      ? (request, url) => messageGatewayManager!.handleInbound(request, url)
+      : undefined,
+    getMessageGatewayStatus: messageGatewayManager
+      ? () => messageGatewayManager.getHealthStatus()
+      : undefined,
   });
 
   console.log(`[http] listening on ${gateway.baseUrl}`);
 
+  if (messageGatewayManager) {
+    await messageGatewayManager.start();
+  }
+
   const shutdown = createShutdownController(async () => {
     gateway.stop();
+    await messageGatewayManager?.stop();
     runtimeService.stop();
     await disposePromptWatcher();
     await disposePersistentMemory();
@@ -452,19 +435,6 @@ const main = async () => {
       await shutdown.run("tui exit");
       shutdown.dispose();
     }
-    return;
-  }
-
-  const telegramConfig = resolveRequiredTelegramConfig(agentConfig);
-  printTelegramConfigSummary(telegramConfig);
-  try {
-    await startTelegramClient({
-      client: new HttpGatewayClient(gateway.baseUrl),
-      config: telegramConfig,
-    });
-  } finally {
-    await shutdown.run("telegram exit");
-    shutdown.dispose();
   }
 };
 

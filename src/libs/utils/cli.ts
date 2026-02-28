@@ -2,12 +2,13 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 export type CliOptions = {
-  mode: "tui" | "server" | "tui-client" | "telegram" | "telegram-client";
+  mode: "tui" | "server" | "tui-client";
   workspace: string;
   configPath?: string;
   httpHost: string;
   httpPort: number;
   serverUrl?: string;
+  channels?: string[];
 };
 
 export const parseCliOptions = (
@@ -21,6 +22,7 @@ export const parseCliOptions = (
     "http-host"?: string;
     "http-port"?: string;
     "server-url"?: string;
+    channels?: string;
   };
   try {
     values = parseArgs({
@@ -32,6 +34,7 @@ export const parseCliOptions = (
         "http-host": { type: "string" },
         "http-port": { type: "string" },
         "server-url": { type: "string" },
+        channels: { type: "string" },
       },
       strict: true,
       allowPositionals: false,
@@ -40,7 +43,7 @@ export const parseCliOptions = (
     const message =
       error instanceof Error
         ? error.message
-        : "Invalid CLI arguments. Supported arguments: --workspace, --config, --mode, --http-host, --http-port, --server-url";
+        : "Invalid CLI arguments. Supported arguments: --workspace, --config, --mode, --http-host, --http-port, --server-url, --channels";
     throw new Error(message);
   }
 
@@ -49,12 +52,10 @@ export const parseCliOptions = (
     rawMode !== "hybrid" &&
     rawMode !== "server" &&
     rawMode !== "tui" &&
-    rawMode !== "tui-client" &&
-    rawMode !== "telegram" &&
-    rawMode !== "telegram-client"
+    rawMode !== "tui-client"
   ) {
     throw new Error(
-      "Invalid --mode. Supported values: tui, server, tui-client, telegram, telegram-client (legacy alias: hybrid)",
+      "Invalid --mode. Supported values: tui, server, tui-client (legacy alias: hybrid)",
     );
   }
 
@@ -81,6 +82,14 @@ export const parseCliOptions = (
     }
   }
 
+  const rawChannels = values.channels?.trim();
+  const channels = rawChannels
+    ? rawChannels
+        .split(",")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+    : undefined;
+
   return {
     mode,
     workspace: resolve(startupCwd, values.workspace ?? "."),
@@ -88,5 +97,6 @@ export const parseCliOptions = (
     httpHost,
     httpPort,
     serverUrl,
+    channels,
   };
 };

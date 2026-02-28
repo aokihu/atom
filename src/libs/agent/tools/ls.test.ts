@@ -51,6 +51,7 @@ describe("ls tool", () => {
     await mkdir(join(workspace, ".agent"), { recursive: true });
     await mkdir(join(workspace, "secrets"), { recursive: true });
     await Bun.write(join(workspace, "agent.config.json"), "{}");
+    await Bun.write(join(workspace, "message_gateway.config.json"), "{}");
     await Bun.write(join(workspace, ".env"), "x=1");
     await Bun.write(join(workspace, ".cache"), "x=1");
     await Bun.write(join(workspace, "visible.txt"), "ok");
@@ -66,6 +67,7 @@ describe("ls tool", () => {
     expect(outputLines(result.output)).not.toContain(".agent");
     expect(outputLines(result.output)).not.toContain("secrets");
     expect(outputLines(result.output)).not.toContain("agent.config.json");
+    expect(outputLines(result.output)).not.toContain("message_gateway.config.json");
     expect(outputLines(result.output)).not.toContain(".env");
   });
 
@@ -74,6 +76,7 @@ describe("ls tool", () => {
     await mkdir(join(workspace, ".agent"), { recursive: true });
     await mkdir(join(workspace, "secrets"), { recursive: true });
     await Bun.write(join(workspace, "agent.config.json"), "{}");
+    await Bun.write(join(workspace, "message_gateway.config.json"), "{}");
     await Bun.write(join(workspace, ".env"), "x=1");
     await Bun.write(join(workspace, ".cache"), "x=1");
     await Bun.write(join(workspace, "visible.txt"), "ok");
@@ -90,6 +93,7 @@ describe("ls tool", () => {
     expect(result.output).not.toMatch(/\s\.agent(?:$| -> )/m);
     expect(result.output).not.toMatch(/\ssecrets(?:$| -> )/m);
     expect(result.output).not.toMatch(/\sagent\.config\.json(?:$| -> )/m);
+    expect(result.output).not.toMatch(/\smessage_gateway\.config\.json(?:$| -> )/m);
     expect(result.output).not.toMatch(/\s\.env(?:$| -> )/m);
     expect(result.output).not.toMatch(/^total\s+\d+\b/m);
     expect(result.output).toMatch(/^[dl\-\?][rwx-]{9}\s+/m);

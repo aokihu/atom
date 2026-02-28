@@ -127,4 +127,89 @@ describe("startHttpGateway /healthz", () => {
     expect(payload.ok).toBe(true);
     expect(payload.data.mcp).toBeUndefined();
   });
+
+  test("injects message gateway health payload when provider is present", async () => {
+    const gateway = startHttpGateway({
+      runtime: createRuntime(),
+      host: "127.0.0.1",
+      port: 0,
+      appName: "atom",
+      version: "test",
+      startupAt: Date.now(),
+      getMessageGatewayStatus: () => ({
+        enabled: true,
+        inboundPath: "/v1/message-gateway/inbound",
+        configured: 2,
+        running: 1,
+        failed: 1,
+        channels: [
+          {
+            id: "telegram_main",
+            type: "telegram",
+            enabled: true,
+            running: true,
+            endpoint: "http://127.0.0.1:19001",
+          },
+          {
+            id: "http_ingress",
+            type: "http",
+            enabled: true,
+            running: false,
+            endpoint: "http://127.0.0.1:19002",
+            error: "startup timeout",
+          },
+        ],
+      }),
+    });
+    startedServers.push(gateway);
+
+    const response = await fetch(`${gateway.baseUrl}/healthz`);
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.ok).toBe(true);
+    expect(payload.data.messageGateway.enabled).toBe(true);
+    expect(payload.data.messageGateway.channels.length).toBe(2);
+  });
+});
+
+describe("startHttpGateway message gateway inbound route", () => {
+  test("routes inbound request to custom handler", async () => {
+    const calls: string[] = [];
+    const gateway = startHttpGateway({
+      runtime: createRuntime(),
+      host: "127.0.0.1",
+      port: 0,
+      appName: "atom",
+      version: "test",
+      startupAt: Date.now(),
+      messageGatewayInboundPath: "/v1/message-gateway/inbound",
+      handleMessageGatewayInbound: async (request, url) => {
+        calls.push(`${request.method} ${url.pathname}`);
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            data: { accepted: true },
+          }),
+          {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      },
+    });
+    startedServers.push(gateway);
+
+    const response = await fetch(`${gateway.baseUrl}/v1/message-gateway/inbound`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ text: "hello" }),
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload.ok).toBe(true);
+    expect(calls).toEqual(["POST /v1/message-gateway/inbound"]);
+  });
 });

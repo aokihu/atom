@@ -609,65 +609,9 @@ export const validateTuiConfig = (config: AgentConfig) => {
 export const validateTelegramConfig = (config: AgentConfig) => {
   const telegram = config.telegram;
   if (telegram === undefined) return;
-
-  if (typeof telegram !== "object" || telegram === null || Array.isArray(telegram)) {
-    throw new Error("telegram must be a JSON object");
-  }
-
-  ensureRequiredNonEmptyString(telegram.allowedChatId, "telegram.allowedChatId");
-  ensureNonEmptyString(telegram.botToken, "telegram.botToken");
-
-  const transport = telegram.transport;
-  if (transport !== undefined) {
-    if (typeof transport !== "object" || transport === null || Array.isArray(transport)) {
-      throw new Error("telegram.transport must be a JSON object");
-    }
-
-    if (
-      transport.type !== undefined &&
-      transport.type !== "polling" &&
-      transport.type !== "webhook"
-    ) {
-      throw new Error('telegram.transport.type must be "polling" or "webhook"');
-    }
-
-    ensureIntegerInRange(
-      transport.pollingIntervalMs,
-      "telegram.transport.pollingIntervalMs",
-      { min: 0, max: 60000 },
-    );
-    ensureIntegerInRange(
-      transport.longPollTimeoutSec,
-      "telegram.transport.longPollTimeoutSec",
-      { min: 1, max: 50 },
-    );
-    ensureBoolean(
-      transport.dropPendingUpdatesOnStart,
-      "telegram.transport.dropPendingUpdatesOnStart",
-    );
-    ensureNonEmptyString(transport.webhookPath, "telegram.transport.webhookPath");
-    ensureNonEmptyString(transport.webhookSecretToken, "telegram.transport.webhookSecretToken");
-  }
-
-  const message = telegram.message;
-  if (message !== undefined) {
-    if (typeof message !== "object" || message === null || Array.isArray(message)) {
-      throw new Error("telegram.message must be a JSON object");
-    }
-
-    if (
-      message.parseMode !== undefined &&
-      message.parseMode !== "MarkdownV2" &&
-      message.parseMode !== "plain"
-    ) {
-      throw new Error('telegram.message.parseMode must be "MarkdownV2" or "plain"');
-    }
-
-    ensureIntegerInRange(message.chunkSize, "telegram.message.chunkSize", {
-      min: 1,
-      max: 4096,
-    });
-  }
+  throw new Error(
+    "telegram config has been removed from agent.config.json. Move channel settings to message_gateway.config.json",
+  );
 };
 
 export const validateAgentConfig = (config: AgentConfig) => {

@@ -1,6 +1,6 @@
 # atom
 
-Atom 是一个基于 Bun 的 Agent Runtime，支持本地 TUI 与 Telegram 客户端，并通过统一 HTTP Gateway 与运行时通信。
+Atom 是一个基于 Bun 的 Agent Runtime，支持本地 TUI 与外部 Message Gateway 插件，并通过统一 HTTP Gateway 与运行时通信。
 
 ## 项目现状（2026-02-27）
 
@@ -46,8 +46,6 @@ bun run test:server-chat
 - `tui`：默认模式，HTTP 服务端 + 本地 TUI 客户端
 - `server`：仅服务端
 - `tui-client`：仅 TUI 客户端（连接已有服务）
-- `telegram`：服务端 + Telegram 客户端
-- `telegram-client`：仅 Telegram 客户端（连接已有服务）
 - `hybrid`：历史别名，等价于 `tui`（已弃用）
 
 示例：
@@ -59,18 +57,19 @@ bun run src/index.ts --mode server --workspace ./Playground --http-port 8787
 # TUI client-only
 bun run src/index.ts --mode tui-client --server-url http://127.0.0.1:8787
 
-# Telegram 组合模式
-bun run src/index.ts --mode telegram --workspace ./Playground
+# server + 指定 message gateway channels
+bun run src/index.ts --mode server --workspace ./Playground --channels telegram_main,http_ingress
 ```
 
 ## CLI 参数
 
 - `--workspace <path>`：工作区目录（默认 `process.cwd()`）
 - `--config <path>`：配置文件路径（默认 `<workspace>/agent.config.json`）
-- `--mode <tui|server|tui-client|telegram|telegram-client>`
+- `--mode <tui|server|tui-client>`
 - `--http-host <host>`：服务监听地址（默认 `127.0.0.1`）
 - `--http-port <port>`：服务监听端口（默认 `8787`）
 - `--server-url <url>`：client-only 模式连接地址（优先于 `--http-host/--http-port`）
+- `--channels <id,id,...>`：仅在 `server` 模式启动指定 message gateway channels
 
 ## HTTP API（v1）
 
@@ -89,6 +88,7 @@ bun run src/index.ts --mode telegram --workspace ./Playground
 - `GET /v1/agent/memory/stats`
 - `POST /v1/agent/memory/compact`
 - `POST /v1/agent/memory/list_recent`
+- `POST /v1/message-gateway/inbound`
 
 响应结构统一：
 
@@ -143,7 +143,7 @@ bun run src/index.ts --mode telegram --workspace ./Playground
 - `agent.execution`：运行预算（如 `maxToolCallsPerTask`、`maxModelStepsPerTask`）
 - `providers[]`：模型供应商配置（`provider_id`、`model`、可选 `api_key`/`api_key_env`、可选 `base_url`/`headers`）
 - `mcp.servers[]`：MCP 服务（`http` 或 `stdio`）
-- `telegram`：Telegram Bot 配置（仅 telegram 模式需要）
+- `message_gateway.config.json`：外部通讯网关配置（Telegram/HTTP channel）
 
 支持的 `provider_id`：
 
@@ -162,7 +162,7 @@ bun run src/index.ts --mode telegram --workspace ./Playground
 ```text
 src/
   index.ts                # 入口与模式编排
-  clients/                # TUI / Telegram 客户端
+  clients/                # TUI 客户端
   libs/
     agent/                # Agent 核心与工具编排
     channel/              # Gateway 契约与 HTTP 实现
@@ -172,6 +172,8 @@ src/
   prompts/                # Prompt 模板
   templates/              # 工作区模板
   types/                  # 共享类型
+plugins/
+  message_gateway/        # 外部通讯插件（telegram/http）
 Playground/               # 本地模拟运行工作区
 docs/
   ARCHITECTURE.md         # 架构边界文档
@@ -188,7 +190,7 @@ docs/
 
 ## 安全建议
 
-- 不要将真实 `api_key`、`botToken`、`webhookSecretToken` 提交到仓库。
+- 不要将真实 `api_key`、`botToken`、`webhookSecretToken`、`MESSAGE_GATEWAY_TOKEN` 提交到仓库。
 - 建议在本地或 CI 中通过环境变量注入敏感信息。
 
 ## 文档

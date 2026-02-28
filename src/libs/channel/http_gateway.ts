@@ -13,6 +13,7 @@ import type {
   ApiSuccessResponse,
   CreateTaskRequest,
   HealthzResponse,
+  MessageGatewayHealthStatus,
   MCPHealthStatus,
 } from "../../types/http";
 
@@ -24,6 +25,11 @@ type StartHttpGatewayOptions = {
   version: string;
   startupAt: number;
   getMcpStatus?: (options?: { probeHttp?: boolean }) => Promise<MCPHealthStatus> | MCPHealthStatus;
+  messageGatewayInboundPath?: string;
+  handleMessageGatewayInbound?: (request: Request, url: URL) => Promise<Response> | Response;
+  getMessageGatewayStatus?:
+    | (() => Promise<MessageGatewayHealthStatus> | MessageGatewayHealthStatus)
+    | undefined;
 };
 
 export type HttpGatewayServer = {
@@ -320,7 +326,18 @@ const toInternalErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayServer => {
-  const { runtime, host, port, appName, version, startupAt, getMcpStatus } = options;
+  const {
+    runtime,
+    host,
+    port,
+    appName,
+    version,
+    startupAt,
+    getMcpStatus,
+    messageGatewayInboundPath,
+    handleMessageGatewayInbound,
+    getMessageGatewayStatus,
+  } = options;
 
   const server = Bun.serve({
     hostname: host,
@@ -329,6 +346,17 @@ export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayS
       try {
         const url = new URL(request.url);
         const { pathname } = url;
+
+        if (
+          messageGatewayInboundPath &&
+          pathname === messageGatewayInboundPath &&
+          handleMessageGatewayInbound
+        ) {
+          if (request.method !== "POST") {
+            return methodNotAllowed(["POST"]);
+          }
+          return await handleMessageGatewayInbound(request, url);
+        }
 
         if (pathname === "/healthz") {
           if (request.method !== "GET") {
@@ -344,6 +372,9 @@ export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayS
           };
           if (getMcpStatus) {
             health.mcp = await getMcpStatus({ probeHttp });
+          }
+          if (getMessageGatewayStatus) {
+            health.messageGateway = await getMessageGatewayStatus();
           }
 
           return ok(health);

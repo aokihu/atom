@@ -123,7 +123,10 @@ const normalizePathSeparators = (value: string) =>
   value.replaceAll("\\", "/");
 
 const SENSITIVE_ROOT_DIR_NAMES = new Set(["secrets"]);
-const SENSITIVE_ROOT_FILE_NAMES = new Set(["agent.config.json"]);
+const SENSITIVE_ROOT_FILE_NAMES = new Set([
+  "agent.config.json",
+  "message_gateway.config.json",
+]);
 
 const toWorkspaceRelativePath = (targetPath: string, workspace?: string) => {
   const workspacePath = normalizeWorkspacePath(workspace);
@@ -194,6 +197,7 @@ export const hasSensitiveWorkspacePathReference = (
     new RegExp(`${workspaceRegexText}/\\.agent(?:/|\\b)`),
     new RegExp(`${workspaceRegexText}/secrets(?:/|\\b)`),
     new RegExp(`${workspaceRegexText}/agent\\.config\\.json(?:\\b|$)`),
+    new RegExp(`${workspaceRegexText}/message_gateway\\.config\\.json(?:\\b|$)`),
     new RegExp(`${workspaceRegexText}/\\.env(?:\\.[A-Za-z0-9._-]+)?(?:\\b|$)`),
   ];
 
@@ -215,8 +219,9 @@ export const hasSensitiveWorkspacePathReference = (
     /(^|[\s"'`:])(?:\.\/)?\.agent(?:\/|\b)/,
     /(^|[\s"'`:])(?:\.\/)?secrets(?:\/|\b)/,
     /(^|[\s"'`:])(?:\.\/)?agent\.config\.json(?:\b|$)/,
+    /(^|[\s"'`:])(?:\.\/)?message_gateway\.config\.json(?:\b|$)/,
     /(^|[\s"'`:])(?:\.\/)?\.env(?:\.[A-Za-z0-9._-]+)?(?:\b|$)/,
-    /(^|[\s"'`:])(?:\.\.\/)+(?:\.agent(?:\/|\b)|secrets(?:\/|\b)|agent\.config\.json(?:\b|$)|\.env(?:\.[A-Za-z0-9._-]+)?(?:\b|$))/,
+    /(^|[\s"'`:])(?:\.\.\/)+(?:\.agent(?:\/|\b)|secrets(?:\/|\b)|agent\.config\.json(?:\b|$)|message_gateway\.config\.json(?:\b|$)|\.env(?:\.[A-Za-z0-9._-]+)?(?:\b|$))/,
   ];
 
   return relativePatterns.some((pattern) => pattern.test(text));
@@ -291,6 +296,7 @@ export const getWorkspaceAgentRipgrepExcludes = (
   addPathExcludes(resolve(workspacePath, ".agent"), true);
   addPathExcludes(resolve(workspacePath, "secrets"), true);
   addPathExcludes(resolve(workspacePath, "agent.config.json"), false);
+  addPathExcludes(resolve(workspacePath, "message_gateway.config.json"), false);
 
   addExclude("!.env*");
   addExclude("!**/.env*");

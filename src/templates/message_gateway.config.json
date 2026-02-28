@@ -1,0 +1,48 @@
+{
+  "gateway": {
+    "enabled": false,
+    "inboundPath": "/v1/message-gateway/inbound",
+    "auth": {
+      "bearerTokenEnv": "MESSAGE_GATEWAY_TOKEN",
+      "bearerToken": ""
+    }
+  },
+  "channels": [
+    {
+      "id": "telegram_main",
+      "type": "telegram",
+      "enabled": false,
+      "channelEndpoint": {
+        "host": "127.0.0.1",
+        "port": 19001,
+        "healthPath": "/healthz",
+        "invokePath": "/rpc",
+        "startupTimeoutMs": 10000
+      },
+      "settings": {
+        "allowedChatId": "123456789",
+        "botTokenEnv": "TELEGRAM_BOT_TOKEN",
+        "botToken": "",
+        "webhookPublicBaseUrl": "https://example.com",
+        "webhookSecretTokenEnv": "TELEGRAM_WEBHOOK_SECRET",
+        "webhookSecretToken": "",
+        "dropPendingUpdatesOnStart": true,
+        "parseMode": "MarkdownV2",
+        "chunkSize": 3500
+      }
+    },
+    {
+      "id": "http_ingress",
+      "type": "http",
+      "enabled": false,
+      "channelEndpoint": {
+        "host": "127.0.0.1",
+        "port": 19002,
+        "healthPath": "/healthz",
+        "invokePath": "/rpc",
+        "startupTimeoutMs": 10000
+      },
+      "settings": {}
+    }
+  ]
+}

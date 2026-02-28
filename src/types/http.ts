@@ -1,7 +1,10 @@
 import type { ModelMessage } from "ai";
 
 import type { AgentContext, ContextProjectionDebug } from "./agent";
+import type { MessageGatewayHealthStatus } from "./message_gateway";
 import type { TaskItem, TaskPriority } from "./task";
+
+export type { MessageGatewayHealthStatus } from "./message_gateway";
 
 export type ApiErrorCode =
   | "BAD_REQUEST"
@@ -192,6 +195,7 @@ export type HealthzResponse = {
   startupAt: number;
   queue: QueueStats;
   mcp?: MCPHealthStatus;
+  messageGateway?: MessageGatewayHealthStatus;
 };
 
 export type AgentContextResponse = {

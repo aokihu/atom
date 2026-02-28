@@ -6,11 +6,12 @@
 
 ```text
 src/
-  index.ts                # 进程入口与模式编排（tui/server/tui-client/telegram/telegram-client）
-  clients/                # 用户侧客户端实现（OpenTUI TUI / Telegram，后续 web/bot）
+  index.ts                # 进程入口与模式编排（tui/server/tui-client）
+  clients/                # 用户侧客户端实现（OpenTUI TUI）
   libs/
     agent/                # Agent 核心逻辑、提示词注入、工具集成
     channel/              # 通信通道契约与 HTTP 实现（gateway/client）
+    message_gateway/      # 外部通信网关（插件管理、入站分发、健康聚合）
     runtime/              # 任务运行时（队列、任务注册、调度）
     mcp/                  # MCP 初始化与工具接入
     utils/                # CLI、日期、workspace 检查等基础工具
@@ -19,6 +20,8 @@ src/
   types/                  # 跨模块共享类型（task/http/agent）
 docs/
   ARCHITECTURE.md         # 架构与开发边界说明（本文件）
+plugins/
+  message_gateway/        # 外部通讯插件（telegram/http）
 ```
 
 ## 模块边界（必须遵守）
@@ -26,8 +29,7 @@ docs/
 ### `src/clients`
 - 放置“用户交互端”实现，例如：
   - `tui`（OpenTUI）
-  - `telegram`（Bot adapter，基于 `GatewayClient`）
-  - 后续 Web UI / 其他 Bot adapter
+  - 后续 Web UI / 其他本地直连客户端
 - 只通过 `GatewayClient`（或其他通道抽象）访问服务端。
 - 不直接依赖 `Agent`、`PriorityTaskQueue`、`AgentRuntimeService`。
 
@@ -57,15 +59,19 @@ docs/
 - `controllers/` 只返回动作或协调状态，不直接创建网络层实例
 - 与服务端交互集中在 `flows/`（或后续抽出的 data/service 层）
 
-#### `src/clients/telegram`
+### `src/libs/message_gateway`
+- 负责外部通信插件生命周期管理（拉起、健康检查、停止）。
+- 提供统一入站接口：`POST /v1/message-gateway/inbound`。
+- 负责鉴权、按 `channelId` 路由到插件、将文本消息转换为 runtime 任务。
+- 运行模式约束：
+  - 仅在 `server` 模式自动启动。
+  - `tui` / `tui-client` 不启动外部 channels。
 
-- Telegram Bot 客户端同样只通过 `GatewayClient` 与 runtime 通信。
-- 核心职责拆分：
-  - `bot_api.ts`: Telegram Bot API 封装（`getUpdates` / `sendMessage`）
-  - `polling.ts`: long polling 循环、offset 管理、异常退避
-  - `dispatcher.ts`: 白名单校验、命令分发、任务触发与最终结果回传
-  - `markdown_v2.ts` / `message_split.ts`: 消息格式与分片处理
-- 本轮仅支持 polling；webhook 配置已预留，服务端路由尚未实现。
+### `plugins/message_gateway`
+- 每个插件即一个 channel 进程（如 `telegram`、`http`）。
+- 插件必须实现：
+  - `GET {channelEndpoint.healthPath}` 健康检查
+  - `POST {channelEndpoint.invokePath}` JSON-RPC 调用入口
 
 ### `src/libs/channel`
 - 定义通道契约与传输实现。

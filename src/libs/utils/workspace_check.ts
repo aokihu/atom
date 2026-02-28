@@ -6,6 +6,7 @@
  * @description 检查工作目录环境
  *              - 检查工作目录中是否有"AGENT.md"文件
  *              - 检查工作目录中是否有"agent.config.json"文件
+ *              - 检查工作目录中是否有"message_gateway.config.json"文件
  *              - 检查工作目录中是否有".memory"目录
  *
  *              如果不存在这些文件或者目录,则自动创建它们或者复制模版到工作目录
@@ -17,6 +18,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 /* 内置模版文件 */
 import AgentMdFile from "../../templates/AGENT.md" with { type: "text" };
 import AgentConfigJsonFile from "../../templates/agent.config.json" with { type: "text" };
+import MessageGatewayConfigJsonFile from "../../templates/message_gateway.config.json" with { type: "text" };
 
 /**
  * 检查工作目录环境
@@ -25,16 +27,22 @@ import AgentConfigJsonFile from "../../templates/agent.config.json" with { type:
 export const workspace_check = async (workspace: string) => {
   const agentFilePath = resolve(workspace, "AGENT.md");
   const agentConfigJsonFilePath = resolve(workspace, "agent.config.json");
+  const messageGatewayConfigJsonFilePath = resolve(workspace, "message_gateway.config.json");
   const memoryFolderPath = resolve(workspace, "memory");
   const secretsFolderPath = resolve(workspace, "secrets");
   const agentConfigTemplate =
     typeof AgentConfigJsonFile === "string"
       ? AgentConfigJsonFile
       : `${JSON.stringify(AgentConfigJsonFile, null, 2)}\n`;
+  const messageGatewayConfigTemplate =
+    typeof MessageGatewayConfigJsonFile === "string"
+      ? MessageGatewayConfigJsonFile
+      : `${JSON.stringify(MessageGatewayConfigJsonFile, null, 2)}\n`;
 
   await Promise.all([
     ensureTemplateFile(AgentMdFile, agentFilePath),
     ensureTemplateFile(agentConfigTemplate, agentConfigJsonFilePath),
+    ensureTemplateFile(messageGatewayConfigTemplate, messageGatewayConfigJsonFilePath),
     mkdir(memoryFolderPath, { recursive: true }),
     mkdir(secretsFolderPath, { recursive: true }),
   ]);

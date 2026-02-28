@@ -1,5 +1,5 @@
 import type { GatewayClient } from "../../libs/channel/channel";
-import type { ResolvedTelegramConfig } from "../../libs/agent/config";
+import type { ResolvedTelegramConfig } from "../../libs/agent/config/telegram";
 import { createTelegramBotApi } from "./bot_api";
 import { createTelegramUpdateDispatcher } from "./dispatcher";
 import { escapeMarkdownV2 } from "./markdown_v2";

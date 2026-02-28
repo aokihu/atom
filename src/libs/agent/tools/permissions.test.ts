@@ -75,6 +75,11 @@ describe("agent tool permissions", () => {
       }, workspace),
     ).toBe(false);
     expect(
+      canReadFile(`${workspace}/message_gateway.config.json`, {
+        read: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
       canReadFile(`${workspace}/.env.local`, {
         read: { allow: [".*"] },
       }, workspace),
@@ -106,6 +111,11 @@ describe("agent tool permissions", () => {
     ).toBe(false);
     expect(
       canCopyFrom(`${workspace}/agent.config.json`, {
+        cp: { allow: [".*"] },
+      }, workspace),
+    ).toBe(false);
+    expect(
+      canCopyFrom(`${workspace}/message_gateway.config.json`, {
         cp: { allow: [".*"] },
       }, workspace),
     ).toBe(false);
@@ -270,6 +280,12 @@ describe("agent tool permissions", () => {
     expect(
       hasSensitiveWorkspacePathReference(
         "git show HEAD:agent.config.json",
+        { workspace, cwd: workspace },
+      ),
+    ).toBe(true);
+    expect(
+      hasSensitiveWorkspacePathReference(
+        "cat message_gateway.config.json",
         { workspace, cwd: workspace },
       ),
     ).toBe(true);

@@ -26,5 +26,5 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["src", "src/types/**/*.d.ts"]
+  "include": ["src", "plugins", "src/types/**/*.d.ts"]
 }

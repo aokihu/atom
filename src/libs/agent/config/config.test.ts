@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { loadAgentConfig, resolveTelegramConfig } from "../config";
+import { loadAgentConfig } from "../config";
 import { expandPathVariables } from "./normalizer";
 import { validateAgentConfig } from "./validator";
 
@@ -703,131 +703,16 @@ describe("agent config", () => {
     ).toThrow("mcp.servers[0].transport.cwd must be a non-empty string");
   });
 
-  test("validateAgentConfig accepts telegram polling config", () => {
+  test("validateAgentConfig rejects telegram config and asks for migration", () => {
     expect(() =>
       validateAgentConfig({
         ...createValidConfig(),
         telegram: {
           botToken: "bot-token",
           allowedChatId: "12345",
-          transport: {
-            type: "polling",
-            pollingIntervalMs: 1200,
-            longPollTimeoutSec: 20,
-            dropPendingUpdatesOnStart: true,
-          },
-          message: {
-            parseMode: "MarkdownV2",
-            chunkSize: 3500,
-          },
         },
       }),
-    ).not.toThrow();
-  });
-
-  test("validateAgentConfig accepts telegram webhook config shape", () => {
-    expect(() =>
-      validateAgentConfig({
-        ...createValidConfig(),
-        telegram: {
-          botToken: "bot-token",
-          allowedChatId: "12345",
-          transport: {
-            type: "webhook",
-            webhookPath: "/telegram/webhook",
-            webhookSecretToken: "secret",
-          },
-        },
-      }),
-    ).not.toThrow();
-  });
-
-  test("validateAgentConfig rejects telegram config without allowedChatId", () => {
-    expect(() =>
-      validateAgentConfig({
-        ...createValidConfig(),
-        telegram: {
-          botToken: "bot-token",
-          allowedChatId: "",
-        },
-      }),
-    ).toThrow("telegram.allowedChatId must be a non-empty string");
-  });
-
-  test("validateAgentConfig rejects out-of-range telegram transport values", () => {
-    expect(() =>
-      validateAgentConfig({
-        ...createValidConfig(),
-        telegram: {
-          botToken: "bot-token",
-          allowedChatId: "12345",
-          transport: {
-            pollingIntervalMs: 70000,
-          },
-        },
-      }),
-    ).toThrow("telegram.transport.pollingIntervalMs must be an integer in range 0..60000");
-
-    expect(() =>
-      validateAgentConfig({
-        ...createValidConfig(),
-        telegram: {
-          botToken: "bot-token",
-          allowedChatId: "12345",
-          transport: {
-            longPollTimeoutSec: 90,
-          },
-        },
-      }),
-    ).toThrow("telegram.transport.longPollTimeoutSec must be an integer in range 1..50");
-  });
-
-  test("validateAgentConfig rejects out-of-range telegram message chunkSize", () => {
-    expect(() =>
-      validateAgentConfig({
-        ...createValidConfig(),
-        telegram: {
-          botToken: "bot-token",
-          allowedChatId: "12345",
-          message: {
-            chunkSize: 5000,
-          },
-        },
-      }),
-    ).toThrow("telegram.message.chunkSize must be an integer in range 1..4096");
-  });
-
-  test("resolveTelegramConfig throws when bot token is missing in config and env", () => {
-    expect(() =>
-      resolveTelegramConfig(
-        {
-          ...createValidConfig(),
-          telegram: {
-            allowedChatId: "12345",
-          },
-        },
-        {},
-      ),
-    ).toThrow("Telegram bot token is required");
-  });
-
-  test("resolveTelegramConfig uses TELEGRAM_BOT_TOKEN env override", () => {
-    const resolved = resolveTelegramConfig(
-      {
-        ...createValidConfig(),
-        telegram: {
-          botToken: "config-token",
-          allowedChatId: "12345",
-        },
-      },
-      {
-        TELEGRAM_BOT_TOKEN: "env-token",
-      },
-    );
-
-    expect(resolved?.botToken).toBe("env-token");
-    expect(resolved?.transport.type).toBe("polling");
-    expect(resolved?.message.parseMode).toBe("MarkdownV2");
+    ).toThrow("telegram config has been removed");
   });
 
   test("loadAgentConfig returns empty object when file does not exist", async () => {

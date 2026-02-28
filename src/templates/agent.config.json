@@ -149,21 +149,5 @@
   },
   "tui": {
     "theme": "nord"
-  },
-  "telegram": {
-    "botToken": "YOUR_TELEGRAM_BOT_TOKEN",
-    "allowedChatId": "123456789",
-    "transport": {
-      "type": "polling",
-      "pollingIntervalMs": 1000,
-      "longPollTimeoutSec": 30,
-      "dropPendingUpdatesOnStart": true,
-      "webhookPath": "/telegram/webhook",
-      "webhookSecretToken": "YOUR_WEBHOOK_SECRET"
-    },
-    "message": {
-      "parseMode": "MarkdownV2",
-      "chunkSize": 3500
-    }
   }
 }

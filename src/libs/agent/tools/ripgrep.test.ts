@@ -20,6 +20,7 @@ describe("ripgrep tool", () => {
     await Bun.write(join(workspace, ".agent", "secret.txt"), `secret ${token}\n`);
     await Bun.write(join(workspace, "secrets", "secret.txt"), `secret ${token}\n`);
     await Bun.write(join(workspace, "agent.config.json"), `{\"api_key\":\"${token}\"}\n`);
+    await Bun.write(join(workspace, "message_gateway.config.json"), `{\"token\":\"${token}\"}\n`);
     await Bun.write(join(workspace, ".env.local"), `TOKEN=${token}\n`);
     await Bun.write(join(workspace, "nested", ".env.production"), `TOKEN=${token}\n`);
     await Bun.write(join(workspace, "visible.txt"), `visible ${token}\n`);
@@ -35,6 +36,7 @@ describe("ripgrep tool", () => {
     expect(result.output).not.toContain(`${workspace}/.agent`);
     expect(result.output).not.toContain("secrets/secret.txt");
     expect(result.output).not.toContain("agent.config.json");
+    expect(result.output).not.toContain("message_gateway.config.json");
     expect(result.output).not.toContain(".env.local");
     expect(result.output).not.toContain(".env.production");
   });
@@ -44,12 +46,14 @@ describe("ripgrep tool", () => {
     await mkdir(join(workspace, ".agent"), { recursive: true });
     await mkdir(join(workspace, "secrets"), { recursive: true });
     await Bun.write(join(workspace, "agent.config.json"), "{}");
+    await Bun.write(join(workspace, "message_gateway.config.json"), "{}");
     await Bun.write(join(workspace, ".env"), "x=1");
 
     for (const protectedPath of [
       join(workspace, ".agent"),
       join(workspace, "secrets"),
       join(workspace, "agent.config.json"),
+      join(workspace, "message_gateway.config.json"),
       join(workspace, ".env"),
     ]) {
       const result = await (ripgrepTool({ workspace }) as any).execute({

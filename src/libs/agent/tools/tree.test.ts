@@ -52,6 +52,7 @@ describe("tree tool", () => {
     await Bun.write(join(workspace, ".cache"), "ok");
     await Bun.write(join(workspace, ".env"), "x=1");
     await Bun.write(join(workspace, "agent.config.json"), "{}");
+    await Bun.write(join(workspace, "message_gateway.config.json"), "{}");
     await Bun.write(join(workspace, ".agent", "secret.txt"), "secret");
     await Bun.write(join(workspace, "secrets", "secret.txt"), "secret");
 
@@ -67,6 +68,7 @@ describe("tree tool", () => {
     expect(result.output).not.toContain(".agent");
     expect(result.output).not.toContain("secrets");
     expect(result.output).not.toContain("agent.config.json");
+    expect(result.output).not.toContain("message_gateway.config.json");
     expect(result.output).not.toContain(".env");
     expect(result.output).not.toContain("secret.txt");
     expect(result.output).toContain("1 directory, 2 files");
