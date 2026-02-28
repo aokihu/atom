@@ -102,6 +102,7 @@ export class TuiClientState {
   contextModalOpen = false;
   contextModalText = "";
   contextModalTitle = "Context";
+  contextModalSaveStatus = "";
   slashModalState: SlashModalState = {
     open: false,
     filteredQuery: "",

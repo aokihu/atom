@@ -63,6 +63,7 @@ export const createTuiClientUiBundle = (
     onSlashSelect: () => void;
     onMcpTagClick: () => void;
     onMessageGatewayTagClick: () => void;
+    onContextSave: () => void;
   },
 ): TuiClientUiBundle => {
   const C = args.theme.colors;
@@ -102,6 +103,7 @@ export const createTuiClientUiBundle = (
   const context = createContextModalViewController({
     ctx: renderer,
     theme: args.theme,
+    onSaveClick: args.onContextSave,
   });
 
   // 生命周期区：挂载/卸载/销毁集中管理，避免外层分散处理树结构

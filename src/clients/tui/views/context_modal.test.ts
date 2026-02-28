@@ -31,6 +31,7 @@ const createFakeContextModalView = (hooks?: {
   modalBox: { width: 0, height: 0, top: 0, left: 0 } as any,
   titleText: { content: "" } as any,
   hintText: { content: "" } as any,
+  saveActionText: { content: "" } as any,
   scroll: {
     height: 0,
     scrollTo: () => hooks?.onScrollTop?.(),
@@ -59,6 +60,16 @@ describe("context modal controller", () => {
     expect(view.overlay.visible).toBe(true);
     expect(String(view.titleText.content)).toContain("Agent Context");
     expect(String(view.bodyText.content)).toContain("Line 1");
+    expect(String(view.saveActionText.content)).toContain("[ Save Context ]");
+
+    controller.syncFromAppState({
+      open: true,
+      terminal: TEST_TERMINAL,
+      title: "Agent Context",
+      body: "Line 1\nLine 2",
+      saveStatus: "Saved: /tmp/ws/.agent/log/context_20260228142954.log",
+    });
+    expect(String(view.saveActionText.content)).toContain("Saved:");
 
     controller.close();
     expect(controller.isOpen()).toBe(false);

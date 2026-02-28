@@ -39,6 +39,7 @@ export type ContextModalLayoutInput = {
   terminal: TerminalSize;
   title: string;
   body: string;
+  saveStatus?: string;
 };
 
 export type ContextModalLayoutState = {
@@ -51,6 +52,7 @@ export type ContextModalLayoutState = {
   hintText: string;
   scrollHeight: number;
   bodyText: string;
+  saveActionText: string;
 };
 
 export type ContextModalView = {
@@ -59,6 +61,7 @@ export type ContextModalView = {
   modalBox: BoxRenderable;
   titleText: TextRenderable;
   hintText: TextRenderable;
+  saveActionText: TextRenderable;
   scroll: ScrollBoxRenderable;
   contentBox: BoxRenderable;
   bodyText: TextRenderable;
@@ -69,6 +72,7 @@ export type ContextModalRenderInput = {
   terminal: TerminalSize;
   title: string;
   body: string;
+  saveStatus?: string;
 };
 
 export type ContextModalViewController = {
@@ -108,11 +112,17 @@ export const buildContextModalLayoutState = (
     innerWidth,
     titleText: truncateToDisplayWidth(input.title, innerWidth),
     hintText: truncateToDisplayWidth(
-      "Esc close · Arrow/Page keys scroll",
+      "Esc close · S save · Arrow/Page keys scroll",
       innerWidth,
     ),
-    scrollHeight: Math.max(1, height - 4),
+    scrollHeight: Math.max(1, height - 5),
     bodyText: input.body.length > 0 ? input.body : "No context loaded.",
+    saveActionText: truncateToDisplayWidth(
+      input.saveStatus?.trim()
+        ? `[ Save Context ]  ${input.saveStatus.trim()}`
+        : "[ Save Context ]",
+      innerWidth,
+    ),
   };
 };
 
@@ -123,6 +133,7 @@ export const buildContextModalLayoutState = (
 export const createContextModalView = (
   ctx: CliRenderer,
   theme: TuiTheme,
+  options?: { onSaveClick?: () => void },
 ): ContextModalView => {
   const C = theme.colors;
 
@@ -188,10 +199,25 @@ export const createContextModalView = (
   const hintText = instantiate(
     ctx,
     Text({
-      content: "Esc close · Arrow/Page keys scroll",
+      content: "Esc close · S save · Arrow/Page keys scroll",
       fg: C.textMuted,
       width: "100%",
       truncate: true,
+    }),
+  ) as unknown as TextRenderable;
+
+  const saveActionText = instantiate(
+    ctx,
+    Text({
+      content: "[ Save Context ]",
+      fg: C.accentPrimary,
+      width: "100%",
+      truncate: true,
+      onMouseUp: (event: { button: number }) => {
+        if (event.button === 0) {
+          options?.onSaveClick?.();
+        }
+      },
     }),
   ) as unknown as TextRenderable;
 
@@ -241,6 +267,7 @@ export const createContextModalView = (
   modalBox.add(titleText);
   modalBox.add(hintText);
   modalBox.add(scroll);
+  modalBox.add(saveActionText);
   overlay.add(backdrop);
   overlay.add(modalBox);
 
@@ -250,6 +277,7 @@ export const createContextModalView = (
     modalBox,
     titleText,
     hintText,
+    saveActionText,
     scroll,
     contentBox,
     bodyText,
@@ -274,6 +302,7 @@ export const updateContextModalView = (
     terminal: input.terminal,
     title: input.title,
     body: input.body,
+    saveStatus: input.saveStatus,
   });
 
   view.modalBox.width = viewState.width;
@@ -284,6 +313,7 @@ export const updateContextModalView = (
   view.hintText.content = viewState.hintText;
   view.scroll.height = viewState.scrollHeight;
   view.bodyText.content = viewState.bodyText;
+  view.saveActionText.content = viewState.saveActionText;
 };
 
 // ================================
@@ -320,13 +350,16 @@ export const createContextModalViewController = (
     theme: TuiTheme;
     view?: ContextModalView;
     isDestroyed?: () => boolean;
+    onSaveClick?: () => void;
   },
 ): ContextModalViewController => {
   const view = args.view ?? (() => {
     if (!args.ctx) {
       throw new Error("createContextModalViewController requires args.ctx when args.view is not provided");
     }
-    return createContextModalView(args.ctx, args.theme);
+    return createContextModalView(args.ctx, args.theme, {
+      onSaveClick: args.onSaveClick,
+    });
   })();
   const renderInputSignal = signal<ContextModalRenderInput | null>(null);
   const disposeSync = bindContextModalViewModel({
@@ -346,6 +379,7 @@ export const createContextModalViewController = (
         terminal,
         title,
         body,
+        saveStatus: "",
       };
     },
     close: () => {

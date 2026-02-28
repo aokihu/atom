@@ -12,6 +12,7 @@ import type { CliRenderer, KeyEvent } from "@opentui/core";
 
 import type { GatewayClient } from "../../libs/channel/channel";
 import type {
+  AgentContextResponse,
   MCPHealthStatus,
   MessageGatewayHealthStatus,
   TaskOutputMessage,
@@ -36,6 +37,7 @@ import {
 import { createTuiClientUiBundle, type TuiClientUiBundle } from "./runtime/ui";
 import { filterEnabledSlashCommands } from "./state/slash_commands";
 import { resolveTuiTheme, type TuiTheme } from "./theme";
+import { buildContextLogPayload, saveContextLog } from "./utils/context_log";
 import { summarizeEventText, truncateToDisplayWidth } from "./utils/text";
 import type { ContextModalRenderInput } from "./views/context_modal";
 import type { InputPaneRenderInput } from "./views/input_pane";
@@ -122,6 +124,43 @@ const formatJson = (value: unknown): string => {
   } catch (error) {
     return `Failed to format JSON: ${formatErrorMessage(error)}`;
   }
+};
+
+const extractContextWorkspace = (context: unknown): string | null => {
+  if (typeof context !== "object" || context === null || Array.isArray(context)) {
+    return null;
+  }
+
+  const runtime = (context as Record<string, unknown>).runtime;
+  if (typeof runtime !== "object" || runtime === null || Array.isArray(runtime)) {
+    return null;
+  }
+
+  const workspace = (runtime as Record<string, unknown>).workspace;
+  if (typeof workspace !== "string" || workspace.trim() === "") {
+    return null;
+  }
+  return workspace;
+};
+
+const extractWorkspaceFromContextModalText = (body: string): string | null => {
+  const trimmed = body.trim();
+  if (trimmed.length === 0) return null;
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    const directWorkspace = extractContextWorkspace(parsed);
+    if (directWorkspace) return directWorkspace;
+
+    if (typeof parsed === "object" && parsed !== null) {
+      const nestedContext = (parsed as Record<string, unknown>).context;
+      return extractContextWorkspace(nestedContext);
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 };
 
 const formatMcpStatusModalBody = (mcp: MCPHealthStatus): string => {
@@ -277,6 +316,9 @@ class CoreTuiClientApp {
       },
       onMessageGatewayTagClick: () => {
         void this.openMessageGatewayStatusModal();
+      },
+      onContextSave: () => {
+        void this.persistContextModalToLog();
       },
     });
     this.appRoot = this.ui.appRoot;
@@ -468,6 +510,7 @@ class CoreTuiClientApp {
       terminal: this.state.terminal,
       title: this.state.contextModalTitle,
       body: this.state.contextModalText,
+      saveStatus: this.state.contextModalSaveStatus,
     };
     this.ui.context.syncFromAppState(input);
   }
@@ -569,6 +612,13 @@ class CoreTuiClientApp {
   private handleContextModalKeyPress(key: KeyEvent): boolean {
     if (!this.state.contextModalOpen) return false;
 
+    if ((key.name === "s" || key.sequence === "s") && !key.ctrl && !key.meta) {
+      key.preventDefault();
+      key.stopPropagation();
+      void this.persistContextModalToLog();
+      return true;
+    }
+
     if (this.ui.context.handleKey(key)) {
       key.preventDefault();
       key.stopPropagation();
@@ -578,6 +628,74 @@ class CoreTuiClientApp {
     }
 
     return false;
+  }
+
+  private buildLatestContextBodyForLog(contextResponse: AgentContextResponse): string {
+    return buildContextLogPayload({
+      contextResponse,
+    });
+  }
+
+  private async persistContextModalToLog(): Promise<void> {
+    if (!this.state.contextModalOpen) {
+      return;
+    }
+
+    let contextBody = this.state.contextModalText.trim();
+    let workspace = extractWorkspaceFromContextModalText(contextBody);
+
+    try {
+      const latestContext = await this.withConnectionTracking(
+        () => this.client.getAgentContext(),
+      );
+      contextBody = this.buildLatestContextBodyForLog(latestContext);
+      const latestWorkspace = extractContextWorkspace(latestContext.context);
+      if (latestWorkspace) {
+        workspace = latestWorkspace;
+      }
+    } catch (error) {
+      this.appendLog(
+        "system",
+        `Context refresh failed, fallback to modal snapshot: ${formatErrorMessage(error)}`,
+      );
+    }
+
+    if (contextBody.length === 0) {
+      this.appendLog("error", "Context is empty, nothing to save.");
+      this.setStatusNotice("Context is empty, nothing to save.");
+      this.state.contextModalSaveStatus = "Save failed: empty context";
+      this.syncContextModalLayout(this.getLayout());
+      this.renderer.requestRender();
+      return;
+    }
+
+    if (!workspace) {
+      this.appendLog("error", "Context workspace unknown, cannot save log.");
+      this.setStatusNotice("Context workspace unknown, cannot save log.");
+      this.state.contextModalSaveStatus = "Save failed: workspace unknown";
+      this.syncContextModalLayout(this.getLayout());
+      this.renderer.requestRender();
+      return;
+    }
+
+    try {
+      const filepath = await saveContextLog({
+        workspace,
+        contextBody,
+      });
+      this.appendLog("system", `Context saved: ${filepath}`);
+      this.setStatusNotice(`Context saved: ${truncateToDisplayWidth(filepath, 48)}`);
+      this.state.contextModalSaveStatus = `Saved: ${truncateToDisplayWidth(filepath, 56)}`;
+      this.syncContextModalLayout(this.getLayout());
+      this.renderer.requestRender();
+    } catch (error) {
+      const message = formatErrorMessage(error);
+      this.appendLog("error", `Context save failed: ${message}`);
+      this.setStatusNotice(`Context save failed: ${message}`);
+      this.state.contextModalSaveStatus = `Save failed: ${truncateToDisplayWidth(message, 56)}`;
+      this.syncContextModalLayout(this.getLayout());
+      this.renderer.requestRender();
+    }
   }
 
   private autocompleteSelectedSlashCommand(): void {
@@ -656,6 +774,7 @@ class CoreTuiClientApp {
   private openContextModal(title: string, body: string): void {
     this.state.contextModalTitle = title;
     this.state.contextModalText = body;
+    this.state.contextModalSaveStatus = "";
     this.state.contextModalOpen = true;
     this.closeSlashModal();
     this.ui.context.open({
