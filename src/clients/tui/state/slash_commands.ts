@@ -10,6 +10,7 @@ export type SlashCommandAction =
   | { type: "exit" }
   | { type: "open_context" }
   | { type: "force_abort" }
+  | { type: "clear_session_view" }
   | { type: "hidden"; message: string }
   | { type: "unknown"; message: string };
 
@@ -41,6 +42,12 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     description: "Force abort current run and clear queue",
     enabled: true,
     action: { type: "force_abort" },
+  },
+  {
+    name: "/clear",
+    description: "Clear current session view (keep context)",
+    enabled: true,
+    action: { type: "clear_session_view" },
   },
   {
     name: "/help",

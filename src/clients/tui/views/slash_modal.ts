@@ -82,7 +82,7 @@ export type SlashModalRenderInput = {
 
 export type SlashModalKeyAction =
   | { handled: false; kind: "none" }
-  | { handled: true; kind: "navigated" | "close" | "apply" };
+  | { handled: true; kind: "navigated" | "close" | "apply" | "autocomplete" };
 
 export type SlashModalViewController = {
   readonly view: SlashModalView;
@@ -443,6 +443,9 @@ export const createSlashModalViewController = (
       }
       if (!inputFocused || current.commands.length === 0) {
         return { handled: false, kind: "none" };
+      }
+      if (key.name === "tab" && !key.shift && !key.meta) {
+        return { handled: true, kind: "autocomplete" };
       }
       if (key.name === "up" || key.name === "k") {
         patchRenderInput({ selectedIndex: current.selectedIndex - 1 });

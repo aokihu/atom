@@ -218,4 +218,9 @@ export class TuiClientState {
     this.slashModalState.selectedIndex = 0;
     this.slashFilteredCommands = [];
   }
+
+  clearSessionView(): void {
+    this.entries = [];
+    this.chatStream = [];
+  }
 }

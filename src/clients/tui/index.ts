@@ -208,7 +208,7 @@ class CoreTuiClientApp {
         }
       },
       onSlashSelect: () => {
-        this.applySelectedSlashCommand();
+        this.autocompleteSelectedSlashCommand();
       },
       onMcpTagClick: () => {
         void this.openMcpStatusModal();
@@ -476,7 +476,12 @@ class CoreTuiClientApp {
     }
 
     if (action.kind === "apply") {
-      this.applySelectedSlashCommand();
+      this.executeSelectedSlashCommand();
+      return true;
+    }
+
+    if (action.kind === "autocomplete") {
+      this.autocompleteSelectedSlashCommand();
       return true;
     }
 
@@ -503,12 +508,25 @@ class CoreTuiClientApp {
     return false;
   }
 
-  private applySelectedSlashCommand(): void {
+  private autocompleteSelectedSlashCommand(): void {
     const selected = this.ui.slash.applySelection();
     if (!selected) return;
 
     this.ui.input.setValue(selected.name);
     this.closeSlashModal();
+    this.syncInputPane(this.getLayout());
+    this.renderer.requestRender();
+  }
+
+  private executeSelectedSlashCommand(): void {
+    const selected = this.ui.slash.applySelection();
+    if (!selected) return;
+    if (!this.canRunSlashCommand(selected.name)) return;
+
+    this.closeSlashModal();
+    void this.runSlashCommand(selected.name);
+    this.ui.input.clear();
+    this.syncSlashModalStateFromInput();
     this.syncInputPane(this.getLayout());
     this.renderer.requestRender();
   }
@@ -858,11 +876,22 @@ class CoreTuiClientApp {
   }
 
   private async runSlashCommand(command: string): Promise<void> {
-    this.appendLog("command", command);
     const action = resolveSlashCommandAction(command);
+    if (action.type !== "clear_session_view") {
+      this.appendLog("command", command);
+    }
 
     if (action.type === "exit") {
       this.renderer.destroy();
+      return;
+    }
+
+    if (action.type === "clear_session_view") {
+      this.state.clearSessionView();
+      this.closeSlashModal();
+      this.closeContextModal();
+      this.setStatusNotice("Session view cleared (context retained)");
+      this.refreshAll();
       return;
     }
 
@@ -1095,9 +1124,7 @@ class CoreTuiClientApp {
 
     const isSingleLineSlash = !submitValue.includes("\n") && trimmedValue.startsWith("/");
     if (isSingleLineSlash) {
-      if (this.state.phase !== "idle" && trimmedValue !== "/force_abort") {
-        return false;
-      }
+      if (!this.canRunSlashCommand(trimmedValue)) return false;
       void this.runSlashCommand(trimmedValue);
       return true;
     }
@@ -1108,6 +1135,10 @@ class CoreTuiClientApp {
 
     void this.runPromptTask(submitValue);
     return true;
+  }
+
+  private canRunSlashCommand(command: string): boolean {
+    return this.state.phase === "idle" || command === "/force_abort";
   }
 }
 

@@ -59,4 +59,41 @@ describe("TuiClientState tool messages", () => {
     expect(item.collapsed).toBe(true);
     expect(item.status).toBe("done");
   });
+
+  test("clears only session view content while preserving runtime state", () => {
+    const state = new TuiClientState({
+      terminal: { columns: 120, rows: 40 },
+      agentName: "Atom",
+    });
+
+    state.phase = "polling";
+    state.connection = "ok";
+    state.activeTaskId = "task-1";
+    state.statusNotice = "Working";
+    state.mcpConnected = 1;
+    state.mcpTotal = 2;
+    state.contextModalOpen = true;
+    state.contextModalTitle = "Context";
+    state.contextModalText = "content";
+
+    state.appendLog("system", "line");
+    state.appendChatMessage("user", "hello");
+
+    expect(state.entries.length).toBeGreaterThan(0);
+    expect(state.chatStream.length).toBeGreaterThan(0);
+
+    state.clearSessionView();
+
+    expect(state.entries).toEqual([]);
+    expect(state.chatStream).toEqual([]);
+    expect(state.phase).toBe("polling");
+    expect(state.connection).toBe("ok");
+    expect(state.activeTaskId).toBe("task-1");
+    expect(state.statusNotice).toBe("Working");
+    expect(state.mcpConnected).toBe(1);
+    expect(state.mcpTotal).toBe(2);
+    expect(state.contextModalOpen).toBe(true);
+    expect(state.contextModalTitle).toBe("Context");
+    expect(state.contextModalText).toBe("content");
+  });
 });

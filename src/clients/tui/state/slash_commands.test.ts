@@ -11,6 +11,7 @@ describe("slash command registry", () => {
       "/exit",
       "/context",
       "/force_abort",
+      "/clear",
     ]);
   });
 
@@ -23,6 +24,7 @@ describe("slash command registry", () => {
     expect(resolveSlashCommandAction("/exit")).toEqual({ type: "exit" });
     expect(resolveSlashCommandAction("/context")).toEqual({ type: "open_context" });
     expect(resolveSlashCommandAction("/force_abort")).toEqual({ type: "force_abort" });
+    expect(resolveSlashCommandAction("/clear")).toEqual({ type: "clear_session_view" });
     expect(resolveSlashCommandAction("/help")).toEqual({
       type: "hidden",
       message: "/help hidden in conversation layout",

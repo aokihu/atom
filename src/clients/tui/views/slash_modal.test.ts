@@ -102,6 +102,13 @@ describe("slash modal controller", () => {
     expect(navigate).toEqual({ handled: true, kind: "navigated" });
     expect(controller.getSelectedIndex()).toBe(1);
 
+    const autocomplete = controller.handleKey({
+      key: { name: "tab" } as KeyEvent,
+      inputFocused: true,
+      singleLineSlashOnly: false,
+    });
+    expect(autocomplete).toEqual({ handled: true, kind: "autocomplete" });
+
     const apply = controller.handleKey({
       key: { name: "return" } as KeyEvent,
       inputFocused: true,
