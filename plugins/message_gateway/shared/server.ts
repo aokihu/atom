@@ -1,6 +1,7 @@
 type Logger = Pick<Console, "log" | "warn">;
 
 type RpcHandler = (params: Record<string, unknown>) => Promise<unknown> | unknown;
+type ExtraFetchHandler = (request: Request, url: URL) => Promise<Response | undefined> | Response | undefined;
 
 export type PluginServerOptions = {
   channelId: string;
@@ -9,6 +10,7 @@ export type PluginServerOptions = {
   healthPath: string;
   invokePath: string;
   methods: Record<string, RpcHandler>;
+  extraFetchHandlers?: ExtraFetchHandler[];
   logger?: Logger;
   captureSignals?: boolean;
 };
@@ -47,6 +49,14 @@ export const startPluginServer = (options: PluginServerOptions) => {
     port: options.port,
     fetch: async (request) => {
       const url = new URL(request.url);
+      if (options.extraFetchHandlers && options.extraFetchHandlers.length > 0) {
+        for (const handler of options.extraFetchHandlers) {
+          const handled = await handler(request, url);
+          if (handled) {
+            return handled;
+          }
+        }
+      }
       if (url.pathname === options.healthPath) {
         if (request.method !== "GET") {
           return json(405, {

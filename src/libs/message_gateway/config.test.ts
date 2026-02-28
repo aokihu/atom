@@ -40,15 +40,14 @@ describe("message gateway config", () => {
     expect(resolved.channels[0]?.channelEndpoint.startupTimeoutMs).toBe(10000);
   });
 
-  test("throws when enabled but bearer token is missing", () => {
-    expect(() =>
-      resolveMessageGatewayConfig({
-        gateway: {
-          enabled: true,
-        },
-        channels: [],
-      }),
-    ).toThrow("Message gateway token is required");
+  test("allows enabled gateway without bearer token for plugin-direct ingress", () => {
+    const resolved = resolveMessageGatewayConfig({
+      gateway: {
+        enabled: true,
+      },
+      channels: [],
+    });
+    expect(resolved.gateway.auth.bearerToken).toBe("");
   });
 
   test("load returns disabled config when file is missing", async () => {

@@ -25,8 +25,6 @@ type StartHttpGatewayOptions = {
   version: string;
   startupAt: number;
   getMcpStatus?: (options?: { probeHttp?: boolean }) => Promise<MCPHealthStatus> | MCPHealthStatus;
-  messageGatewayInboundPath?: string;
-  handleMessageGatewayInbound?: (request: Request, url: URL) => Promise<Response> | Response;
   getMessageGatewayStatus?:
     | (() => Promise<MessageGatewayHealthStatus> | MessageGatewayHealthStatus)
     | undefined;
@@ -334,8 +332,6 @@ export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayS
     version,
     startupAt,
     getMcpStatus,
-    messageGatewayInboundPath,
-    handleMessageGatewayInbound,
     getMessageGatewayStatus,
   } = options;
 
@@ -346,17 +342,6 @@ export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayS
       try {
         const url = new URL(request.url);
         const { pathname } = url;
-
-        if (
-          messageGatewayInboundPath &&
-          pathname === messageGatewayInboundPath &&
-          handleMessageGatewayInbound
-        ) {
-          if (request.method !== "POST") {
-            return methodNotAllowed(["POST"]);
-          }
-          return await handleMessageGatewayInbound(request, url);
-        }
 
         if (pathname === "/healthz") {
           if (request.method !== "GET") {

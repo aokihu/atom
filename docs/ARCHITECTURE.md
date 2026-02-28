@@ -61,8 +61,8 @@ plugins/
 
 ### `src/libs/message_gateway`
 - 负责外部通信插件生命周期管理（拉起、健康检查、停止）。
-- 提供统一入站接口：`POST /v1/message-gateway/inbound`。
-- 负责鉴权、按 `channelId` 路由到插件、将文本消息转换为 runtime 任务。
+- 不直接暴露外部入站；外部请求进入各插件进程，再由插件与 server 通信。
+- 负责加载 channel 配置并向插件注入 server 地址与运行参数。
 - 运行模式约束：
   - 仅在 `server` 模式自动启动。
   - `tui` / `tui-client` 不启动外部 channels。

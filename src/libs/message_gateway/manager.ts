@@ -1,34 +1,14 @@
 import { sleep } from "bun";
-import { randomUUID } from "node:crypto";
 
-import type { RuntimeGateway } from "../channel/channel";
 import type {
-  MessageGatewayDeliverRequest,
-  MessageGatewayDeliverResult,
   MessageGatewayHealthStatus,
-  MessageGatewayInboundRequest,
-  MessageGatewayParseInboundResult,
   ResolvedMessageGatewayChannelConfig,
   ResolvedMessageGatewayConfig,
 } from "../../types/message_gateway";
-import { TaskStatus } from "../../types/task";
-import { summarizeCompletedTask } from "../../clients/shared/flows/task_flow";
 import { loadMessageGatewayConfig } from "./config";
 import { resolveMessageGatewayPluginEntry } from "./registry";
 
 type Logger = Pick<Console, "log" | "warn">;
-
-type PluginRpcOk<T> = {
-  ok: true;
-  result: T;
-};
-
-type PluginRpcError = {
-  ok: false;
-  error: string;
-};
-
-type PluginRpcResponse<T> = PluginRpcOk<T> | PluginRpcError;
 
 type ChannelRuntimeState = {
   config: ResolvedMessageGatewayChannelConfig;
@@ -41,51 +21,13 @@ type ChannelRuntimeState = {
 
 export type CreateMessageGatewayManagerOptions = {
   workspace: string;
-  runtime: RuntimeGateway;
   includeChannels?: string[];
   configPath?: string;
   logger?: Logger;
 };
 
-const normalizeHeaderMap = (headers: Headers): Record<string, string> => {
-  const result: Record<string, string> = {};
-  headers.forEach((value, key) => {
-    result[key.toLowerCase()] = value;
-  });
-  return result;
-};
-
-const parseBearerToken = (headerValue: string | null): string | undefined => {
-  if (!headerValue) return undefined;
-  const match = headerValue.match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim();
-};
-
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
-
-const ensureOk = async (response: Response, context: string): Promise<unknown> => {
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new Error(`${context}: invalid JSON response`);
-  }
-
-  if (typeof payload !== "object" || payload === null || !("ok" in payload)) {
-    throw new Error(`${context}: invalid response payload`);
-  }
-
-  const data = payload as PluginRpcResponse<unknown>;
-  if (!response.ok || data.ok === false) {
-    const message = data.ok === false ? data.error : response.statusText;
-    throw new Error(`${context}: ${message}`);
-  }
-  return data.result;
-};
-
-const isTaskRunning = (status: TaskStatus): boolean =>
-  status === TaskStatus.Pending || status === TaskStatus.Running;
 
 export class MessageGatewayManager {
   readonly inboundPath: string;
@@ -93,10 +35,10 @@ export class MessageGatewayManager {
   private readonly includeChannels: Set<string> | null;
   private readonly states = new Map<string, ChannelRuntimeState>();
   private stopping = false;
+  private serverUrl?: string;
 
   constructor(
     private readonly config: ResolvedMessageGatewayConfig,
-    private readonly runtime: RuntimeGateway,
     options?: {
       includeChannels?: string[];
       logger?: Logger;
@@ -117,10 +59,14 @@ export class MessageGatewayManager {
       workspace: options.workspace,
       configPath: options.configPath,
     });
-    return new MessageGatewayManager(config, options.runtime, {
+    return new MessageGatewayManager(config, {
       includeChannels: options.includeChannels,
       logger: options.logger,
     });
+  }
+
+  setServerUrl(serverUrl: string): void {
+    this.serverUrl = serverUrl;
   }
 
   get enabled(): boolean {
@@ -249,8 +195,9 @@ export class MessageGatewayManager {
     const pluginEntry = resolveMessageGatewayPluginEntry(state.config.type);
     const channelConfig = JSON.stringify(state.config);
     const gatewayConfig = JSON.stringify({
+      enabled: this.config.gateway.enabled,
       inboundPath: this.config.gateway.inboundPath,
-      bearerToken: this.config.gateway.auth.bearerToken,
+      auth: this.config.gateway.auth,
     });
 
     try {
@@ -259,6 +206,9 @@ export class MessageGatewayManager {
           ...process.env,
           ATOM_MESSAGE_GATEWAY_CHANNEL_CONFIG: channelConfig,
           ATOM_MESSAGE_GATEWAY_GLOBAL_CONFIG: gatewayConfig,
+          ...(this.serverUrl
+            ? { ATOM_MESSAGE_GATEWAY_SERVER_URL: this.serverUrl }
+            : {}),
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -268,7 +218,7 @@ export class MessageGatewayManager {
       this.attachProcessLifecycleLogs(state);
       await this.waitForChannelHealth(state);
       this.logger.log(
-        `[message_gateway] channel ${state.config.id} ready at ${state.endpointBaseUrl}${state.config.channelEndpoint.invokePath}`,
+        `[message_gateway] channel ${state.config.id} ready at ${state.endpointBaseUrl}${state.config.channelEndpoint.healthPath}`,
       );
     } catch (error) {
       state.running = false;
@@ -286,6 +236,10 @@ export class MessageGatewayManager {
       return;
     }
 
+    if (!this.serverUrl) {
+      throw new Error("message gateway serverUrl is required before start");
+    }
+
     const channels = this.getSelectedChannels();
     for (const channel of channels) {
       const state = this.registerChannelState(channel);
@@ -297,279 +251,11 @@ export class MessageGatewayManager {
     );
   }
 
-  private async callChannelRpc<T>(
-    state: ChannelRuntimeState,
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<T> {
-    if (!state.running) {
-      throw new Error(`Channel ${state.config.id} is not running`);
-    }
-
-    const url = `${state.endpointBaseUrl}${state.config.channelEndpoint.invokePath}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ method, params }),
-    });
-
-    const result = await ensureOk(response, `channel ${state.config.id} rpc ${method}`);
-    return result as T;
-  }
-
-  private async awaitTaskResult(taskId: string): Promise<string> {
-    while (true) {
-      const taskStatus = await this.runtime.getTask(taskId);
-      if (!taskStatus) {
-        throw new Error(`Task not found: ${taskId}`);
-      }
-      if (isTaskRunning(taskStatus.task.status)) {
-        await sleep(800);
-        continue;
-      }
-
-      const summary = summarizeCompletedTask(taskStatus.task);
-      if (summary.kind === "assistant_reply") {
-        return summary.replyText;
-      }
-      return summary.statusNotice;
-    }
-  }
-
-  private async deliverText(
-    state: ChannelRuntimeState,
-    request: MessageGatewayDeliverRequest,
-  ): Promise<MessageGatewayDeliverResult> {
-    return await this.callChannelRpc<MessageGatewayDeliverResult>(state, "channel.deliver", {
-      request,
-    });
-  }
-
-  private buildTaskInput(
-    channelId: string,
-    conversationId: string,
-    senderId: string | undefined,
-    text: string,
-  ): string {
-    const sender = senderId?.trim() || "unknown";
-    return `[channel=${channelId} conversation=${conversationId} sender=${sender}]\n${text}`;
-  }
-
-  private async processInboundAsync(
-    state: ChannelRuntimeState,
-    payload: MessageGatewayParseInboundResult,
-  ): Promise<void> {
-    const immediateResponses = payload.immediateResponses ?? [];
-    for (const response of immediateResponses) {
-      try {
-        await this.deliverText(state, {
-          conversationId: response.conversationId,
-          text: response.text,
-          context: response.metadata,
-        });
-      } catch (error) {
-        this.logger.warn(
-          `[message_gateway] immediate response failed (${state.config.id}): ${toErrorMessage(error)}`,
-        );
-      }
-    }
-
-    for (const message of payload.messages) {
-      try {
-        const taskInput = this.buildTaskInput(
-          state.config.id,
-          message.conversationId,
-          message.senderId,
-          message.text,
-        );
-        const created = await this.runtime.submitTask({
-          type: "message_gateway.input",
-          input: taskInput,
-        });
-        const replyText = await this.awaitTaskResult(created.taskId);
-        await this.deliverText(state, {
-          conversationId: message.conversationId,
-          text: replyText,
-          context: {
-            sourceMessageId: message.messageId,
-            ...(message.metadata ?? {}),
-          },
-        });
-      } catch (error) {
-        this.logger.warn(
-          `[message_gateway] failed to process inbound message (${state.config.id}): ${toErrorMessage(error)}`,
-        );
-      }
-    }
-  }
-
-  async handleInbound(request: Request, url: URL): Promise<Response> {
-    if (!this.enabled) {
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: {
-            code: "NOT_FOUND",
-            message: "Message gateway is disabled",
-          },
-        }),
-        {
-          status: 404,
-          headers: { "content-type": "application/json; charset=utf-8" },
-        },
-      );
-    }
-
-    const expectedToken = this.config.gateway.auth.bearerToken;
-    const bearer = parseBearerToken(request.headers.get("authorization"));
-    const queryToken = url.searchParams.get("token")?.trim();
-    if (expectedToken !== bearer && expectedToken !== queryToken) {
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: {
-            code: "BAD_REQUEST",
-            message: "Unauthorized message gateway request",
-          },
-        }),
-        {
-          status: 401,
-          headers: { "content-type": "application/json; charset=utf-8" },
-        },
-      );
-    }
-
-    const channelId =
-      request.headers.get("x-message-gateway-channel-id")?.trim() ||
-      url.searchParams.get("channelId")?.trim();
-    if (!channelId) {
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: {
-            code: "BAD_REQUEST",
-            message: "Missing channelId",
-          },
-        }),
-        {
-          status: 400,
-          headers: { "content-type": "application/json; charset=utf-8" },
-        },
-      );
-    }
-
-    const state = this.states.get(channelId);
-    if (!state) {
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: {
-            code: "NOT_FOUND",
-            message: `Channel not found: ${channelId}`,
-          },
-        }),
-        {
-          status: 404,
-          headers: { "content-type": "application/json; charset=utf-8" },
-        },
-      );
-    }
-
-    if (!state.running) {
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: {
-            code: "INTERNAL_ERROR",
-            message: `Channel unavailable: ${channelId}`,
-          },
-        }),
-        {
-          status: 503,
-          headers: { "content-type": "application/json; charset=utf-8" },
-        },
-      );
-    }
-
-    const rawBody = await request.text();
-    let body: unknown = undefined;
-    if (rawBody.trim() !== "") {
-      try {
-        body = JSON.parse(rawBody);
-      } catch {
-        body = undefined;
-      }
-    }
-
-    const inboundRequest: MessageGatewayInboundRequest = {
-      requestId: randomUUID(),
-      method: request.method,
-      headers: normalizeHeaderMap(request.headers),
-      query: Object.fromEntries(url.searchParams.entries()),
-      body,
-      rawBody,
-      receivedAt: Date.now(),
-    };
-
-    let parsed: MessageGatewayParseInboundResult;
-    try {
-      parsed = await this.callChannelRpc<MessageGatewayParseInboundResult>(
-        state,
-        "channel.parseInbound",
-        { request: inboundRequest },
-      );
-    } catch (error) {
-      this.logger.warn(
-        `[message_gateway] inbound parse failed (${channelId}): ${toErrorMessage(error)}`,
-      );
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: {
-            code: "INTERNAL_ERROR",
-            message: `Inbound parse failed for channel ${channelId}`,
-          },
-        }),
-        {
-          status: 502,
-          headers: { "content-type": "application/json; charset=utf-8" },
-        },
-      );
-    }
-
-    if (parsed.accepted && (parsed.messages.length > 0 || (parsed.immediateResponses?.length ?? 0) > 0)) {
-      void this.processInboundAsync(state, parsed);
-    }
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        data: {
-          accepted: parsed.accepted,
-          channelId,
-          requestId: inboundRequest.requestId,
-          queuedMessages: parsed.messages.length,
-        },
-      }),
-      {
-        status: 202,
-        headers: { "content-type": "application/json; charset=utf-8" },
-      },
-    );
-  }
-
   async stop(): Promise<void> {
     this.stopping = true;
 
     for (const state of this.states.values()) {
       if (!state.process) continue;
-
-      try {
-        if (state.running) {
-          await this.callChannelRpc<{ stopped: boolean }>(state, "channel.shutdown", {});
-        }
-      } catch {}
 
       try {
         state.process.kill();

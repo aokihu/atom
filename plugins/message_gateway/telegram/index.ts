@@ -1,23 +1,29 @@
+import { sleep } from "bun";
+
+import { HttpGatewayClient } from "../../../src/libs/channel";
 import type {
-  MessageGatewayDeliverResult,
   MessageGatewayInboundRequest,
   MessageGatewayParseInboundResult,
   ResolvedMessageGatewayChannelConfig,
 } from "../../../src/types/message_gateway";
+import { TaskStatus } from "../../../src/types/task";
+import { summarizeCompletedTask } from "../../../src/clients/shared/flows/task_flow";
 import { createTelegramBotApi } from "../../../src/clients/telegram/bot_api";
 import { escapeMarkdownV2 } from "../../../src/clients/telegram/markdown_v2";
 import { splitTelegramMessage } from "../../../src/clients/telegram/message_split";
-import { assertChannelSettingsObject, resolveSecret, type MessageGatewayGlobalPluginConfig } from "../shared/config";
+import { assertChannelSettingsObject, resolveSecret } from "../shared/config";
 import { parseJsonEnv, startPluginServer } from "../shared/server";
 
 type TelegramPluginSettings = {
   allowedChatId: string;
   botToken: string;
   webhookPublicBaseUrl: string;
+  webhookPath: string;
   webhookSecretToken?: string;
   dropPendingUpdatesOnStart: boolean;
   parseMode: "MarkdownV2" | "plain";
   chunkSize: number;
+  pollIntervalMs: number;
 };
 
 type TelegramUpdatePayload = {
@@ -49,6 +55,14 @@ const ensureNonEmptyString = (value: unknown, label: string): string => {
 };
 
 const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, "");
+
+const normalizePath = (value: string): string => {
+  const normalized = value.trim();
+  if (!normalized.startsWith("/")) {
+    throw new Error("telegram.webhookPath must start with /");
+  }
+  return normalized;
+};
 
 const resolvePluginSettings = (channel: ResolvedMessageGatewayChannelConfig): TelegramPluginSettings => {
   const settings = assertChannelSettingsObject(channel);
@@ -82,14 +96,24 @@ const resolvePluginSettings = (channel: ResolvedMessageGatewayChannelConfig): Te
     throw new Error("telegram.chunkSize must be in range 1..4096");
   }
 
+  const pollIntervalMsRaw =
+    typeof settings.pollIntervalMs === "number" && Number.isInteger(settings.pollIntervalMs)
+      ? settings.pollIntervalMs
+      : 1000;
+  if (pollIntervalMsRaw < 0 || pollIntervalMsRaw > 60000) {
+    throw new Error("telegram.pollIntervalMs must be in range 0..60000");
+  }
+
   return {
     allowedChatId,
     botToken,
     webhookPublicBaseUrl: normalizeBaseUrl(webhookPublicBaseUrl),
+    webhookPath: normalizePath(trimToUndefined(settings.webhookPath) ?? "/telegram/webhook"),
     webhookSecretToken: webhookSecretToken?.trim(),
     dropPendingUpdatesOnStart: settings.dropPendingUpdatesOnStart !== false,
     parseMode,
     chunkSize: chunkSizeRaw,
+    pollIntervalMs: pollIntervalMsRaw,
   };
 };
 
@@ -125,12 +149,8 @@ const requestTelegramApi = async (
 
 const buildWebhookUrl = (
   settings: TelegramPluginSettings,
-  globalConfig: MessageGatewayGlobalPluginConfig,
-  channelId: string,
 ): string => {
-  const url = new URL(globalConfig.inboundPath, `${settings.webhookPublicBaseUrl}/`);
-  url.searchParams.set("channelId", channelId);
-  url.searchParams.set("token", globalConfig.bearerToken);
+  const url = new URL(settings.webhookPath, `${settings.webhookPublicBaseUrl}/`);
   return url.toString();
 };
 
@@ -258,23 +278,84 @@ const parseTelegramInbound = (
   };
 };
 
+const isTaskRunning = (status: TaskStatus): boolean =>
+  status === TaskStatus.Pending || status === TaskStatus.Running;
+
 const main = async () => {
   const channelConfig = parseJsonEnv<ResolvedMessageGatewayChannelConfig>(
     "ATOM_MESSAGE_GATEWAY_CHANNEL_CONFIG",
-  );
-  const globalConfig = parseJsonEnv<MessageGatewayGlobalPluginConfig>(
-    "ATOM_MESSAGE_GATEWAY_GLOBAL_CONFIG",
   );
   if (channelConfig.type !== "telegram") {
     throw new Error(`telegram plugin received unsupported channel type: ${channelConfig.type}`);
   }
 
+  const serverUrl = ensureNonEmptyString(
+    process.env.ATOM_MESSAGE_GATEWAY_SERVER_URL,
+    "ATOM_MESSAGE_GATEWAY_SERVER_URL",
+  );
+
   const settings = resolvePluginSettings(channelConfig);
   const api = createTelegramBotApi({
     botToken: settings.botToken,
   });
+  const serverClient = new HttpGatewayClient(serverUrl);
 
-  const webhookUrl = buildWebhookUrl(settings, globalConfig, channelConfig.id);
+  const sendText = async (chatId: string, text: string): Promise<void> => {
+    const outgoingText = normalizeOutgoingText(text, settings.parseMode);
+    const parseMode = settings.parseMode === "MarkdownV2" ? "MarkdownV2" : undefined;
+    const chunks = splitTelegramMessage(outgoingText, settings.chunkSize);
+    for (const chunk of chunks) {
+      await api.sendMessage({
+        chatId,
+        text: chunk,
+        parseMode,
+      });
+    }
+  };
+
+  const awaitTaskResult = async (taskId: string): Promise<string> => {
+    while (true) {
+      const taskStatus = await serverClient.getTask(taskId);
+      if (isTaskRunning(taskStatus.task.status)) {
+        await sleep(settings.pollIntervalMs);
+        continue;
+      }
+      const summary = summarizeCompletedTask(taskStatus.task);
+      return summary.kind === "assistant_reply" ? summary.replyText : summary.statusNotice;
+    }
+  };
+
+  const processParsedInbound = async (parsed: MessageGatewayParseInboundResult): Promise<void> => {
+    for (const response of parsed.immediateResponses ?? []) {
+      try {
+        await sendText(response.conversationId, response.text);
+      } catch (error) {
+        console.warn(
+          `[message_gateway:${channelConfig.id}] immediate response failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    for (const message of parsed.messages) {
+      try {
+        const taskInput = `[channel=${channelConfig.id} conversation=${message.conversationId} sender=${message.senderId ?? "unknown"}]\n${message.text}`;
+        const created = await serverClient.createTask({
+          type: "message_gateway.input",
+          input: taskInput,
+        });
+        const reply = await awaitTaskResult(created.taskId);
+        await sendText(message.conversationId, reply);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.warn(`[message_gateway:${channelConfig.id}] task pipeline failed: ${errorMessage}`);
+        try {
+          await sendText(message.conversationId, `Task failed: ${errorMessage}`);
+        } catch {}
+      }
+    }
+  };
+
+  const webhookUrl = buildWebhookUrl(settings);
 
   const gracefulShutdown = async (
     server: ReturnType<typeof startPluginServer>,
@@ -302,38 +383,60 @@ const main = async () => {
     invokePath: channelConfig.channelEndpoint.invokePath,
     captureSignals: false,
     methods: {
-      "channel.parseInbound": async (params) => {
-        const request = params.request as MessageGatewayInboundRequest | undefined;
-        if (!request || typeof request !== "object") {
-          throw new Error("channel.parseInbound requires request");
-        }
-        return parseTelegramInbound(request, settings);
-      },
-      "channel.deliver": async (params) => {
-        const request = params.request as { conversationId?: unknown; text?: unknown } | undefined;
-        if (!request || typeof request !== "object") {
-          throw new Error("channel.deliver requires request");
-        }
-        const conversationId = ensureNonEmptyString(request.conversationId, "conversationId");
-        const text = ensureNonEmptyString(request.text, "text");
-        const outgoingText = normalizeOutgoingText(text, settings.parseMode);
-        const parseMode = settings.parseMode === "MarkdownV2" ? "MarkdownV2" : undefined;
-        const chunks = splitTelegramMessage(outgoingText, settings.chunkSize);
-        for (const chunk of chunks) {
-          await api.sendMessage({
-            chatId: conversationId,
-            text: chunk,
-            parseMode,
-          });
-        }
-        return { delivered: true } satisfies MessageGatewayDeliverResult;
-      },
       "channel.shutdown": async () => {
         await gracefulShutdown(server, "rpc shutdown");
         queueMicrotask(() => process.exit(0));
         return { stopped: true };
       },
     },
+    extraFetchHandlers: [
+      async (request, url) => {
+        if (url.pathname !== settings.webhookPath) {
+          return undefined;
+        }
+
+        if (request.method !== "POST") {
+          return new Response("Method Not Allowed", { status: 405 });
+        }
+
+        const rawBody = await request.text();
+        let body: unknown;
+        try {
+          body = rawBody.trim() ? JSON.parse(rawBody) : undefined;
+        } catch {
+          body = undefined;
+        }
+
+        const parsed = parseTelegramInbound(
+          {
+            requestId: crypto.randomUUID(),
+            method: request.method,
+            headers: Object.fromEntries([...request.headers.entries()].map(([k, v]) => [k.toLowerCase(), v])),
+            query: Object.fromEntries(url.searchParams.entries()),
+            body,
+            rawBody,
+            receivedAt: Date.now(),
+          },
+          settings,
+        );
+
+        if (!parsed.accepted) {
+          return new Response("Unauthorized", { status: 401 });
+        }
+
+        if (parsed.messages.length > 0 || (parsed.immediateResponses?.length ?? 0) > 0) {
+          void processParsedInbound(parsed);
+        }
+
+        return new Response(
+          JSON.stringify({ ok: true, accepted: true }),
+          {
+            status: 202,
+            headers: { "content-type": "application/json; charset=utf-8" },
+          },
+        );
+      },
+    ],
   });
 
   const onSignal = (signal: NodeJS.Signals) => {

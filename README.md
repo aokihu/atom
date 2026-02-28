@@ -88,7 +88,6 @@ bun run src/index.ts --mode server --workspace ./Playground --channels telegram_
 - `GET /v1/agent/memory/stats`
 - `POST /v1/agent/memory/compact`
 - `POST /v1/agent/memory/list_recent`
-- `POST /v1/message-gateway/inbound`
 
 响应结构统一：
 

@@ -1,11 +1,7 @@
 {
   "gateway": {
     "enabled": false,
-    "inboundPath": "/v1/message-gateway/inbound",
-    "auth": {
-      "bearerTokenEnv": "MESSAGE_GATEWAY_TOKEN",
-      "bearerToken": ""
-    }
+    "inboundPath": "/v1/message-gateway/inbound"
   },
   "channels": [
     {
@@ -24,6 +20,7 @@
         "botTokenEnv": "TELEGRAM_BOT_TOKEN",
         "botToken": "",
         "webhookPublicBaseUrl": "https://example.com",
+        "webhookPath": "/telegram/webhook",
         "webhookSecretTokenEnv": "TELEGRAM_WEBHOOK_SECRET",
         "webhookSecretToken": "",
         "dropPendingUpdatesOnStart": true,
@@ -42,7 +39,11 @@
         "invokePath": "/rpc",
         "startupTimeoutMs": 10000
       },
-      "settings": {}
+      "settings": {
+        "inboundPath": "/http/webhook",
+        "authTokenEnv": "HTTP_CHANNEL_TOKEN",
+        "authToken": ""
+      }
     }
   ]
 }

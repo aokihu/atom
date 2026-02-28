@@ -372,7 +372,6 @@ const main = async () => {
     logStage("loading message gateway config...");
     messageGatewayManager = await MessageGatewayManager.create({
       workspace: cliOptions.workspace,
-      runtime: runtimeService,
       includeChannels: cliOptions.channels,
       logger: console,
     });
@@ -387,12 +386,6 @@ const main = async () => {
     version,
     startupAt: runtimeService.startupAt,
     getMcpStatus,
-    messageGatewayInboundPath: messageGatewayManager?.enabled
-      ? messageGatewayManager.inboundPath
-      : undefined,
-    handleMessageGatewayInbound: messageGatewayManager?.enabled
-      ? (request, url) => messageGatewayManager!.handleInbound(request, url)
-      : undefined,
     getMessageGatewayStatus: messageGatewayManager
       ? () => messageGatewayManager.getHealthStatus()
       : undefined,
@@ -401,6 +394,7 @@ const main = async () => {
   console.log(`[http] listening on ${gateway.baseUrl}`);
 
   if (messageGatewayManager) {
+    messageGatewayManager.setServerUrl(gateway.baseUrl);
     await messageGatewayManager.start();
   }
 

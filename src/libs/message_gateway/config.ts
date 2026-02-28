@@ -70,13 +70,7 @@ const resolveBearerToken = (
   const tokenFromConfig = trimToUndefined(
     typeof auth?.bearerToken === "string" ? auth.bearerToken : undefined,
   );
-  const resolved = tokenFromEnv ?? tokenFromConfig;
-  if (!resolved) {
-    throw new Error(
-      "Message gateway token is required. Set message_gateway.gateway.auth.bearerToken or bearerTokenEnv",
-    );
-  }
-  return resolved;
+  return tokenFromEnv ?? tokenFromConfig ?? "";
 };
 
 const resolveChannel = (
