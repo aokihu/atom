@@ -3,6 +3,8 @@ import { ControlledTaskStopError } from "./errors";
 import { PriorityTaskQueue, createTask } from "./queue";
 import { TaskInputPolicy, type TaskInputIngressMeta } from "./input_policy";
 import { InMemoryScheduledTaskManager, SqliteScheduledTaskStore } from "./scheduler";
+import { buildContextLiteResponse } from "../agent/session/context_projection_v2";
+import { toModelContextV2 } from "../agent/session/context_model_v2";
 
 import type { RuntimeGateway } from "../channel/channel";
 import type {
@@ -25,6 +27,7 @@ import type {
   AgentMemoryUpsertRequest,
   AgentMemoryUpsertResponse,
   AgentContextResponse,
+  AgentContextLiteResponse,
   AgentMessagesResponse,
   CancelScheduleResponse,
   CreateScheduleRequest,
@@ -599,11 +602,21 @@ export class AgentRuntimeService implements RuntimeGateway {
 
   getAgentContext(): AgentContextResponse {
     const agent = this.getAgent() as Agent & {
-      getContextProjectionSnapshot?: () => AgentContextResponse;
+      getContextProjectionSnapshot?: () => {
+        context: AgentContextResponse["context"];
+        injectedContext: AgentContextResponse["injectedContext"];
+        projectionDebug: AgentContextResponse["projectionDebug"];
+        modelContext?: AgentContextLiteResponse["modelContext"];
+      };
     };
 
     if (typeof agent.getContextProjectionSnapshot === "function") {
-      return agent.getContextProjectionSnapshot();
+      const snapshot = agent.getContextProjectionSnapshot();
+      return {
+        context: snapshot.context,
+        injectedContext: snapshot.injectedContext,
+        projectionDebug: snapshot.projectionDebug,
+      };
     }
 
     const context = this.getAgent().getContextSnapshot();
@@ -635,6 +648,33 @@ export class AgentRuntimeService implements RuntimeGateway {
         droppedSamples: {},
       },
     };
+  }
+
+  getAgentContextLite(): AgentContextLiteResponse {
+    const agent = this.getAgent() as Agent & {
+      getContextProjectionSnapshot?: () => {
+        context: AgentContextResponse["context"];
+        injectedContext: AgentContextResponse["injectedContext"];
+        projectionDebug: AgentContextResponse["projectionDebug"];
+        modelContext?: AgentContextLiteResponse["modelContext"];
+      };
+    };
+
+    if (typeof agent.getContextProjectionSnapshot === "function") {
+      const snapshot = agent.getContextProjectionSnapshot();
+      return buildContextLiteResponse({
+        context: snapshot.context,
+        modelContext: snapshot.modelContext ?? toModelContextV2(snapshot.injectedContext),
+        projectionDebug: snapshot.projectionDebug,
+      });
+    }
+
+    const legacy = this.getAgentContext();
+    return buildContextLiteResponse({
+      context: legacy.context,
+      modelContext: toModelContextV2(legacy.injectedContext),
+      projectionDebug: legacy.projectionDebug,
+    });
   }
 
   getAgentMessages(): AgentMessagesResponse {

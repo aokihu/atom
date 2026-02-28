@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   AgentContext,
   ContextMemoryBlock,
@@ -11,8 +12,14 @@ import {
   openPersistentMemoryDatabase,
   type PersistentMemoryDatabaseHandle,
 } from "./persistent_db";
-import { derivePersistentMemorySummary, PersistentMemoryStore } from "./persistent_store";
 import {
+  canonicalizePersistentBlockId,
+  derivePersistentMemorySummary,
+  PersistentMemoryStore,
+} from "./persistent_store";
+import { PersistentCaptureQueue } from "./persistent_queue";
+import {
+  type PersistentCaptureJob,
   resolvePersistentMemoryConfig,
   type PersistentMemoryAfterTaskMeta,
   type PersistentMemoryCoordinatorStatus,
@@ -41,6 +48,71 @@ const uniqueTags = (tags: string[]) => {
 };
 
 const normalizeQuery = (query: string) => query.trim();
+const toContentHash = (content: string) => createHash("sha256").update(content).digest("hex");
+
+const isRecallMemoryBlock = (block: ContextMemoryBlock): boolean => {
+  const type = typeof block.type === "string" ? block.type : "";
+  if (type === "persistent_recall" || type === "persistent_longterm_recall") {
+    return true;
+  }
+
+  if (typeof block.id === "string" && block.id.startsWith("persistent:")) {
+    return true;
+  }
+
+  if (typeof (block as Record<string, unknown>).persistent_block_id === "string") {
+    return true;
+  }
+
+  return false;
+};
+
+const normalizeWorkingCaptureId = (id: string): string => {
+  const canonical = canonicalizePersistentBlockId(id);
+  if (canonical.startsWith("working:")) {
+    return canonical;
+  }
+  return `working:${canonical}`;
+};
+
+const canonicalIdFromMemoryBlock = (block: ContextMemoryBlock): string => {
+  const persistentBlockId = (block as Record<string, unknown>).persistent_block_id;
+  if (typeof persistentBlockId === "string" && persistentBlockId.trim() !== "") {
+    return canonicalizePersistentBlockId(persistentBlockId);
+  }
+  return canonicalizePersistentBlockId(block.id);
+};
+
+const withTimeout = async <T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+): Promise<{ timedOut: false; value: T } | { timedOut: true }> => {
+  if (timeoutMs <= 0) {
+    return {
+      timedOut: false,
+      value: await operation,
+    };
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<{ timedOut: true }>((resolve) => {
+      timer = setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+    });
+    const result = await Promise.race([
+      operation.then((value) => ({ timedOut: false as const, value })),
+      timeout,
+    ]);
+    return result;
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+};
+
+const isDeadlineExceeded = (deadlineAt?: number): boolean =>
+  typeof deadlineAt === "number" && Date.now() > deadlineAt;
 
 type LoggerLike = Pick<Console, "log" | "warn">;
 
@@ -122,9 +194,12 @@ export class PersistentMemoryCoordinator {
   private readonly logger: LoggerLike;
   private readonly store?: PersistentMemoryStore;
   private readonly dbHandle?: PersistentMemoryDatabaseHandle;
+  private readonly captureQueue?: PersistentCaptureQueue;
   private readonly statusValue: PersistentMemoryCoordinatorStatus;
   private compactionTimer: ReturnType<typeof setTimeout> | null = null;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private compactionRunning = false;
+  private flushRunning = false;
   private disposed = false;
   private readonly taskActivityTimestamps: number[] = [];
 
@@ -133,16 +208,19 @@ export class PersistentMemoryCoordinator {
     logger: LoggerLike;
     store?: PersistentMemoryStore;
     dbHandle?: PersistentMemoryDatabaseHandle;
+    captureQueue?: PersistentCaptureQueue;
     status: PersistentMemoryCoordinatorStatus;
   }) {
     this.config = args.config;
     this.logger = args.logger;
     this.store = args.store;
     this.dbHandle = args.dbHandle;
+    this.captureQueue = args.captureQueue;
     this.statusValue = args.status;
 
     if (this.store && this.statusValue.available) {
       this.scheduleCompaction();
+      this.scheduleFlush();
     }
   }
 
@@ -170,11 +248,15 @@ export class PersistentMemoryCoordinator {
     try {
       const handle = openPersistentMemoryDatabase(args.workspace);
       const store = new PersistentMemoryStore(handle);
+      const captureQueue = resolved.pipeline.mode === "async_wal"
+        ? PersistentCaptureQueue.initialize({ workspace: args.workspace, logger })
+        : undefined;
       return new PersistentMemoryCoordinator({
         config: resolved,
         logger,
         store,
         dbHandle: handle,
+        captureQueue,
         status: {
           enabled: true,
           available: true,
@@ -298,6 +380,115 @@ export class PersistentMemoryCoordinator {
 
     const timeout = this.compactionTimer as unknown as { unref?: () => void };
     timeout.unref?.();
+  }
+
+  private clearFlushTimer() {
+    if (!this.flushTimer) {
+      return;
+    }
+    clearTimeout(this.flushTimer);
+    this.flushTimer = null;
+  }
+
+  private scheduleFlush() {
+    this.clearFlushTimer();
+    if (this.config.pipeline.mode !== "async_wal") {
+      return;
+    }
+    if (!this.captureQueue || !this.getOperationalStore()) {
+      return;
+    }
+
+    this.flushTimer = setTimeout(async () => {
+      this.flushTimer = null;
+      try {
+        await this.flushCaptureQueue();
+      } finally {
+        if (!this.disposed) {
+          this.scheduleFlush();
+        }
+      }
+    }, this.config.pipeline.flushIntervalMs);
+
+    const timeout = this.flushTimer as unknown as { unref?: () => void };
+    timeout.unref?.();
+  }
+
+  private triggerFlushSoon() {
+    if (this.config.pipeline.mode !== "async_wal") {
+      return;
+    }
+    if (this.flushRunning) {
+      return;
+    }
+    if (this.flushTimer) {
+      return;
+    }
+    this.scheduleFlush();
+  }
+
+  private async flushCaptureQueue(options?: { force?: boolean }): Promise<number> {
+    const store = this.getOperationalStore();
+    const queue = this.captureQueue;
+    if (!store || !queue) {
+      return 0;
+    }
+
+    if (this.flushRunning) {
+      return 0;
+    }
+
+    this.flushRunning = true;
+    try {
+      let flushedJobs = 0;
+      while (true) {
+        const batch = queue.peekBatch(this.config.pipeline.batchSize);
+        if (batch.length <= 0) {
+          break;
+        }
+
+        const grouped = new Map<
+          string,
+          { sourceTier: "core" | "longterm"; sourceTaskId: string | null; blocks: ContextMemoryBlock[]; jobIds: string[] }
+        >();
+
+        for (const job of batch) {
+          const key = `${job.sourceTier}::${job.sourceTaskId ?? ""}`;
+          const bucket = grouped.get(key) ?? {
+            sourceTier: job.sourceTier,
+            sourceTaskId: job.sourceTaskId,
+            blocks: [],
+            jobIds: [],
+          };
+          bucket.blocks.push(structuredClone(job.block));
+          bucket.jobIds.push(job.jobId);
+          grouped.set(key, bucket);
+        }
+
+        const ackIds: string[] = [];
+        for (const bucket of grouped.values()) {
+          await store.upsertCoreBlocks({
+            blocks: bucket.blocks,
+            sourceTier: bucket.sourceTier,
+            sourceTaskId: bucket.sourceTaskId,
+          });
+          ackIds.push(...bucket.jobIds);
+        }
+
+        await queue.ack(ackIds);
+        flushedJobs += ackIds.length;
+
+        if (!options?.force) {
+          break;
+        }
+      }
+      return flushedJobs;
+    } catch (error) {
+      this.logger.warn(`[memory] async WAL flush failed: ${error instanceof Error ? error.message : String(error)}`);
+      return 0;
+    } finally {
+      this.flushRunning = false;
+    }
   }
 
   private computeReuseProbability(entry: {
@@ -459,8 +650,9 @@ export class PersistentMemoryCoordinator {
     tier: "ephemeral" | "longterm";
   }): ContextMemoryBlock {
     const type = args.tier === "longterm" ? "persistent_longterm_recall" : "persistent_recall";
+    const canonicalBlockId = canonicalizePersistentBlockId(args.entry.blockId);
     return {
-      id: `persistent:${args.entry.blockId}`,
+      id: `persistent:${canonicalBlockId}`,
       type,
       decay: Math.min(args.entry.decay, args.tier === "longterm" ? 0.3 : 0.25),
       confidence: clamp01(Math.max(args.entry.confidence, 0.7)),
@@ -476,25 +668,45 @@ export class PersistentMemoryCoordinator {
       ...(args.entry.tagId ? { tag_id: args.entry.tagId } : {}),
       ...(args.entry.tagSummary ? { tag_summary: args.entry.tagSummary } : {}),
       ...(typeof args.entry.rehydratedAt === "number" ? { rehydrated_at: args.entry.rehydratedAt } : {}),
-      persistent_block_id: args.entry.blockId,
+      persistent_block_id: canonicalBlockId,
       persistent_score: Number(args.finalScore.toFixed(6)),
     };
   }
 
   private async beforeTask(session: AgentSession, question: string): Promise<void> {
+    const timeoutMs = this.config.pipeline.recallTimeoutMs;
+    const deadlineAt = timeoutMs > 0 ? Date.now() + timeoutMs : undefined;
+    const result = await withTimeout(
+      this.beforeTaskInternal(session, question, deadlineAt),
+      timeoutMs,
+    );
+
+    if (result.timedOut) {
+      this.logger.warn(
+        `[memory] beforeTask recall timed out after ${this.config.pipeline.recallTimeoutMs}ms; continuing without recall`,
+      );
+    }
+  }
+
+  private async beforeTaskInternal(
+    session: AgentSession,
+    question: string,
+    deadlineAt?: number,
+  ): Promise<void> {
     const store = this.getOperationalStore();
     if (!store) return;
 
     this.noteTaskActivity();
     if (!this.config.autoRecall) return;
+    if (isDeadlineExceeded(deadlineAt)) return;
     const query = normalizeQuery(question);
     if (!query) return;
 
     const snapshot = session.getContextSnapshot();
-    const excludeBlockIds = new Set([
-      ...snapshot.memory.core.map((block) => block.id),
-      ...snapshot.memory.longterm.map((block) => block.id),
-    ]);
+    const excludeBlockIds = new Set<string>();
+    for (const block of [...snapshot.memory.core, ...snapshot.memory.longterm]) {
+      excludeBlockIds.add(canonicalIdFromMemoryBlock(block));
+    }
 
     const search = await store.searchRelevant({
       query,
@@ -505,9 +717,10 @@ export class PersistentMemoryCoordinator {
     const fallbackLimit = Math.max(2, Math.min(12, this.config.maxRecallItems + this.config.maxRecallLongtermItems));
     const fallbackEntries = search.hits.length === 0
       ? (await store.listRecent(fallbackLimit))
-        .filter((entry) => !excludeBlockIds.has(entry.blockId))
+        .filter((entry) => !excludeBlockIds.has(canonicalizePersistentBlockId(entry.blockId)))
         .filter((entry) => Date.now() - entry.updatedAt <= 14 * DAY_MS)
       : [];
+    if (isDeadlineExceeded(deadlineAt)) return;
     if (search.hits.length === 0 && fallbackEntries.length === 0) {
       return;
     }
@@ -598,12 +811,50 @@ export class PersistentMemoryCoordinator {
       memoryPatch.longterm = longtermBlocks;
     }
     if (Object.keys(memoryPatch).length > 0) {
+      if (isDeadlineExceeded(deadlineAt)) return;
       session.mergeSystemContextPatch({
         memory: memoryPatch,
       } as Partial<AgentContext>);
     }
 
+    if (isDeadlineExceeded(deadlineAt)) return;
     await store.markRecalled(recalledIds);
+  }
+
+  private toCaptureJob(args: {
+    block: ContextMemoryBlock;
+    sourceTier: "core" | "longterm";
+    sourceTaskId: string | null;
+    createdAt: number;
+    index: number;
+  }): PersistentCaptureJob {
+    const canonicalBlockId = canonicalIdFromMemoryBlock(args.block);
+    const normalizedBlock: ContextMemoryBlock = {
+      ...structuredClone(args.block),
+      id: canonicalBlockId,
+    };
+    delete (normalizedBlock as Record<string, unknown>).persistent_block_id;
+    return {
+      jobId: `${args.createdAt}-${args.index}-${Math.random().toString(36).slice(2, 10)}`,
+      createdAt: args.createdAt,
+      sourceTier: args.sourceTier,
+      sourceTaskId: args.sourceTaskId,
+      blockId: canonicalBlockId,
+      contentHash: toContentHash(normalizedBlock.content),
+      block: normalizedBlock,
+    };
+  }
+
+  private async enqueueCaptureJobs(jobs: PersistentCaptureJob[]) {
+    const queue = this.captureQueue;
+    if (!queue || jobs.length === 0) {
+      return;
+    }
+
+    for (const job of jobs) {
+      await queue.enqueue(job);
+    }
+    this.triggerFlushSoon();
   }
 
   private async afterTask(
@@ -617,6 +868,7 @@ export class PersistentMemoryCoordinator {
 
     const snapshot = session.getContextSnapshot();
     const shouldCapture = (block: ContextMemoryBlock) => {
+      if (isRecallMemoryBlock(block)) return false;
       if (typeof block.id !== "string" || block.id.trim() === "") return false;
       if (typeof block.content !== "string" || block.content.trim() === "") return false;
       return typeof block.confidence === "number" && block.confidence >= this.config.minCaptureConfidence;
@@ -634,7 +886,7 @@ export class PersistentMemoryCoordinator {
       })
       .map((block) => ({
         ...block,
-        id: `working:${block.id}`,
+        id: normalizeWorkingCaptureId(block.id),
         type: block.type || "working_memory",
         tags: uniqueTags([...(Array.isArray(block.tags) ? block.tags : []), "working_capture"]),
         decay: typeof block.decay === "number" ? Math.min(block.decay + 0.1, 0.65) : 0.45,
@@ -655,6 +907,49 @@ export class PersistentMemoryCoordinator {
             ? (activeTaskMeta as Record<string, unknown>).id as string
             : null)
         : null;
+
+    if (this.config.pipeline.mode === "async_wal" && this.captureQueue) {
+      const createdAt = Date.now();
+      const jobs: PersistentCaptureJob[] = [];
+      let index = 0;
+
+      for (const block of coreBlocks) {
+        jobs.push(
+          this.toCaptureJob({
+            block,
+            sourceTier: "core",
+            sourceTaskId,
+            createdAt,
+            index: index++,
+          }),
+        );
+      }
+      for (const block of longtermBlocks) {
+        jobs.push(
+          this.toCaptureJob({
+            block,
+            sourceTier: "longterm",
+            sourceTaskId,
+            createdAt,
+            index: index++,
+          }),
+        );
+      }
+      for (const block of workingToLongterm) {
+        jobs.push(
+          this.toCaptureJob({
+            block,
+            sourceTier: "longterm",
+            sourceTaskId,
+            createdAt,
+            index: index++,
+          }),
+        );
+      }
+
+      await this.enqueueCaptureJobs(jobs);
+      return;
+    }
 
     if (coreBlocks.length > 0) {
       await store.upsertCoreBlocks({
@@ -745,7 +1040,7 @@ export class PersistentMemoryCoordinator {
     if (!store) return { inserted: 0, updated: 0, unchanged: 0, skipped: 0 };
 
     const blocks: ContextMemoryBlock[] = args.items.map((item, index) => ({
-      id: item.blockId.trim(),
+      id: canonicalizePersistentBlockId(item.blockId.trim()),
       type: item.type?.trim() || "memory_note",
       decay: clamp01(item.decay ?? 0.2),
       confidence: clamp01(item.confidence ?? 0.85),
@@ -898,6 +1193,13 @@ export class PersistentMemoryCoordinator {
     if (this.disposed) return;
     this.disposed = true;
     this.clearCompactionTimer();
+    this.clearFlushTimer();
+    if (this.config.pipeline.mode === "async_wal") {
+      await Promise.race([
+        this.flushCaptureQueue({ force: true }),
+        new Promise((resolve) => setTimeout(resolve, this.config.pipeline.flushOnShutdownTimeoutMs)),
+      ]);
+    }
     await closePersistentMemoryDatabase(this.dbHandle);
   }
 }

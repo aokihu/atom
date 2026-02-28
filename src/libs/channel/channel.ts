@@ -18,6 +18,7 @@ import type {
   AgentMemoryUpsertRequest,
   AgentMemoryUpsertResponse,
   AgentContextResponse,
+  AgentContextLiteResponse,
   AgentMessagesResponse,
   CancelScheduleResponse,
   CreateScheduleRequest,
@@ -41,6 +42,7 @@ export interface RuntimeGateway {
   getTask(taskId: string, options?: GetTaskOptions): MaybePromise<TaskStatusResponse | undefined>;
   getQueueStats(): MaybePromise<QueueStats>;
   getAgentContext(): MaybePromise<AgentContextResponse>;
+  getAgentContextLite?(): MaybePromise<AgentContextLiteResponse>;
   getAgentMessages(): MaybePromise<AgentMessagesResponse>;
   memorySearch?(request: AgentMemorySearchRequest): MaybePromise<AgentMemorySearchResponse>;
   memoryGet?(request: AgentMemoryGetRequest): MaybePromise<AgentMemoryGetResponse>;
@@ -63,6 +65,7 @@ export interface GatewayClient {
   createTask(request: CreateTaskRequest): Promise<CreateTaskResponse>;
   getTask(taskId: string, options?: GetTaskOptions): Promise<TaskStatusResponse>;
   getAgentContext(): Promise<AgentContextResponse>;
+  getAgentContextLite?(): Promise<AgentContextLiteResponse>;
   getAgentMessages(): Promise<AgentMessagesResponse>;
   memorySearch?(request: AgentMemorySearchRequest): Promise<AgentMemorySearchResponse>;
   memoryGet?(request: AgentMemoryGetRequest): Promise<AgentMemoryGetResponse>;

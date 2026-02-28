@@ -31,6 +31,7 @@ import type {
   ListSchedulesResponse,
   TaskStatusResponse,
   AgentContextResponse,
+  AgentContextLiteResponse,
   AgentMessagesResponse,
 } from "../../types/http";
 
@@ -122,6 +123,10 @@ export class HttpGatewayClient implements GatewayClient {
 
   async getAgentContext(): Promise<AgentContextResponse> {
     return await this.request<AgentContextResponse>("/v1/agent/context", { method: "GET" });
+  }
+
+  async getAgentContextLite(): Promise<AgentContextLiteResponse> {
+    return await this.request<AgentContextLiteResponse>("/v1/agent/context-lite", { method: "GET" });
   }
 
   async getAgentMessages(): Promise<AgentMessagesResponse> {

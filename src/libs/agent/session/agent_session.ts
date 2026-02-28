@@ -132,6 +132,7 @@ const normalizeRuntimeTokenUsageFromSDK = (
 
 export class AgentSession {
   private readonly workspace: string;
+  private readonly injectLiteContext: boolean;
   private baseSystemPrompt: string;
   private readonly contextState: AgentContextState;
   private rawContext = "";
@@ -141,12 +142,14 @@ export class AgentSession {
     workspace: string;
     systemPrompt: string;
     contextClock?: AgentContextClock;
+    injectLiteContext?: boolean;
   }) {
     const workspace = args.workspace.endsWith(sep)
       ? args.workspace
       : `${args.workspace}${sep}`;
 
     this.workspace = workspace;
+    this.injectLiteContext = args.injectLiteContext ?? true;
     this.baseSystemPrompt = args.systemPrompt;
     this.contextState = new AgentContextState({
       workspace: this.workspace,
@@ -530,8 +533,11 @@ export class AgentSession {
 
   private injectContext(options?: { advanceRound?: boolean }) {
     this.contextState.refreshRuntime({ advanceRound: options?.advanceRound ?? true });
-
-    const contextContent = buildContextBlock(this.contextState.snapshotInjected());
+    const projection = this.contextState.snapshotWithProjectionDebug();
+    const contextPayload = this.injectLiteContext
+      ? projection.modelContext
+      : projection.injectedContext;
+    const contextContent = buildContextBlock(contextPayload);
     this.rawContext = contextContent;
 
     const firstMessage = this.messages[0];

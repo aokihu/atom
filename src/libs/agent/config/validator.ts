@@ -178,7 +178,30 @@ const validateAgentExecutionConfig = (value: unknown, keyPath: string) => {
 
     const intentGuardConfig = intentGuard as Record<string, unknown>;
     ensureBoolean(intentGuardConfig.enabled, `${keyPath}.intentGuard.enabled`);
-    ensureEnumValue(intentGuardConfig.detector, `${keyPath}.intentGuard.detector`, ["model", "heuristic"]);
+    const detector = intentGuardConfig.detector;
+    if (detector !== undefined) {
+      if (typeof detector === "string") {
+        ensureEnumValue(detector, `${keyPath}.intentGuard.detector`, ["model", "heuristic"]);
+      } else if (typeof detector === "object" && detector !== null && !Array.isArray(detector)) {
+        const detectorConfig = detector as Record<string, unknown>;
+        ensureEnumValue(detectorConfig.mode, `${keyPath}.intentGuard.detector.mode`, [
+          "model",
+          "heuristic",
+        ]);
+        ensureIntegerInRange(
+          detectorConfig.timeoutMs,
+          `${keyPath}.intentGuard.detector.timeoutMs`,
+          { min: 0, max: 10_000 },
+        );
+        ensureIntegerInRange(
+          detectorConfig.modelMaxOutputTokens,
+          `${keyPath}.intentGuard.detector.modelMaxOutputTokens`,
+          { min: 1, max: 1_000 },
+        );
+      } else {
+        throw new Error(`${keyPath}.intentGuard.detector must be a string or JSON object`);
+      }
+    }
     ensureIntegerInRange(intentGuardConfig.softBlockAfter, `${keyPath}.intentGuard.softBlockAfter`, {
       min: 0,
       max: 12,
@@ -295,6 +318,18 @@ const validateAgentExecutionConfig = (value: unknown, keyPath: string) => {
     );
     ensureBoolean(inputPolicyConfig.spoolOriginalInput, `${keyPath}.inputPolicy.spoolOriginalInput`);
     ensureNonEmptyString(inputPolicyConfig.spoolDirectory, `${keyPath}.inputPolicy.spoolDirectory`);
+  }
+
+  const contextV2 = execution.contextV2;
+  if (contextV2 !== undefined) {
+    if (typeof contextV2 !== "object" || contextV2 === null || Array.isArray(contextV2)) {
+      throw new Error(`${keyPath}.contextV2 must be a JSON object`);
+    }
+
+    const contextV2Config = contextV2 as Record<string, unknown>;
+    ensureBoolean(contextV2Config.enabled, `${keyPath}.contextV2.enabled`);
+    ensureBoolean(contextV2Config.apiDualMode, `${keyPath}.contextV2.apiDualMode`);
+    ensureBoolean(contextV2Config.injectLiteOnly, `${keyPath}.contextV2.injectLiteOnly`);
   }
 
   const contextBudget = execution.contextBudget;
@@ -675,6 +710,35 @@ export const validateMemoryConfig = (config: AgentConfig) => {
     "memory.persistent.searchMode",
     ["auto", "fts", "like"],
   );
+
+  const pipeline = persistentConfig.pipeline;
+  if (pipeline !== undefined) {
+    if (typeof pipeline !== "object" || pipeline === null || Array.isArray(pipeline)) {
+      throw new Error("memory.persistent.pipeline must be a JSON object");
+    }
+    const pipelineConfig = pipeline as Record<string, unknown>;
+    ensureEnumValue(pipelineConfig.mode, "memory.persistent.pipeline.mode", ["sync", "async_wal"]);
+    ensureIntegerInRange(
+      pipelineConfig.recallTimeoutMs,
+      "memory.persistent.pipeline.recallTimeoutMs",
+      { min: 0, max: 10_000 },
+    );
+    ensureIntegerInRange(
+      pipelineConfig.batchSize,
+      "memory.persistent.pipeline.batchSize",
+      { min: 1, max: 1024 },
+    );
+    ensureIntegerInRange(
+      pipelineConfig.flushIntervalMs,
+      "memory.persistent.pipeline.flushIntervalMs",
+      { min: 10, max: 60_000 },
+    );
+    ensureIntegerInRange(
+      pipelineConfig.flushOnShutdownTimeoutMs,
+      "memory.persistent.pipeline.flushOnShutdownTimeoutMs",
+      { min: 10, max: 120_000 },
+    );
+  }
 
   const tagging = persistentConfig.tagging;
   if (tagging !== undefined) {

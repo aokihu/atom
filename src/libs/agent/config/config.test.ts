@@ -188,6 +188,32 @@ describe("agent config", () => {
     ).not.toThrow();
   });
 
+  test("validateAgentConfig accepts contextV2 and intent detector object config", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        agent: {
+          name: "Atom",
+          model: "deepseek/deepseek-chat",
+          execution: {
+            contextV2: {
+              enabled: true,
+              apiDualMode: true,
+              injectLiteOnly: true,
+            },
+            intentGuard: {
+              detector: {
+                mode: "model",
+                timeoutMs: 600,
+                modelMaxOutputTokens: 80,
+              },
+            },
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
   test("validateAgentConfig accepts agent.execution.intentGuard legacy browser config", () => {
     expect(() =>
       validateAgentConfig({
@@ -299,6 +325,26 @@ describe("agent config", () => {
             maxRecallItems: 6,
             minCaptureConfidence: 0.7,
             searchMode: "auto",
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  test("validateAgentConfig accepts memory.persistent.pipeline config", () => {
+    expect(() =>
+      validateAgentConfig({
+        ...createValidConfig(),
+        memory: {
+          persistent: {
+            enabled: true,
+            pipeline: {
+              mode: "async_wal",
+              recallTimeoutMs: 40,
+              batchSize: 32,
+              flushIntervalMs: 200,
+              flushOnShutdownTimeoutMs: 3000,
+            },
           },
         },
       }),

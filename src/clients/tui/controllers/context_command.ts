@@ -29,7 +29,16 @@ export const executeContextCommand = async (input: ExecuteContextCommandInput): 
   const { client, withConnectionTracking, formatJson, formatErrorMessage, callbacks } = input;
   callbacks.onStart();
   try {
-    const data = await withConnectionTracking(() => client.getAgentContext());
+    const data = await withConnectionTracking(async () => {
+      if (typeof client.getAgentContextLite === "function") {
+        try {
+          return await client.getAgentContextLite();
+        } catch {
+          // backward-compatible fallback to legacy endpoint
+        }
+      }
+      return await client.getAgentContext();
+    });
     callbacks.onSuccess(formatJson(data));
   } catch (error) {
     callbacks.onError(formatErrorMessage(error));

@@ -12,6 +12,7 @@ import type { CliRenderer, KeyEvent } from "@opentui/core";
 
 import type { GatewayClient } from "../../libs/channel/channel";
 import type {
+  AgentContextLiteResponse,
   AgentContextResponse,
   ListSchedulesResponse,
   MCPHealthStatus,
@@ -163,6 +164,15 @@ const extractWorkspaceFromContextModalText = (body: string): string | null => {
   }
 
   return null;
+};
+
+type ContextEnvelope = AgentContextResponse | AgentContextLiteResponse;
+
+const extractWorkspaceFromContextEnvelope = (contextResponse: ContextEnvelope): string | null => {
+  if ("modelContext" in contextResponse) {
+    return extractContextWorkspace(contextResponse.modelContext);
+  }
+  return extractContextWorkspace(contextResponse.context);
 };
 
 const formatMcpStatusModalBody = (mcp: MCPHealthStatus): string => {
@@ -701,7 +711,7 @@ class CoreTuiClientApp {
     return false;
   }
 
-  private buildLatestContextBodyForLog(contextResponse: AgentContextResponse): string {
+  private buildLatestContextBodyForLog(contextResponse: ContextEnvelope): string {
     return buildContextLogPayload({
       contextResponse,
     });
@@ -716,11 +726,18 @@ class CoreTuiClientApp {
     let workspace = extractWorkspaceFromContextModalText(contextBody);
 
     try {
-      const latestContext = await this.withConnectionTracking(
-        () => this.client.getAgentContext(),
-      );
+      const latestContext = await this.withConnectionTracking(async () => {
+        if (typeof this.client.getAgentContextLite === "function") {
+          try {
+            return await this.client.getAgentContextLite();
+          } catch {
+            // fallback to legacy endpoint
+          }
+        }
+        return await this.client.getAgentContext();
+      });
       contextBody = this.buildLatestContextBodyForLog(latestContext);
-      const latestWorkspace = extractContextWorkspace(latestContext.context);
+      const latestWorkspace = extractWorkspaceFromContextEnvelope(latestContext);
       if (latestWorkspace) {
         workspace = latestWorkspace;
       }

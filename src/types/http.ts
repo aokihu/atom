@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 
-import type { AgentContext, ContextProjectionDebug } from "./agent";
+import type { AgentContext, ContextProjectionDebug, ModelContextV2 } from "./agent";
 import type { MessageGatewayHealthStatus } from "./message_gateway";
 import type {
   CancelScheduleResponse,
@@ -210,6 +210,15 @@ export type AgentContextResponse = {
   context: AgentContext;
   injectedContext: AgentContext;
   projectionDebug: ContextProjectionDebug;
+};
+
+export type AgentContextLiteResponse = {
+  modelContext: ModelContextV2;
+  meta: {
+    rawContextBytes: number;
+    modelContextBytes: number;
+    projectionDebug: ContextProjectionDebug;
+  };
 };
 
 export type AgentMessagesResponse = {

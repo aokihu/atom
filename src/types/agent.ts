@@ -12,6 +12,12 @@ export type AgentRuntimeConfig = {
 
 export type AgentIntentGuardDetector = "model" | "heuristic";
 
+export type AgentIntentGuardDetectorConfig = {
+  mode?: AgentIntentGuardDetector;
+  timeoutMs?: number;
+  modelMaxOutputTokens?: number;
+};
+
 export const AGENT_INTENT_GUARD_INTENT_KINDS = [
   "general",
   "browser_access",
@@ -56,7 +62,7 @@ export type AgentIntentGuardIntentPolicyConfig = {
 
 export type AgentIntentGuardConfig = {
   enabled?: boolean;
-  detector?: AgentIntentGuardDetector;
+  detector?: AgentIntentGuardDetector | AgentIntentGuardDetectorConfig;
   softBlockAfter?: number;
   browser?: AgentIntentGuardBrowserPolicyConfig;
   intents?: Partial<Record<AgentIntentGuardIntentKind, AgentIntentGuardIntentPolicyConfig>>;
@@ -82,6 +88,12 @@ export type AgentExecutionContextBudgetConfig = {
   minMemoryItems?: Partial<Record<ContextMemoryTier, number>>;
 };
 
+export type AgentExecutionContextV2Config = {
+  enabled?: boolean;
+  apiDualMode?: boolean;
+  injectLiteOnly?: boolean;
+};
+
 export type AgentExecutionOverflowPolicyConfig = {
   clearPendingOnContextOverflow?: boolean;
   observationWindowMinutes?: number;
@@ -96,6 +108,7 @@ export type AgentExecutionConfig = {
   maxModelStepsPerTask?: number;
   continueWithoutAdvancingContextRound?: boolean;
   intentGuard?: AgentIntentGuardConfig;
+  contextV2?: AgentExecutionContextV2Config;
   inputPolicy?: AgentExecutionInputPolicyConfig;
   contextBudget?: AgentExecutionContextBudgetConfig;
   overflowPolicy?: AgentExecutionOverflowPolicyConfig;
@@ -122,6 +135,8 @@ export type ResolvedAgentIntentGuardIntentPolicyConfig = {
 export type ResolvedAgentIntentGuardConfig = {
   enabled: boolean;
   detector: AgentIntentGuardDetector;
+  detectorTimeoutMs: number;
+  detectorModelMaxOutputTokens: number;
   softBlockAfter: number;
   browser: ResolvedAgentIntentGuardBrowserPolicyConfig;
   intents: Record<AgentIntentGuardIntentKind, ResolvedAgentIntentGuardIntentPolicyConfig>;
@@ -147,6 +162,12 @@ export type ResolvedAgentExecutionContextBudgetConfig = {
   minMemoryItems: Record<ContextMemoryTier, number>;
 };
 
+export type ResolvedAgentExecutionContextV2Config = {
+  enabled: boolean;
+  apiDualMode: boolean;
+  injectLiteOnly: boolean;
+};
+
 export type ResolvedAgentExecutionOverflowPolicyConfig = {
   clearPendingOnContextOverflow: boolean;
   observationWindowMinutes: number;
@@ -161,6 +182,7 @@ export type ResolvedAgentExecutionConfig = {
   maxModelStepsPerTask: number;
   continueWithoutAdvancingContextRound: boolean;
   intentGuard: ResolvedAgentIntentGuardConfig;
+  contextV2: ResolvedAgentExecutionContextV2Config;
   inputPolicy: ResolvedAgentExecutionInputPolicyConfig;
   contextBudget: ResolvedAgentExecutionContextBudgetConfig;
   overflowPolicy: ResolvedAgentExecutionOverflowPolicyConfig;
@@ -176,6 +198,8 @@ export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
   intentGuard: {
     enabled: true,
     detector: "model",
+    detectorTimeoutMs: 600,
+    detectorModelMaxOutputTokens: 80,
     softBlockAfter: 2,
     browser: {
       noFallback: true,
@@ -250,6 +274,11 @@ export const DEFAULT_AGENT_EXECUTION_CONFIG: ResolvedAgentExecutionConfig = {
         requiredSuccessFamilies: [],
       },
     },
+  },
+  contextV2: {
+    enabled: true,
+    apiDualMode: true,
+    injectLiteOnly: true,
   },
   inputPolicy: {
     enabled: true,
@@ -360,6 +389,13 @@ export type PersistentMemoryConfig = {
   maxRecallLongtermItems?: number;
   minCaptureConfidence?: number;
   searchMode?: PersistentMemorySearchMode;
+  pipeline?: {
+    mode?: "sync" | "async_wal";
+    recallTimeoutMs?: number;
+    batchSize?: number;
+    flushIntervalMs?: number;
+    flushOnShutdownTimeoutMs?: number;
+  };
   tagging?: {
     reuseProbabilityThreshold?: number;
     placeholderSummaryMaxLen?: number;
@@ -543,5 +579,32 @@ export type ContextProjectionDebug = {
 export type AgentContextProjectionSnapshot = {
   context: AgentContext;
   injectedContext: AgentContext;
+  modelContext: ModelContextV2;
   projectionDebug: ContextProjectionDebug;
+};
+
+export type ModelContextV2Runtime = {
+  round: number;
+  workspace: string;
+  datetime: string;
+  startup_at: number;
+};
+
+export type ModelContextV2ActiveTaskMeta = {
+  id?: string;
+  type?: string;
+  status?: string;
+  retries?: number;
+  attempt?: number;
+  execution?: Record<string, unknown>;
+};
+
+export type ModelContextV2 = {
+  version: number;
+  runtime: ModelContextV2Runtime;
+  memory: AgentContextMemory;
+  todo?: AgentContextTodoProgress;
+  active_task?: unknown;
+  active_task_meta?: ModelContextV2ActiveTaskMeta | null;
+  capabilities?: unknown;
 };

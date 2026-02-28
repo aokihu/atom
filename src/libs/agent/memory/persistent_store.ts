@@ -154,6 +154,36 @@ const computeFinalScore = (
 
 const toContentHash = (content: string) => createHash("sha256").update(content).digest("hex");
 
+const trimPersistentPrefix = (value: string): string => {
+  let next = value.trim();
+  while (next.startsWith("persistent:")) {
+    next = next.slice("persistent:".length).trim();
+  }
+  return next;
+};
+
+const normalizeWorkingPrefix = (value: string): string => {
+  if (!value.startsWith("working:")) {
+    return value;
+  }
+  const suffix = value.slice("working:".length);
+  let next = suffix;
+  while (next.startsWith("working:")) {
+    next = next.slice("working:".length);
+  }
+  return `working:${next}`;
+};
+
+export const canonicalizePersistentBlockId = (blockId: string): string => {
+  const trimmed = blockId.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const withoutPersistentPrefix = trimPersistentPrefix(trimmed);
+  const normalizedWorking = normalizeWorkingPrefix(withoutPersistentPrefix);
+  return normalizedWorking || trimmed;
+};
+
 export const derivePersistentMemorySummary = (content: string): string => {
   const normalized = content.trim();
   if (!normalized) return "";
@@ -409,6 +439,10 @@ export class PersistentMemoryStore {
 
       const sourceTier = args.sourceTier ?? "core";
       const memoryType = typeof block.type === "string" && block.type.trim() ? block.type.trim() : "memory";
+      if (memoryType === "persistent_recall" || memoryType === "persistent_longterm_recall") {
+        stats.skipped += 1;
+        continue;
+      }
       const tags = Array.isArray(block.tags)
         ? block.tags.filter((tag): tag is string => typeof tag === "string")
         : [];
@@ -553,7 +587,13 @@ export class PersistentMemoryStore {
 
     const exclude = new Set<string>();
     for (const item of args.excludeBlockIds ?? []) {
-      if (typeof item === "string" && item.trim()) exclude.add(item.trim());
+      if (typeof item !== "string" || item.trim() === "") continue;
+      const trimmed = item.trim();
+      exclude.add(trimmed);
+      const canonical = canonicalizePersistentBlockId(trimmed);
+      if (canonical) {
+        exclude.add(canonical);
+      }
     }
 
     const limit = Math.max(1, Math.min(24, Math.trunc(args.limit)));
@@ -625,7 +665,7 @@ export class PersistentMemoryStore {
       const hits: PersistentMemorySearchHit[] = [];
       for (const row of rawRows) {
         const entry = rowToEntry(row);
-        if (exclude.has(entry.blockId)) continue;
+        if (exclude.has(entry.blockId) || exclude.has(canonicalizePersistentBlockId(entry.blockId))) continue;
         const textScore = computeFtsTextScore(normalizeFinite(row.rank, 0));
         const confidenceScore = entry.confidence;
         const recencyScore = computeRecencyScore(entry.updatedAt, now);
@@ -691,7 +731,7 @@ export class PersistentMemoryStore {
     const hits: PersistentMemorySearchHit[] = [];
     for (const row of rawRows) {
       const entry = rowToEntry(row);
-      if (exclude.has(entry.blockId)) continue;
+      if (exclude.has(entry.blockId) || exclude.has(canonicalizePersistentBlockId(entry.blockId))) continue;
       const textScore = computeLikeTextScore(entry, tokens);
       if (textScore <= 0) continue;
       const confidenceScore = entry.confidence;

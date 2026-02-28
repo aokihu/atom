@@ -542,6 +542,16 @@ export const startHttpGateway = (options: StartHttpGatewayOptions): HttpGatewayS
           return ok(await runtime.getAgentContext());
         }
 
+        if (pathname === "/v1/agent/context-lite") {
+          if (request.method !== "GET") {
+            return methodNotAllowed(["GET"]);
+          }
+          if (!runtime.getAgentContextLite) {
+            throw new HttpApiError(404, "NOT_FOUND", "Context-lite API unavailable");
+          }
+          return ok(await runtime.getAgentContextLite());
+        }
+
         if (pathname === "/v1/agent/messages") {
           if (request.method !== "GET") {
             return methodNotAllowed(["GET"]);

@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import type { AgentContextResponse } from "../../../types/http";
+import type { AgentContextLiteResponse, AgentContextResponse } from "../../../types/http";
 
 const sanitizeTimestampToken = (input: string): string =>
   input.replace(/[^0-9]/g, "").slice(0, 14);
@@ -39,13 +39,33 @@ export const saveContextLog = async (args: {
 };
 
 export const buildContextLogPayload = (args: {
-  contextResponse: AgentContextResponse;
+  contextResponse: AgentContextResponse | AgentContextLiteResponse;
   savedAt?: Date;
-}): string =>
-  JSON.stringify({
-    saved_at: (args.savedAt ?? new Date()).toISOString(),
-    context: args.contextResponse.context,
-    injectedContext: args.contextResponse.injectedContext,
-    projectionDebug: args.contextResponse.projectionDebug,
-  }, null, 2);
+}): string => {
+  const savedAt = (args.savedAt ?? new Date()).toISOString();
+  const response = args.contextResponse as Record<string, unknown>;
 
+  if ("modelContext" in response) {
+    return JSON.stringify(
+      {
+        saved_at: savedAt,
+        modelContext: (response as AgentContextLiteResponse).modelContext,
+        meta: (response as AgentContextLiteResponse).meta,
+      },
+      null,
+      2,
+    );
+  }
+
+  const legacy = response as AgentContextResponse;
+  return JSON.stringify(
+    {
+      saved_at: savedAt,
+      context: legacy.context,
+      injectedContext: legacy.injectedContext,
+      projectionDebug: legacy.projectionDebug,
+    },
+    null,
+    2,
+  );
+};

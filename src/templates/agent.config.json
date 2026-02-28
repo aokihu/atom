@@ -13,6 +13,11 @@
       "maxContinuationRuns": 5,
       "maxModelStepsPerTask": 80,
       "continueWithoutAdvancingContextRound": true,
+      "contextV2": {
+        "enabled": true,
+        "apiDualMode": true,
+        "injectLiteOnly": true
+      },
       "inputPolicy": {
         "enabled": true,
         "maxInputTokens": 12000,
@@ -43,7 +48,11 @@
       },
       "intentGuard": {
         "enabled": true,
-        "detector": "model",
+        "detector": {
+          "mode": "model",
+          "timeoutMs": 600,
+          "modelMaxOutputTokens": 80
+        },
         "softBlockAfter": 2,
         "intents": {
           "browser_access": {
@@ -156,6 +165,13 @@
       "enabled": true,
       "autoRecall": true,
       "autoCapture": true,
+      "pipeline": {
+        "mode": "async_wal",
+        "recallTimeoutMs": 40,
+        "batchSize": 32,
+        "flushIntervalMs": 200,
+        "flushOnShutdownTimeoutMs": 3000
+      },
       "maxRecallItems": 6,
       "maxRecallLongtermItems": 6,
       "minCaptureConfidence": 0.7,

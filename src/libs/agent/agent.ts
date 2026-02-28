@@ -51,6 +51,8 @@ export class Agent {
     this.session = new AgentSession({
       workspace: arg.workspace,
       systemPrompt: arg.systemPrompt,
+      injectLiteContext:
+        arg.dependencies?.executionConfig?.contextV2?.injectLiteOnly ?? true,
     });
     this.runner = new AgentRunner({
       model: arg.model,

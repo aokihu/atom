@@ -8,6 +8,8 @@ import type { ResolvedAgentIntentGuardConfig } from "../../../types/agent";
 const DEFAULT_GUARD_CONFIG: ResolvedAgentIntentGuardConfig = {
   enabled: true,
   detector: "model",
+  detectorTimeoutMs: 600,
+  detectorModelMaxOutputTokens: 80,
   softBlockAfter: 2,
   browser: {
     noFallback: true,

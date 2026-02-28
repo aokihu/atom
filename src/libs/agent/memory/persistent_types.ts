@@ -3,6 +3,7 @@ import type { ContextMemoryBlock, PersistentMemoryConfig, PersistentMemorySearch
 
 export const PERSISTENT_MEMORY_DB_DIR = ".agent";
 export const PERSISTENT_MEMORY_DB_FILENAME = "memory.db";
+export const PERSISTENT_MEMORY_QUEUE_WAL_FILENAME = "memory-queue.wal";
 
 export type ResolvedPersistentMemoryConfig = {
   enabled: boolean;
@@ -12,6 +13,13 @@ export type ResolvedPersistentMemoryConfig = {
   maxRecallLongtermItems: number;
   minCaptureConfidence: number;
   searchMode: PersistentMemorySearchMode;
+  pipeline: {
+    mode: "sync" | "async_wal";
+    recallTimeoutMs: number;
+    batchSize: number;
+    flushIntervalMs: number;
+    flushOnShutdownTimeoutMs: number;
+  };
   tagging: {
     reuseProbabilityThreshold: number;
     placeholderSummaryMaxLen: number;
@@ -39,6 +47,13 @@ export const DEFAULT_PERSISTENT_MEMORY_CONFIG: ResolvedPersistentMemoryConfig = 
   maxRecallLongtermItems: 6,
   minCaptureConfidence: 0.7,
   searchMode: "auto",
+  pipeline: {
+    mode: "async_wal",
+    recallTimeoutMs: 40,
+    batchSize: 32,
+    flushIntervalMs: 200,
+    flushOnShutdownTimeoutMs: 3000,
+  },
   tagging: {
     reuseProbabilityThreshold: 0.15,
     placeholderSummaryMaxLen: 120,
@@ -62,9 +77,14 @@ export const resolvePersistentMemoryConfig = (
   config?: PersistentMemoryConfig,
 ): ResolvedPersistentMemoryConfig => {
   const tagging = config?.tagging ?? {};
+  const pipeline = config?.pipeline ?? {};
   const merged: ResolvedPersistentMemoryConfig = {
     ...DEFAULT_PERSISTENT_MEMORY_CONFIG,
     ...(config ?? {}),
+    pipeline: {
+      ...DEFAULT_PERSISTENT_MEMORY_CONFIG.pipeline,
+      ...pipeline,
+    },
     tagging: {
       ...DEFAULT_PERSISTENT_MEMORY_CONFIG.tagging,
       ...tagging,
@@ -85,6 +105,16 @@ export const resolvePersistentMemoryConfig = (
     maxRecallItems: Math.max(1, Math.min(12, Math.trunc(merged.maxRecallItems || 6))),
     maxRecallLongtermItems: Math.max(1, Math.min(24, Math.trunc(merged.maxRecallLongtermItems || 6))),
     minCaptureConfidence: Math.max(0, Math.min(1, merged.minCaptureConfidence ?? 0.7)),
+    pipeline: {
+      mode: merged.pipeline.mode === "sync" ? "sync" : "async_wal",
+      recallTimeoutMs: Math.max(0, Math.min(10_000, Math.trunc(merged.pipeline.recallTimeoutMs ?? 40))),
+      batchSize: Math.max(1, Math.min(1024, Math.trunc(merged.pipeline.batchSize ?? 32))),
+      flushIntervalMs: Math.max(10, Math.min(60_000, Math.trunc(merged.pipeline.flushIntervalMs ?? 200))),
+      flushOnShutdownTimeoutMs: Math.max(
+        10,
+        Math.min(120_000, Math.trunc(merged.pipeline.flushOnShutdownTimeoutMs ?? 3000)),
+      ),
+    },
     tagging: {
       ...merged.tagging,
       reuseProbabilityThreshold: Math.max(0, Math.min(1, merged.tagging.reuseProbabilityThreshold ?? 0.15)),
@@ -215,6 +245,16 @@ export type PersistentMemoryAfterTaskMeta = {
   finishReason?: string;
   stopReason?: string;
   mode?: "detailed" | "stream";
+};
+
+export type PersistentCaptureJob = {
+  jobId: string;
+  createdAt: number;
+  sourceTier: "core" | "longterm";
+  sourceTaskId: string | null;
+  blockId: string;
+  contentHash: string;
+  block: ContextMemoryBlock;
 };
 
 export type PersistentMemoryHooks = {

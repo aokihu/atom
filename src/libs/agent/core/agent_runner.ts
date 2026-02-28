@@ -857,6 +857,31 @@ const resolveExecutionConfig = (args: {
   const legacyMaxSteps = args.legacyMaxSteps;
   const baseIntentConfig = DEFAULT_AGENT_EXECUTION_CONFIG.intentGuard;
   const userIntentConfig = config.intentGuard ?? {};
+  const rawDetectorConfig = userIntentConfig.detector;
+  const detectorMode = (() => {
+    if (typeof rawDetectorConfig === "string") {
+      return rawDetectorConfig;
+    }
+    if (isRecord(rawDetectorConfig)) {
+      const mode = rawDetectorConfig.mode;
+      if (mode === "model" || mode === "heuristic") {
+        return mode;
+      }
+    }
+    return baseIntentConfig.detector;
+  })();
+  const detectorTimeoutMs = (() => {
+    if (isRecord(rawDetectorConfig) && typeof rawDetectorConfig.timeoutMs === "number") {
+      return Math.max(0, Math.min(10_000, Math.trunc(rawDetectorConfig.timeoutMs)));
+    }
+    return baseIntentConfig.detectorTimeoutMs;
+  })();
+  const detectorModelMaxOutputTokens = (() => {
+    if (isRecord(rawDetectorConfig) && typeof rawDetectorConfig.modelMaxOutputTokens === "number") {
+      return Math.max(1, Math.min(1_000, Math.trunc(rawDetectorConfig.modelMaxOutputTokens)));
+    }
+    return baseIntentConfig.detectorModelMaxOutputTokens;
+  })();
 
   const resolveIntentPolicy = (
     intent: AgentIntentGuardIntentKind,
@@ -905,11 +930,21 @@ const resolveExecutionConfig = (args: {
   const mergedIntentGuard: ResolvedAgentIntentGuardConfig = {
     ...baseIntentConfig,
     ...(userIntentConfig ?? {}),
+    detector: detectorMode,
+    detectorTimeoutMs,
+    detectorModelMaxOutputTokens,
     browser: {
       ...baseIntentConfig.browser,
       ...(userIntentConfig.browser ?? {}),
     },
     intents: mergedIntentPolicies,
+  };
+
+  const baseContextV2 = DEFAULT_AGENT_EXECUTION_CONFIG.contextV2;
+  const userContextV2 = config.contextV2 ?? {};
+  const mergedContextV2 = {
+    ...baseContextV2,
+    ...userContextV2,
   };
 
   const baseInputPolicy = DEFAULT_AGENT_EXECUTION_CONFIG.inputPolicy;
@@ -1057,6 +1092,7 @@ const resolveExecutionConfig = (args: {
     ...DEFAULT_AGENT_EXECUTION_CONFIG,
     ...config,
     intentGuard: mergedIntentGuard,
+    contextV2: mergedContextV2,
     inputPolicy: mergedInputPolicy,
     contextBudget: mergedContextBudget,
     overflowPolicy: mergedOverflowPolicy,

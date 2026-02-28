@@ -11,6 +11,7 @@ import {
   mergeContextWithMemoryPolicy,
   type SanitizedContextPatch,
 } from "./context_sanitizer";
+import { toModelContextV2 } from "./context_model_v2";
 
 export type AgentContextClock = {
   nowDatetime: () => string;
@@ -100,10 +101,12 @@ export class AgentContextState {
   snapshotWithProjectionDebug(): AgentContextProjectionSnapshot {
     const raw = this.snapshot();
     const projection = buildInjectedContextProjection(raw);
+    const modelContext = toModelContextV2(projection.injectedContext);
 
     return {
       context: raw,
       injectedContext: projection.injectedContext,
+      modelContext,
       projectionDebug: projection.debug,
     };
   }

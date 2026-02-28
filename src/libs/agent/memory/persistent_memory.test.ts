@@ -266,7 +266,12 @@ describe("persistent memory coordinator", () => {
     try {
       const coordinator = PersistentMemoryCoordinator.initialize({
         workspace,
-        config: { enabled: true },
+        config: {
+          enabled: true,
+          pipeline: {
+            mode: "sync",
+          },
+        },
       });
       expect(coordinator.status.enabled).toBe(true);
       expect(coordinator.status.available).toBe(true);
@@ -287,7 +292,12 @@ describe("persistent memory coordinator", () => {
     try {
       const coordinator = PersistentMemoryCoordinator.initialize({
         workspace,
-        config: { enabled: true },
+        config: {
+          enabled: true,
+          pipeline: {
+            mode: "sync",
+          },
+        },
       });
       expect(coordinator.status.enabled).toBe(true);
       expect(coordinator.status.available).toBe(false);
@@ -309,6 +319,9 @@ describe("persistent memory coordinator", () => {
           enabled: true,
           autoCapture: true,
           autoRecall: true,
+          pipeline: {
+            mode: "sync",
+          },
           searchMode: "like",
           maxRecallItems: 6,
           minCaptureConfidence: 0.7,
@@ -371,6 +384,9 @@ describe("persistent memory coordinator", () => {
           enabled: true,
           autoCapture: true,
           autoRecall: true,
+          pipeline: {
+            mode: "sync",
+          },
           searchMode: "like",
           maxRecallItems: 6,
           minCaptureConfidence: 0.5,
@@ -436,6 +452,9 @@ describe("persistent memory coordinator", () => {
           enabled: true,
           autoCapture: true,
           autoRecall: true,
+          pipeline: {
+            mode: "sync",
+          },
           searchMode: "like",
           maxRecallItems: 2,
           maxRecallLongtermItems: 3,
@@ -484,6 +503,9 @@ describe("persistent memory coordinator", () => {
           enabled: true,
           autoCapture: true,
           autoRecall: true,
+          pipeline: {
+            mode: "sync",
+          },
           minCaptureConfidence: 0.6,
           tagging: {
             scheduler: {
@@ -531,6 +553,63 @@ describe("persistent memory coordinator", () => {
         recalledSnapshot.memory.longterm.some((block) =>
           block.id === "persistent:working:work:site:google"),
       ).toBe(true);
+
+      await coordinator.dispose();
+    } finally {
+      await cleanupWorkspace(workspace);
+    }
+  });
+
+  test("does not recapture recalled blocks into persistent store", async () => {
+    const workspace = await createTempWorkspace(true);
+    try {
+      const coordinator = PersistentMemoryCoordinator.initialize({
+        workspace,
+        config: {
+          enabled: true,
+          autoCapture: true,
+          autoRecall: true,
+          pipeline: {
+            mode: "sync",
+          },
+          minCaptureConfidence: 0.6,
+        },
+      });
+      expect(coordinator.status.available).toBe(true);
+
+      const seedSession = createSession(workspace);
+      seedSession.mergeSystemContextPatch({
+        memory: {
+          working: [
+            {
+              id: "site:google",
+              type: "reference",
+              decay: 0.32,
+              confidence: 0.86,
+              round: 1,
+              tags: ["site", "url"],
+              content: "google 对应网址是 https://www.google.com",
+              status: "open",
+            },
+          ],
+        },
+      } as any);
+      await coordinator.hooks.afterTask(seedSession, {
+        mode: "detailed",
+        completed: true,
+        finishReason: "stop",
+      });
+
+      const recallSession = createSession(workspace);
+      await coordinator.hooks.beforeTask(recallSession, "google 常用网址");
+      await coordinator.hooks.afterTask(recallSession, {
+        mode: "detailed",
+        completed: true,
+        finishReason: "stop",
+      });
+
+      const entries = await coordinator.listRecent(50);
+      expect(entries.some((entry) => String((entry as any).block_id).startsWith("persistent:"))).toBe(false);
 
       await coordinator.dispose();
     } finally {
