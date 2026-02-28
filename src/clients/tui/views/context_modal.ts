@@ -33,12 +33,16 @@ export type ContextModalView = {
   modalBox: BoxRenderable;
   titleText: TextRenderable;
   hintText: TextRenderable;
+  saveActionText: TextRenderable;
   scroll: ScrollBoxRenderable;
   contentBox: BoxRenderable;
   bodyText: TextRenderable;
 };
 
-export const createContextModalView = (ctx: CliRenderer): ContextModalView => {
+export const createContextModalView = (
+  ctx: CliRenderer,
+  options?: { onSaveClick?: () => void },
+): ContextModalView => {
   const overlay = new BoxRenderable(ctx, {
     position: "absolute",
     top: 0,
@@ -79,10 +83,21 @@ export const createContextModalView = (ctx: CliRenderer): ContextModalView => {
     truncate: true,
   });
   const hintText = new TextRenderable(ctx, {
-    content: "Esc close · Arrow/Page keys scroll",
+    content: "Esc close · S save · Arrow/Page keys scroll",
     fg: NORD.nord3,
     width: "100%",
     truncate: true,
+  });
+  const saveActionText = new TextRenderable(ctx, {
+    content: "[ Save Context ]",
+    fg: NORD.nord8,
+    width: "100%",
+    truncate: true,
+    onMouseUp: (event: { button: number }) => {
+      if (event.button === 0) {
+        options?.onSaveClick?.();
+      }
+    },
   });
   const scroll = new ScrollBoxRenderable(ctx, {
     width: "100%",
@@ -115,6 +130,7 @@ export const createContextModalView = (ctx: CliRenderer): ContextModalView => {
   scroll.add(contentBox);
   modalBox.add(titleText);
   modalBox.add(hintText);
+  modalBox.add(saveActionText);
   modalBox.add(scroll);
   overlay.add(backdrop);
   overlay.add(modalBox);
@@ -125,6 +141,7 @@ export const createContextModalView = (ctx: CliRenderer): ContextModalView => {
     modalBox,
     titleText,
     hintText,
+    saveActionText,
     scroll,
     contentBox,
     bodyText,
@@ -145,8 +162,8 @@ export const buildContextModalLayoutState = (input: ContextModalLayoutInput): Co
     left,
     innerWidth,
     titleText: truncateToDisplayWidth(input.title, innerWidth),
-    hintText: truncateToDisplayWidth("Esc close · Arrow/Page keys scroll", innerWidth),
-    scrollHeight: Math.max(1, height - 4),
+    hintText: truncateToDisplayWidth("Esc close · S save · Arrow/Page keys scroll", innerWidth),
+    scrollHeight: Math.max(1, height - 5),
     bodyText: input.body.length > 0 ? input.body : "No context loaded.",
   };
 };

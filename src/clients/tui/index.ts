@@ -10,7 +10,7 @@ import {
 import type { CliRenderer, KeyEvent } from "@opentui/core";
 
 import type { GatewayClient } from "../../libs/channel/channel";
-import type { TaskOutputMessage } from "../../types/http";
+import type { AgentContextResponse, TaskOutputMessage } from "../../types/http";
 import { TaskStatus, isTaskExecutionStopReason } from "../../types/task";
 import { resolveSlashCommandAction } from "./controllers/commands";
 import { executeContextCommand } from "./controllers/context_command";
@@ -33,6 +33,7 @@ import { createTuiClientUiBundle, type TuiClientUiBundle } from "./runtime/ui";
 import { filterEnabledSlashCommands, type SlashCommandOption } from "./state/slash_commands";
 import { NORD } from "./theme/nord";
 import { summarizeEventText, truncateToDisplayWidth } from "./utils/text";
+import { buildContextLogPayload, saveContextLog } from "./utils/context_log";
 import { buildContextModalLayoutState } from "./views/context_modal";
 import { buildInputPaneViewState } from "./views/input_pane";
 import {
@@ -99,6 +100,23 @@ const formatJson = (value: unknown): string => {
   } catch (error) {
     return `Failed to format JSON: ${formatErrorMessage(error)}`;
   }
+};
+
+const extractContextWorkspace = (context: unknown): string | null => {
+  if (typeof context !== "object" || context === null || Array.isArray(context)) {
+    return null;
+  }
+
+  const runtime = (context as Record<string, unknown>).runtime;
+  if (typeof runtime !== "object" || runtime === null || Array.isArray(runtime)) {
+    return null;
+  }
+
+  const workspace = (runtime as Record<string, unknown>).workspace;
+  if (typeof workspace !== "string" || workspace.trim() === "") {
+    return null;
+  }
+  return workspace;
 };
 
 class CoreTuiClientApp {
@@ -227,6 +245,9 @@ class CoreTuiClientApp {
       },
       onSlashSelect: () => {
         this.applySelectedSlashCommand();
+      },
+      onContextSave: () => {
+        void this.persistContextModalToLog();
       },
     });
     this.appRoot = this.ui.appRoot;
@@ -606,6 +627,13 @@ class CoreTuiClientApp {
   private handleContextModalKeyPress(key: KeyEvent): boolean {
     if (!this.state.contextModalOpen) return false;
 
+    if ((key.name === "s" || key.sequence === "s") && !key.ctrl && !key.meta) {
+      key.preventDefault();
+      key.stopPropagation();
+      void this.persistContextModalToLog();
+      return true;
+    }
+
     if (isEscapeKey(key)) {
       key.preventDefault();
       key.stopPropagation();
@@ -695,6 +723,65 @@ class CoreTuiClientApp {
     if (!this.state.contextModalOpen) return;
     this.state.contextModalOpen = false;
     this.refreshAll();
+  }
+
+  private async persistContextModalToLog(): Promise<void> {
+    if (!this.state.contextModalOpen) {
+      return;
+    }
+    let contextBody = this.state.contextModalText.trim();
+    let workspace = this.state.contextWorkspace?.trim();
+
+    try {
+      const latestContext = await this.withConnectionTracking(
+        () => this.client.getAgentContext(),
+      );
+      contextBody = this.buildLatestContextBodyForLog(latestContext);
+      const latestWorkspace = extractContextWorkspace(latestContext.context);
+      if (latestWorkspace) {
+        workspace = latestWorkspace;
+        this.state.contextWorkspace = latestWorkspace;
+      }
+      this.state.contextModalText = formatJson(latestContext.context);
+      this.syncContextModalLayout(this.getLayout());
+      this.renderer.requestRender();
+    } catch (error) {
+      this.appendLog(
+        "system",
+        `Context refresh failed, fallback to modal snapshot: ${formatErrorMessage(error)}`,
+      );
+    }
+
+    if (contextBody.length === 0) {
+      this.appendLog("error", "Context is empty, nothing to save.");
+      this.setStatusNotice("Context is empty, nothing to save.");
+      return;
+    }
+
+    if (!workspace) {
+      this.appendLog("error", "Context workspace unknown, cannot save log.");
+      this.setStatusNotice("Context workspace unknown, cannot save log.");
+      return;
+    }
+
+    try {
+      const filepath = await saveContextLog({
+        workspace,
+        contextBody,
+      });
+      this.appendLog("system", `Context saved: ${filepath}`);
+      this.setStatusNotice(`Context saved: ${truncateToDisplayWidth(filepath, 48)}`);
+    } catch (error) {
+      const message = formatErrorMessage(error);
+      this.appendLog("error", `Context save failed: ${message}`);
+      this.setStatusNotice(`Context save failed: ${message}`);
+    }
+  }
+
+  private buildLatestContextBodyForLog(contextResponse: AgentContextResponse): string {
+    return buildContextLogPayload({
+      contextResponse,
+    });
   }
 
   private appendLog(kind: LogKind, text: string): void {
@@ -965,7 +1052,11 @@ class CoreTuiClientApp {
             this.setStatusNotice("Loading context...");
             this.setClientPhase("submitting");
           },
-          onSuccess: (body) => {
+          onSuccess: (body, context) => {
+            const workspace = extractContextWorkspace(context);
+            if (workspace) {
+              this.state.contextWorkspace = workspace;
+            }
             this.appendLog("system", "/context loaded");
             this.setStatusNotice("/context loaded");
             this.openContextModal("Agent Context", body);

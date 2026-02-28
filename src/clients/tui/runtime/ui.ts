@@ -50,6 +50,7 @@ export type TuiClientUiBundle = {
   contextModalBox: BoxRenderable;
   contextModalTitleText: TextRenderable;
   contextModalHintText: TextRenderable;
+  contextModalSaveActionText: TextRenderable;
   contextModalScroll: ScrollBoxRenderable;
   contextModalContentBox: BoxRenderable;
   contextModalBodyText: TextRenderable;
@@ -65,6 +66,7 @@ export const createTuiClientUiBundle = (
     textareaKeyBindings: any[];
     onInputSubmit: () => void;
     onSlashSelect: () => void;
+    onContextSave: () => void;
   },
 ): TuiClientUiBundle => {
   const appRoot = new BoxRenderable(renderer, {
@@ -81,7 +83,9 @@ export const createTuiClientUiBundle = (
     onSubmit: args.onInputSubmit,
   });
   const slashModalView = createSlashModalView(renderer, args.onSlashSelect);
-  const contextModalView = createContextModalView(renderer);
+  const contextModalView = createContextModalView(renderer, {
+    onSaveClick: args.onContextSave,
+  });
 
   const mount = (targetRenderer: CliRenderer) => {
     appRoot.add(messagePaneView.box);
@@ -152,6 +156,7 @@ export const createTuiClientUiBundle = (
     contextModalBox: contextModalView.modalBox,
     contextModalTitleText: contextModalView.titleText,
     contextModalHintText: contextModalView.hintText,
+    contextModalSaveActionText: contextModalView.saveActionText,
     contextModalScroll: contextModalView.scroll,
     contextModalContentBox: contextModalView.contentBox,
     contextModalBodyText: contextModalView.bodyText,

@@ -77,6 +77,7 @@ export class TuiClientState {
   contextModalOpen = false;
   contextModalText = "";
   contextModalTitle = "Context";
+  contextWorkspace?: string;
   slashModalState: SlashModalState = {
     open: false,
     filteredQuery: "",

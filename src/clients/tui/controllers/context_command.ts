@@ -4,7 +4,7 @@ type WithConnectionTracking = <T>(operation: () => Promise<T>) => Promise<T>;
 
 export type ExecuteContextCommandCallbacks = {
   onStart: () => void;
-  onSuccess: (body: string) => void;
+  onSuccess: (body: string, context: unknown) => void;
   onError: (message: string) => void;
   onFinally: () => void;
 };
@@ -22,7 +22,7 @@ export const executeContextCommand = async (input: ExecuteContextCommandInput): 
   callbacks.onStart();
   try {
     const data = await withConnectionTracking(() => client.getAgentContext());
-    callbacks.onSuccess(formatJson(data.context));
+    callbacks.onSuccess(formatJson(data.context), data.context);
   } catch (error) {
     callbacks.onError(formatErrorMessage(error));
   } finally {
