@@ -15,13 +15,11 @@
  * +-----------------------------------------------------------------------+
  */
 import {
-  Box,
   BoxRenderable,
   MarkdownRenderable,
   ScrollBox,
   ScrollBoxRenderable,
   SyntaxStyle,
-  Text,
   TextRenderable,
   h,
   instantiate,
@@ -35,59 +33,21 @@ import type { LayoutMetrics } from "../layout/metrics";
 import type { TuiTheme } from "../theme";
 import { truncateToDisplayWidth } from "../utils/text";
 import {
-  buildToolCardCollapsedSummary,
+  getMessagePaneCompatColors,
+  getToolStatusColor,
+  mountBox,
+  mountText,
+  renderBashToolCardBody,
+  renderCompactToolRow,
+  renderTodoToolCardBody,
+} from "./tool_cards";
+import {
   buildToolCardStyledLines,
-  type ToolCardStyledLine,
 } from "./tool_templates";
 
 const ASSISTANT_MARKDOWN_SYNTAX_STYLE = SyntaxStyle.create();
 const PANEL_INNER_HORIZONTAL_OVERHEAD = 4; // border(2) + paddingX(2)
 const MESSAGE_PANEL_VERTICAL_OVERHEAD = 3; // top inset + header row + divider row
-
-// ================================
-// 主题兼容层（语义主题 -> 旧布局色位）
-// ================================
-
-type MessagePaneLegacyCompatColors = {
-  nord0: string;
-  nord1: string;
-  nord2: string;
-  nord3: string;
-  nord4: string;
-  nord5: string;
-  nord6: string;
-  nord8: string;
-  nord9: string;
-  nord11: string;
-  nord14: string;
-};
-
-const getMessagePaneCompatColors = (theme: TuiTheme): MessagePaneLegacyCompatColors => {
-  const C = theme.colors;
-  return {
-    nord0: C.panelBackground,
-    nord1: C.panelBackgroundAlt,
-    nord2: C.panelHeaderBackground,
-    nord3: C.textMuted,
-    nord4: C.textSecondary,
-    nord5: C.inputText,
-    nord6: C.textPrimary,
-    nord8: C.accentPrimary,
-    nord9: C.accentSecondary,
-    nord11: C.statusError,
-    nord14: C.statusSuccess,
-  };
-};
-
-const mountBox = (
-  renderer: CliRenderer,
-  options: ConstructorParameters<typeof BoxRenderable>[1],
-): BoxRenderable => instantiate(renderer, Box(options)) as unknown as BoxRenderable;
-
-const mountText = (
-  renderer: CliRenderer,
-  options: ConstructorParameters<typeof TextRenderable>[1],
-): TextRenderable => instantiate(renderer, Text(options)) as unknown as TextRenderable;
 
 const mountScrollBox = (
   renderer: CliRenderer,
@@ -263,10 +223,6 @@ const canParticipateInToolGroupCollapse = (
   );
 };
 
-const buildToolGroupCollapsedSummaryText = (
-  item: ToolGroupSummaryCardInput,
-): string => `executed=${item.executed} success=${item.success} failed=${item.failed}`;
-
 const buildToolGroupKey = (taskId: string, startIndex: number): string =>
   `${taskId}:${startIndex}`;
 
@@ -357,36 +313,6 @@ export const collapseCompletedToolGroups = (
   return collapsed;
 };
 
-const getToolStatusColor = (
-  theme: TuiTheme,
-  status: "running" | "done" | "error",
-): string => {
-  const NORD = getMessagePaneCompatColors(theme);
-  if (status === "error") return NORD.nord11;
-  if (status === "running") return NORD.nord8;
-  return NORD.nord14;
-};
-
-const getToolHeaderTextColor = (
-  theme: TuiTheme,
-  status: "running" | "done" | "error",
-): string => {
-  const NORD = getMessagePaneCompatColors(theme);
-  if (status === "error") return NORD.nord11;
-  if (status === "running") return NORD.nord8;
-  return NORD.nord6;
-};
-
-const getToolCollapsedSummaryColor = (
-  theme: TuiTheme,
-  status: "running" | "done" | "error",
-): string => {
-  const NORD = getMessagePaneCompatColors(theme);
-  if (status === "error") return NORD.nord11;
-  if (status === "running") return NORD.nord4;
-  return NORD.nord4;
-};
-
 const formatMessageTime = (createdAt?: number): string | undefined => {
   if (!createdAt || !Number.isFinite(createdAt)) return undefined;
   try {
@@ -412,7 +338,7 @@ type TodoToolCardItem = {
   mark: "✓" | "☐";
 };
 
-type TodoToolCardModel = {
+export type TodoToolCardModel = {
   todoId: string;
   actionLabel: string;
   summary: string;
@@ -599,611 +525,6 @@ export const collapseTodoToolCards = (
   }
 
   return collapsed;
-};
-
-const clampNumber = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));
-
-const buildTodoProgressBar = (args: {
-  total?: number;
-  step?: number;
-  summary?: string;
-  width?: number;
-}): string | undefined => {
-  const total = typeof args.total === "number" && args.total > 0 ? Math.floor(args.total) : undefined;
-  if (!total) return undefined;
-
-  const rawStep = typeof args.step === "number" ? Math.floor(args.step) : 0;
-  const clampedStep = clampNumber(rawStep, 0, total);
-  const estimatedCompleted = args.summary?.startsWith("已完成")
-    ? total
-    : clampNumber(clampedStep > 0 ? clampedStep - 1 : 0, 0, total);
-  const width = clampNumber(Math.floor(args.width ?? 18), 8, 32);
-  const fill = Math.round((estimatedCompleted / total) * width);
-  const filled = "█".repeat(fill);
-  const empty = "░".repeat(Math.max(0, width - fill));
-  return `${filled}${empty}`;
-};
-
-const appendTodoToolCardBody = (args: {
-  renderer: CliRenderer;
-  theme: TuiTheme;
-  bodyWrap: BoxRenderable;
-  item: Extract<ChatMessageCardInput, { role: "tool" }>;
-  model: TodoToolCardModel;
-  cardTitleOverride?: string;
-  processMessages?: Array<Extract<ChatMessageCardInput, { role: "tool" }>>;
-}) => {
-  // UI 渲染区：TODO 卡片的“内容区”构建（折叠态/展开态两种布局）
-  const { renderer, theme, bodyWrap, item, model, cardTitleOverride, processMessages: _processMessages } = args;
-  const NORD = getMessagePaneCompatColors(theme);
-  const isCollapsed = item.collapsed;
-  const statusColor = getToolStatusColor(theme, item.status);
-  const headerFg = item.status === "done" ? NORD.nord5 : item.status === "error" ? NORD.nord6 : NORD.nord5;
-  const progress = model.progress;
-  const progressTotal =
-    typeof progress?.total === "number" ? Math.max(0, Math.floor(progress.total)) : undefined;
-  const progressStep =
-    typeof progress?.step === "number" ? Math.max(0, Math.floor(progress.step)) : undefined;
-  const progressBar = buildTodoProgressBar({
-    total: progressTotal,
-    step: progressStep,
-    summary: progress?.summary ?? model.summary,
-    width: 18,
-  });
-  const itemsCount = model.items.length;
-  const visibleItems = isCollapsed ? [] : model.items;
-  const hiddenItemCount = isCollapsed ? itemsCount : 0;
-  const titleText = cardTitleOverride ?? `TODO ${model.actionLabel}`;
-  const progressText =
-    typeof progressStep === "number" || typeof progressTotal === "number"
-      ? `${typeof progressStep === "number" ? progressStep : "-"}/${typeof progressTotal === "number" ? progressTotal : "-"}`
-      : "-/-";
-  const statusText =
-    item.status === "running" ? "RUN" : item.status === "error" ? "ERR" : "DONE";
-  const hasNoItems = itemsCount === 0;
-  const TODO_TITLE_CELL_WIDTH = 16;
-  const TODO_STEP_BADGE_WIDTH = 15;
-  const TODO_ITEMS_BADGE_WIDTH = 13;
-  const TODO_STATUS_BADGE_WIDTH = 8;
-  const makeTodoHeaderCell = (content: string, fg: string, width: number) =>
-    mountText(renderer, {
-      content,
-      fg,
-      width,
-      truncate: true,
-    });
-
-  const frame = mountBox(renderer, {
-    width: "100%",
-    flexDirection: "column",
-    backgroundColor: NORD.nord1,
-  });
-
-  if (isCollapsed) {
-    // UI 渲染区：折叠态 = 单行标题 + 进度条（可选）+ 展开提示
-    const collapsedMetaParts = [
-      `step ${progressText}`,
-      `${itemsCount} item${itemsCount === 1 ? "" : "s"}`,
-      statusText,
-    ];
-    const collapsedHeader = mountBox(renderer, {
-      width: "100%",
-      flexDirection: "row",
-      backgroundColor: NORD.nord2,
-      paddingLeft: 1,
-      paddingRight: 1,
-    });
-    collapsedHeader.add(mountText(renderer, { content: "▸", fg: NORD.nord8 }));
-    collapsedHeader.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
-    collapsedHeader.add(mountText(renderer, { content: "●", fg: statusColor }));
-    collapsedHeader.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
-    collapsedHeader.add(makeTodoHeaderCell(titleText, headerFg, TODO_TITLE_CELL_WIDTH));
-    collapsedHeader.add(mountText(renderer, { content: " ", fg: NORD.nord3 }));
-    collapsedHeader.add(makeTodoHeaderCell(`[${collapsedMetaParts[0] ?? ""}]`, NORD.nord8, TODO_STEP_BADGE_WIDTH));
-    collapsedHeader.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
-    collapsedHeader.add(makeTodoHeaderCell(`[${collapsedMetaParts[1] ?? ""}]`, NORD.nord4, TODO_ITEMS_BADGE_WIDTH));
-    collapsedHeader.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
-    collapsedHeader.add(makeTodoHeaderCell(`[${collapsedMetaParts[2] ?? ""}]`, statusColor, TODO_STATUS_BADGE_WIDTH));
-    collapsedHeader.add(
-      mountText(renderer, {
-        content: `  —  ${model.summary}`,
-        fg: NORD.nord3,
-        width: "100%",
-        truncate: true,
-      }),
-    );
-    frame.add(collapsedHeader);
-
-    if (progressBar) {
-      const barRow = mountBox(renderer, {
-        width: "100%",
-        flexDirection: "row",
-        backgroundColor: NORD.nord1,
-        paddingLeft: 1,
-        paddingRight: 1,
-      });
-      barRow.add(
-        mountText(renderer, {
-          content: progressBar,
-          fg: NORD.nord8,
-          width: "100%",
-          truncate: true,
-        }),
-      );
-      frame.add(barRow);
-    }
-
-    const hintRow = mountBox(renderer, {
-      width: "100%",
-      flexDirection: "row",
-      backgroundColor: NORD.nord1,
-      paddingLeft: 1,
-      paddingRight: 1,
-    });
-    hintRow.add(
-      mountText(renderer, {
-        content:
-          itemsCount > 0
-            ? `点击展开查看 ${itemsCount} 个 TODO 项`
-            : "点击展开查看详情",
-        fg: NORD.nord3,
-        width: "100%",
-        truncate: true,
-      }),
-    );
-    frame.add(hintRow);
-
-    bodyWrap.add(frame);
-    return;
-  }
-
-  const expandedMetaParts = [
-    { text: `step ${progressText}`, fg: NORD.nord8 },
-    { text: `${itemsCount} item${itemsCount === 1 ? "" : "s"}`, fg: NORD.nord4 },
-    { text: statusText, fg: statusColor },
-  ] as const;
-  const headerRow = mountBox(renderer, {
-    width: "100%",
-    flexDirection: "row",
-    backgroundColor: NORD.nord2,
-    paddingLeft: 1,
-    paddingRight: 1,
-  });
-  headerRow.add(mountText(renderer, { content: "▾", fg: NORD.nord8 }));
-  headerRow.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
-  headerRow.add(mountText(renderer, { content: "●", fg: statusColor }));
-  headerRow.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
-  headerRow.add(makeTodoHeaderCell(titleText, headerFg, TODO_TITLE_CELL_WIDTH));
-  headerRow.add(mountText(renderer, { content: " ", fg: NORD.nord3 }));
-  headerRow.add(makeTodoHeaderCell(`[${expandedMetaParts[0].text}]`, expandedMetaParts[0].fg, TODO_STEP_BADGE_WIDTH));
-  headerRow.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
-  headerRow.add(makeTodoHeaderCell(`[${expandedMetaParts[1].text}]`, expandedMetaParts[1].fg, TODO_ITEMS_BADGE_WIDTH));
-  headerRow.add(mountText(renderer, { content: "  ", fg: NORD.nord3 }));
-  headerRow.add(makeTodoHeaderCell(`[${expandedMetaParts[2].text}]`, expandedMetaParts[2].fg, TODO_STATUS_BADGE_WIDTH));
-  headerRow.add(
-    mountText(renderer, {
-      content: `  —  ${model.summary}`,
-      fg: item.status === "error" ? NORD.nord11 : NORD.nord4,
-      width: "100%",
-      truncate: true,
-    }),
-  );
-  frame.add(headerRow);
-
-  if (hasNoItems) {
-    // UI 渲染区：展开态但暂无列表项时，显示简化内容块
-    const compactWrap = mountBox(renderer, {
-      width: "100%",
-      flexDirection: "column",
-      backgroundColor: NORD.nord1,
-      paddingLeft: 1,
-      paddingRight: 1,
-      paddingTop: 1,
-      paddingBottom: 1,
-    });
-
-    const metaRow = mountBox(renderer, {
-      width: "100%",
-      flexDirection: "row",
-      backgroundColor: NORD.nord1,
-    });
-    metaRow.add(mountText(renderer, { content: "TODO Items", fg: NORD.nord9 }));
-    metaRow.add(
-      mountText(renderer, {
-        content: "  0",
-        fg: NORD.nord4,
-        width: "100%",
-        truncate: true,
-      }),
-    );
-    compactWrap.add(metaRow);
-
-    compactWrap.add(
-      mountText(renderer, {
-        content: "No TODO items yet",
-        fg: NORD.nord3,
-        width: "100%",
-        truncate: true,
-      }),
-    );
-
-    frame.add(compactWrap);
-    bodyWrap.add(frame);
-    return;
-  }
-
-  const contentColumn = mountBox(renderer, {
-    width: "100%",
-    flexDirection: "column",
-    backgroundColor: NORD.nord1,
-  });
-
-  const itemsSection = mountBox(renderer, {
-    width: "100%",
-    flexDirection: "column",
-    backgroundColor: NORD.nord1,
-    paddingLeft: 2,
-    paddingRight: 2,
-    paddingTop: 1,
-    paddingBottom: 1,
-  });
-  const itemsHeader = mountBox(renderer, {
-    width: "100%",
-    flexDirection: "row",
-    backgroundColor: NORD.nord1,
-  });
-  itemsHeader.add(mountText(renderer, { content: "Items", fg: NORD.nord9 }));
-  itemsHeader.add(
-    mountText(renderer, {
-      content: itemsCount > 0 ? `  ${itemsCount}` : "  0",
-      fg: NORD.nord4,
-      width: "100%",
-      truncate: true,
-    }),
-  );
-  itemsSection.add(itemsHeader);
-
-  if (visibleItems.length === 0) {
-    itemsSection.add(
-      mountText(renderer, {
-        content: hiddenItemCount > 0 ? `… 还有 ${hiddenItemCount} 项` : "暂无可显示的 TODO 项",
-        fg: NORD.nord3,
-        width: "100%",
-        truncate: true,
-      }),
-    );
-  } else {
-    // UI 渲染区：展开态 TODO 项列表
-    for (const todoItem of visibleItems) {
-      const itemRow = mountBox(renderer, {
-        width: "100%",
-        flexDirection: "row",
-        backgroundColor: NORD.nord1,
-      });
-      itemRow.add(
-        mountText(renderer, {
-          content: `${todoItem.mark} `,
-          fg: todoItem.status === "done" ? NORD.nord14 : NORD.nord8,
-        }),
-      );
-      if (typeof todoItem.id === "number") {
-        itemRow.add(
-          mountText(renderer, {
-            content: `#${todoItem.id} `,
-            fg: NORD.nord3,
-          }),
-        );
-      }
-      itemRow.add(
-        mountText(renderer, {
-          content: todoItem.title,
-          fg: todoItem.status === "done" ? NORD.nord4 : NORD.nord6,
-          width: "100%",
-          wrapMode: "char",
-        }),
-      );
-      itemsSection.add(itemRow);
-    }
-  }
-  contentColumn.add(itemsSection);
-
-  frame.add(contentColumn);
-  bodyWrap.add(frame);
-};
-
-const getToolLineTextColor = (theme: TuiTheme, line: ToolCardStyledLine): string => {
-  const NORD = getMessagePaneCompatColors(theme);
-  if (line.kind === "summary") {
-    switch (line.tone) {
-      case "running":
-        return NORD.nord8;
-      case "success":
-        return NORD.nord14;
-      case "error":
-        return NORD.nord11;
-      case "muted":
-        return NORD.nord3;
-      default:
-        return NORD.nord6;
-    }
-  }
-
-  if (line.kind === "previewHeader") {
-    return NORD.nord9;
-  }
-
-  if (line.kind === "previewLine") {
-    switch (line.tone) {
-      case "stderr":
-      case "error":
-        return NORD.nord11;
-      case "stdout":
-        return NORD.nord14;
-      case "meta":
-        return NORD.nord9;
-      case "muted":
-        return NORD.nord3;
-      default:
-        return NORD.nord4;
-    }
-  }
-
-  return NORD.nord6;
-};
-
-type ToolDisplayField = {
-  label: string;
-  value: string;
-};
-
-const getToolDisplayFields = (display?: ToolDisplayEnvelope): ToolDisplayField[] => {
-  if (!isRecordValue(display?.data)) return [];
-  const fieldsRaw = display.data.fields;
-  if (!Array.isArray(fieldsRaw)) return [];
-
-  const fields: ToolDisplayField[] = [];
-  for (const rawField of fieldsRaw) {
-    if (!isRecordValue(rawField)) continue;
-    const label = getStringValue(rawField, "label");
-    const value = getStringValue(rawField, "value");
-    if (!label || value === undefined) continue;
-    fields.push({ label, value });
-  }
-  return fields;
-};
-
-const getToolDisplayFieldValue = (fields: ToolDisplayField[], label: string): string | undefined =>
-  fields.find((field) => field.label === label)?.value;
-
-const getBashDisplayFieldValue = (
-  item: Extract<ChatMessageCardInput, { role: "tool" }>,
-  label: string,
-): string | undefined => {
-  const resultFields = getToolDisplayFields(item.resultDisplay);
-  const callFields = getToolDisplayFields(item.callDisplay);
-  return getToolDisplayFieldValue(resultFields, label) ?? getToolDisplayFieldValue(callFields, label);
-};
-
-const getBashToolCommandText = (item: Extract<ChatMessageCardInput, { role: "tool" }>): string => {
-  const command = getBashDisplayFieldValue(item, "command");
-
-  if (command && command.trim().length > 0) {
-    return command;
-  }
-  if (item.callSummary?.trim()) return item.callSummary.trim();
-  if (item.resultSummary?.trim()) return item.resultSummary.trim();
-  return "bash";
-};
-
-const getBashToolCwdText = (item: Extract<ChatMessageCardInput, { role: "tool" }>): string => {
-  const cwd = getBashDisplayFieldValue(item, "cwd");
-  if (cwd && cwd.trim().length > 0) return cwd;
-  return getBashToolCommandText(item);
-};
-
-const getBashToolTitleText = (item: Extract<ChatMessageCardInput, { role: "tool" }>): string => {
-  const cwd = getBashToolCwdText(item).trim();
-  const command = getBashToolCommandText(item).trim();
-  if (cwd.length > 0 && command.length > 0) return `${cwd} | ${command}`;
-  if (cwd.length > 0) return cwd;
-  if (command.length > 0) return command;
-  return "bash";
-};
-
-const stringifyToolStyledLine = (line: ToolCardStyledLine): string => {
-  if (line.kind === "spacer") return "";
-  if (line.kind === "field") return `${line.label}: ${line.value}`;
-  return line.text;
-};
-
-const appendBashToolCardBody = (args: {
-  renderer: CliRenderer;
-  theme: TuiTheme;
-  bodyWrap: BoxRenderable;
-  item: Extract<ChatMessageCardInput, { role: "tool" }>;
-}) => {
-  const { renderer, theme, bodyWrap, item } = args;
-  const NORD = getMessagePaneCompatColors(theme);
-  const statusColor = getToolStatusColor(theme, item.status);
-  const commandText = getBashToolCommandText(item);
-  const titleText = item.collapsed ? getBashToolTitleText(item) : getBashToolCwdText(item);
-  const lines = buildToolCardStyledLines(item);
-  const outputLines = lines.filter((line) => line.kind === "previewLine");
-  const runtimeHintRows = item.status === "running" && outputLines.length === 0 ? 1 : 0;
-  const contentRows = 1 + (outputLines.length > 0 ? 1 + outputLines.length : runtimeHintRows);
-  const lineHeight = Math.max(2, Math.min(5, contentRows));
-
-  const frame = mountBox(renderer, {
-    width: "100%",
-    flexDirection: "column",
-    backgroundColor: NORD.nord2,
-    paddingLeft: 1,
-    paddingRight: 1,
-    paddingTop: 0,
-    paddingBottom: 0,
-  });
-  frame.add(
-    mountText(renderer, {
-      content: " ",
-      fg: NORD.nord2,
-      width: "100%",
-      truncate: true,
-    }),
-  );
-
-  const headerRow = mountBox(renderer, {
-    width: "100%",
-    height: 1,
-    flexDirection: "row",
-    backgroundColor: NORD.nord2,
-    paddingLeft: 0,
-    paddingRight: 1,
-  });
-  const bashBadge = mountBox(renderer, {
-    flexDirection: "row",
-    height: 1,
-    width: 6,
-    backgroundColor: NORD.nord14,
-    paddingLeft: 1,
-    paddingRight: 1,
-  });
-  bashBadge.add(
-    mountText(renderer, {
-      content: "BASH",
-      fg: NORD.nord0,
-      width: "100%",
-      truncate: true,
-    }),
-  );
-  headerRow.add(bashBadge);
-  headerRow.add(
-    mountText(renderer, {
-      content: "  ",
-      fg: NORD.nord3,
-    }),
-  );
-  headerRow.add(
-    mountText(renderer, {
-      content: titleText,
-      fg: NORD.nord6,
-      width: "100%",
-      truncate: true,
-    }),
-  );
-  frame.add(headerRow);
-
-  if (item.collapsed) {
-    frame.add(
-      mountText(renderer, {
-        content: " ",
-        fg: NORD.nord2,
-        width: "100%",
-        truncate: true,
-      }),
-    );
-    frame.add(
-      mountText(renderer, {
-        content: "[ + 展开 ]",
-        fg: statusColor,
-      }),
-    );
-    frame.add(
-      mountText(renderer, {
-        content: " ",
-        fg: NORD.nord2,
-        width: "100%",
-        truncate: true,
-      }),
-    );
-    bodyWrap.add(frame);
-    return;
-  }
-
-  const panelBox = mountBox(renderer, {
-    width: "100%",
-    height: lineHeight,
-    flexDirection: "column",
-    backgroundColor: NORD.nord2,
-    marginTop: 1,
-    paddingLeft: 0,
-    paddingRight: 1,
-    paddingTop: 0,
-    paddingBottom: 0,
-  });
-  const panelContent = mountBox(renderer, {
-    width: "100%",
-    height: "100%",
-    flexDirection: "column",
-    backgroundColor: NORD.nord2,
-  });
-  panelBox.add(panelContent);
-  frame.add(panelBox);
-  const contentRowsToRender: Array<{ text: string; fg: string }> = [
-    { text: `$ ${commandText}`, fg: NORD.nord8 },
-  ];
-  if (outputLines.length > 0) {
-    contentRowsToRender.push({ text: "", fg: NORD.nord3 });
-    for (const line of outputLines) {
-      contentRowsToRender.push({
-        text: stringifyToolStyledLine(line),
-        fg: getToolLineTextColor(theme, line),
-      });
-    }
-  } else if (item.status === "running") {
-    contentRowsToRender.push({ text: "Running...", fg: NORD.nord4 });
-  }
-
-  const visibleRows = contentRowsToRender.length > lineHeight
-    ? [
-        contentRowsToRender[0]!,
-        ...contentRowsToRender.slice(-(lineHeight - 1)),
-      ]
-    : contentRowsToRender;
-
-  for (const row of visibleRows) {
-    panelContent.add(
-      mountText(renderer, {
-        content: row.text,
-        fg: row.fg,
-        width: "100%",
-        wrapMode: "char",
-      }),
-    );
-  }
-
-  for (let index = visibleRows.length; index < lineHeight; index += 1) {
-    panelContent.add(
-      mountText(renderer, {
-        content: "",
-        fg: NORD.nord3,
-        width: "100%",
-      }),
-    );
-  }
-
-  frame.add(
-    mountText(renderer, {
-      content: "",
-      fg: NORD.nord3,
-      width: "100%",
-    }),
-  );
-  frame.add(
-    mountText(renderer, {
-      content: "[ - 折叠 ]",
-      fg: statusColor,
-    }),
-  );
-  frame.add(
-    mountText(renderer, {
-      content: " ",
-      fg: NORD.nord2,
-      width: "100%",
-      truncate: true,
-    }),
-  );
-  bodyWrap.add(frame);
 };
 
 export const createMessagePaneView = (ctx: CliRenderer, theme: TuiTheme): MessagePaneView => {
@@ -1675,7 +996,7 @@ export const renderMessageStreamContent = (
           summary: latestModel.summary,
           progress: latestModel.progress ?? snapshotModel.progress,
         };
-        appendTodoToolCardBody({
+        renderTodoToolCardBody({
           renderer: input.renderer,
           theme: input.theme,
           bodyWrap,
@@ -1690,7 +1011,7 @@ export const renderMessageStreamContent = (
       }
     } else if (isTool && isTodoToolCard && toolItem && todoToolCardModel) {
       // UI 渲染区：单个 TODO 工具卡片
-      appendTodoToolCardBody({
+      renderTodoToolCardBody({
         renderer: input.renderer,
         theme: input.theme,
         bodyWrap,
@@ -1698,75 +1019,22 @@ export const renderMessageStreamContent = (
         model: todoToolCardModel,
       });
     } else if (isTool && isBashToolCard && toolItem) {
-      appendBashToolCardBody({
+      renderBashToolCardBody({
         renderer: input.renderer,
         theme: input.theme,
         bodyWrap,
         item: toolItem,
+        styledLines: buildToolCardStyledLines(toolItem),
       });
     } else if (isToolLike) {
-      // UI 渲染区：紧凑工具行（状态标记 + [toolName] + 摘要）
-      const toolStatus = cardState.toolStatus ?? "done";
-      // Compact tool row format contract:
-      // "<status> [<toolName>] | <collapsed summary>"
-      // Keep the trailing space after the status glyph so the symbol and tool name never touch.
-      const statusMark =
-        isToolGroupToggle
-          ? ""
-          : toolStatus === "error"
-            ? "✕ "
-            : toolStatus === "running"
-              ? "… "
-              : "✓ ";
-      const collapsedSummary = isTool
-        ? buildToolCardCollapsedSummary(item as Extract<ChatMessageCardInput, { role: "tool" }>)
-        : isToolGroupSummary
-          ? buildToolGroupCollapsedSummaryText(item as ToolGroupSummaryCardInput)
-          : undefined;
-
-      const titleRow = mountBox(input.renderer, {
-        width: "100%",
-        flexDirection: "row",
-        backgroundColor: cardBackgroundColor,
-        paddingLeft: 1,
+      renderCompactToolRow({
+        renderer: input.renderer,
+        theme: input.theme,
+        bodyWrap,
+        cardBackgroundColor,
+        cardState,
+        item,
       });
-      // 部件说明：工具行状态标记（运行/成功/失败符号）。
-      const titleStatusText = mountText(input.renderer, {
-        content: isToolGroupToggle ? "" : `${statusMark} `,
-        fg: getToolStatusColor(input.theme, toolStatus),
-      });
-      // 部件说明：工具名称前缀（如 [read] / [bash] / [tools]）。
-      const titlePrefixText = mountText(input.renderer, {
-        content: `[${cardState.titleText ?? "tool"}]`,
-        fg:
-          isToolGroupSummary || isToolGroupToggle
-            ? getToolStatusColor(input.theme, toolStatus)
-            : NORD.nord4,
-      });
-      titleRow.add(titleStatusText);
-      titleRow.add(titlePrefixText);
-
-      if (collapsedSummary) {
-        // 部件说明：折叠摘要文本（展示关键结果或统计信息）。
-        const titleSummaryText = mountText(input.renderer, {
-          content: ` ${collapsedSummary}`,
-          fg: isToolGroupSummary
-            ? getToolStatusColor(input.theme, toolStatus)
-            : getToolCollapsedSummaryColor(input.theme, toolStatus),
-          width: "100%",
-          truncate: true,
-        });
-        titleRow.add(titleSummaryText);
-      } else {
-        // 部件说明：占位空白，保证行内布局稳定。
-        const titleSpacer = mountText(input.renderer, {
-          content: " ",
-          fg: NORD.nord3,
-          width: "100%",
-        });
-        titleRow.add(titleSpacer);
-      }
-      bodyWrap.add(titleRow);
     } else {
       // UI 渲染区：普通消息（assistant 使用 Markdown，其余使用纯文本）
       if (cardState.role === "assistant") {
