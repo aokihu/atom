@@ -7,6 +7,7 @@ import type {
   ScheduledTaskRecord,
   ScheduleTrigger,
 } from "../../../types/schedule";
+import type { ScheduledTaskPersistence } from "./scheduled_task_store";
 
 const MAX_SET_TIMEOUT_MS = 2_147_483_647;
 const DEFAULT_TASK_TYPE = "scheduled.input";
@@ -32,6 +33,7 @@ export type ScheduledTaskManager = {
 
 type ScheduledTaskManagerArgs = {
   onTrigger: (event: ScheduledTaskTriggerEvent) => void | Promise<void>;
+  persistence?: ScheduledTaskPersistence;
   logger?: Pick<Console, "warn">;
   now?: () => number;
 };
@@ -160,6 +162,43 @@ const normalizeTrigger = (trigger: ScheduleTrigger): ScheduleTrigger => {
   return trigger;
 };
 
+const normalizePriority = (value: number | undefined): 0 | 1 | 2 | 3 | 4 =>
+  value === 0 || value === 1 || value === 2 || value === 3 || value === 4
+    ? value
+    : DEFAULT_TASK_PRIORITY;
+
+const normalizeTimestamp = (value: number | undefined, fallback: number): number =>
+  Number.isFinite(value) ? Number(value) : fallback;
+
+const normalizeRestoredRecord = (record: ScheduledTaskRecord): ScheduledTaskRecord | null => {
+  if (typeof record.scheduleId !== "string" || record.scheduleId.trim().length === 0) return null;
+
+  const now = Date.now();
+  let dedupeKey: string;
+  let taskInput: string;
+  try {
+    dedupeKey = normalizeNonEmptyString(record.dedupeKey, "dedupeKey");
+    taskInput = normalizeNonEmptyString(record.taskInput, "taskInput");
+  } catch {
+    return null;
+  }
+
+  const nextRunAt = normalizeTimestamp(record.nextRunAt, NaN);
+  if (!Number.isFinite(nextRunAt)) return null;
+
+  return {
+    scheduleId: record.scheduleId,
+    dedupeKey,
+    taskInput,
+    taskType: record.taskType?.trim() ? record.taskType.trim() : DEFAULT_TASK_TYPE,
+    priority: normalizePriority(record.priority),
+    trigger: normalizeTrigger(record.trigger),
+    nextRunAt,
+    createdAt: normalizeTimestamp(record.createdAt, now),
+    updatedAt: normalizeTimestamp(record.updatedAt, now),
+  };
+};
+
 export class InMemoryScheduledTaskManager implements ScheduledTaskManager {
   private readonly states = new Map<string, ScheduledTaskState>();
   private readonly logger: Pick<Console, "warn">;
@@ -168,6 +207,7 @@ export class InMemoryScheduledTaskManager implements ScheduledTaskManager {
   constructor(private readonly args: ScheduledTaskManagerArgs) {
     this.logger = args.logger ?? console;
     this.now = args.now ?? (() => Date.now());
+    this.restoreFromPersistence();
   }
 
   createSchedule(request: CreateScheduleRequest): CreateScheduleResponse {
@@ -199,6 +239,7 @@ export class InMemoryScheduledTaskManager implements ScheduledTaskManager {
       updatedAt: now,
     };
 
+    this.persistUpsert(record);
     this.states.set(record.scheduleId, {
       record,
       timer: null,
@@ -227,6 +268,7 @@ export class InMemoryScheduledTaskManager implements ScheduledTaskManager {
     }
 
     this.clearTimer(state);
+    this.persistDelete(scheduleId);
     this.states.delete(scheduleId);
     return {
       scheduleId,
@@ -239,6 +281,7 @@ export class InMemoryScheduledTaskManager implements ScheduledTaskManager {
       this.clearTimer(state);
     }
     this.states.clear();
+    this.args.persistence?.dispose();
   }
 
   private clearTimer(state: ScheduledTaskState): void {
@@ -291,7 +334,15 @@ export class InMemoryScheduledTaskManager implements ScheduledTaskManager {
     }
 
     if (state.record.trigger.mode !== "cron") {
-      this.cancelSchedule(scheduleId);
+      this.clearTimer(state);
+      this.states.delete(scheduleId);
+      try {
+        this.args.persistence?.deleteRecord(scheduleId);
+      } catch (error) {
+        this.logger.warn(
+          `[scheduler] failed to delete persisted schedule ${scheduleId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       return;
     }
 
@@ -302,7 +353,62 @@ export class InMemoryScheduledTaskManager implements ScheduledTaskManager {
       updatedAt: this.now(),
     };
     this.states.set(scheduleId, state);
+    try {
+      this.args.persistence?.upsertRecord(state.record);
+    } catch (error) {
+      this.logger.warn(
+        `[scheduler] failed to persist cron schedule ${scheduleId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     this.armTimer(scheduleId);
+  }
+
+  private restoreFromPersistence(): void {
+    if (!this.args.persistence) {
+      return;
+    }
+
+    let records: ScheduledTaskRecord[];
+    try {
+      records = this.args.persistence.listRecords();
+    } catch (error) {
+      this.logger.warn(
+        `[scheduler] failed to load persisted schedules: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+
+    for (const candidate of records) {
+      const record = normalizeRestoredRecord(candidate);
+      if (!record) {
+        continue;
+      }
+      this.states.set(record.scheduleId, {
+        record,
+        timer: null,
+      });
+      this.armTimer(record.scheduleId);
+    }
+  }
+
+  private persistUpsert(record: ScheduledTaskRecord): void {
+    try {
+      this.args.persistence?.upsertRecord(record);
+    } catch (error) {
+      throw new Error(
+        `[scheduler] failed to persist schedule ${record.scheduleId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private persistDelete(scheduleId: string): void {
+    try {
+      this.args.persistence?.deleteRecord(scheduleId);
+    } catch (error) {
+      throw new Error(
+        `[scheduler] failed to delete persisted schedule ${scheduleId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 }
 

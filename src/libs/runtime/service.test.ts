@@ -853,6 +853,55 @@ describe("AgentRuntimeService", () => {
     service.stop();
   });
 
+  test("restores persisted schedules across runtime restarts", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "atom-runtime-schedule-"));
+    const fakeAgent = {
+      beginTaskContext() {},
+      finishTaskContext() {},
+      async runTask() {
+        return "ok";
+      },
+      abortCurrentRun() {
+        return false;
+      },
+      getContextSnapshot() {
+        return {
+          version: 2.3,
+          runtime: {
+            round: 1,
+            workspace,
+            datetime: new Date().toISOString(),
+            startup_at: Date.now(),
+          },
+          memory: { core: [], working: [], ephemeral: [], longterm: [] },
+        };
+      },
+      getMessagesSnapshot() {
+        return [] as ModelMessage[];
+      },
+    } as unknown as Agent;
+
+    try {
+      const first = new AgentRuntimeService(fakeAgent, { log() {}, warn() {} }, { workspace });
+      const created = first.createSchedule({
+        dedupeKey: "persist-runtime-restart",
+        taskInput: "hello",
+        trigger: {
+          mode: "delay",
+          delaySeconds: 60,
+        },
+      });
+      first.stop();
+
+      const second = new AgentRuntimeService(fakeAgent, { log() {}, warn() {} }, { workspace });
+      const listed = second.listSchedules();
+      expect(listed.items.map((item) => item.scheduleId)).toEqual([created.schedule.scheduleId]);
+      second.stop();
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
   test("scheduled trigger enqueues task with schedule metadata", async () => {
     const begunTasks: Array<{ id: string; input: string }> = [];
     const fakeAgent = {

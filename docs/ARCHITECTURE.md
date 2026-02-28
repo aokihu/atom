@@ -94,7 +94,7 @@ plugins/
 - 当前包含：
   - `service.ts`: `AgentRuntimeService`（Agent + Queue + TaskRegistry）
   - `queue/`: 队列实现与 `createTask`
-  - `scheduler/`: 内存态调度器（delay/at/cron，触发后入队）
+  - `scheduler/`: 调度器（delay/at/cron，触发后入队），并持久化到工作区 `.agent/schedule.db`
 - 运行时能力（限流、取消、持久化队列、任务 TTL）应优先放在这里。
 - 记忆相关职责：
   - 通过 `PersistentMemoryCoordinator` 暴露 RuntimeGateway memory API

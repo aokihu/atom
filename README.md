@@ -169,6 +169,8 @@ bun run src/index.ts --workspace ./Playground --message-gateway telegram_main,!w
 - `/schedule`
 - `/exit`
 
+定时任务会持久化到工作区 `.agent/schedule.db`，重启后会自动恢复并继续调度。
+
 ## 目录结构
 
 ```text

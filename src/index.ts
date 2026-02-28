@@ -287,6 +287,7 @@ const initializeRuntimeService = async (
       taskAgent,
       cliOptions.mode === "tui" ? { log: () => {} } : console,
       {
+        workspace: cliOptions.workspace,
         persistentMemoryCoordinator: activePersistentMemoryCoordinator,
         inputPolicy: agentConfig.agent?.execution?.inputPolicy,
         overflowPolicy: agentConfig.agent?.execution?.overflowPolicy,

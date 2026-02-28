@@ -2,7 +2,7 @@ import { Agent, type AgentRunDetailedResult } from "../agent/agent";
 import { ControlledTaskStopError } from "./errors";
 import { PriorityTaskQueue, createTask } from "./queue";
 import { TaskInputPolicy, type TaskInputIngressMeta } from "./input_policy";
-import { InMemoryScheduledTaskManager } from "./scheduler";
+import { InMemoryScheduledTaskManager, SqliteScheduledTaskStore } from "./scheduler";
 
 import type { RuntimeGateway } from "../channel/channel";
 import type {
@@ -133,6 +133,7 @@ export class AgentRuntimeService implements RuntimeGateway {
     private readonly agent: Agent,
     private readonly logger: Pick<Console, "log"> & Partial<Pick<Console, "warn">> = console,
     options?: {
+      workspace?: string;
       persistentMemoryCoordinator?: PersistentMemoryCoordinator;
       inputPolicy?: AgentExecutionInputPolicyConfig;
       overflowPolicy?: AgentExecutionOverflowPolicyConfig;
@@ -141,10 +142,23 @@ export class AgentRuntimeService implements RuntimeGateway {
     this.persistentMemoryCoordinator = options?.persistentMemoryCoordinator;
     this.inputPolicy = new TaskInputPolicy(options?.inputPolicy);
     this.overflowPolicy = resolveOverflowPolicy(options?.overflowPolicy);
+    let scheduleStore: SqliteScheduledTaskStore | undefined;
+    if (options?.workspace) {
+      try {
+        scheduleStore = new SqliteScheduledTaskStore(options.workspace, {
+          warn: this.logger.warn ?? (() => {}),
+        });
+      } catch (error) {
+        this.logger.warn?.(
+          `[scheduler] failed to initialize persistent schedule store: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
     this.scheduledTaskManager = new InMemoryScheduledTaskManager({
       logger: {
         warn: this.logger.warn ?? (() => {}),
       },
+      persistence: scheduleStore,
       onTrigger: async ({ record, plannedAt }) => {
         this.enqueueScheduledTask(record, plannedAt);
       },
